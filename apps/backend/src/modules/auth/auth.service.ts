@@ -1,0 +1,101 @@
+import bcrypt from 'bcrypt';
+import { prisma } from '../../config/database';
+import { redis } from '../../config/redis';
+import { generateAccessToken, generateRefreshToken, verifyRefreshToken } from '../../utils/jwt';
+import { AppError } from '../../middleware/error.middleware';
+
+export class AuthService {
+  async login(email: string, password: string) {
+    const user = await prisma.user.findUnique({
+      where: { email },
+      include: { branch: true },
+    });
+
+    if (!user || !user.isActive) {
+      throw new AppError(401, 'Invalid credentials');
+    }
+
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
+      throw new AppError(401, 'Invalid credentials');
+    }
+
+    const payload = {
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      organizationId: user.organizationId,
+      branchId: user.branchId || undefined,
+    };
+
+    const accessToken = generateAccessToken(payload);
+    const refreshToken = generateRefreshToken(payload);
+
+    // Store refresh token in Redis (7 days)
+    await redis.setEx(`refresh_token:${user.id}`, 7 * 24 * 60 * 60, refreshToken);
+
+    return {
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        branch: user.branch
+          ? {
+              id: user.branch.id,
+              name: user.branch.name,
+            }
+          : null,
+      },
+      accessToken,
+      refreshToken,
+    };
+  }
+
+  async refresh(refreshToken: string) {
+    try {
+      const payload = verifyRefreshToken(refreshToken);
+
+      // Check if token exists in Redis
+      const storedToken = await redis.get(`refresh_token:${payload.userId}`);
+      if (!storedToken || storedToken !== refreshToken) {
+        throw new AppError(401, 'Invalid refresh token');
+      }
+
+      // Generate new access token
+      const newAccessToken = generateAccessToken(payload);
+
+      return { accessToken: newAccessToken };
+    } catch (error) {
+      throw new AppError(401, 'Invalid refresh token');
+    }
+  }
+
+  async logout(userId: string) {
+    // Remove refresh token from Redis
+    await redis.del(`refresh_token:${userId}`);
+  }
+
+  async changePassword(userId: string, oldPassword: string, newPassword: string) {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+
+    if (!user) {
+      throw new AppError(404, 'User not found');
+    }
+
+    const isPasswordValid = await bcrypt.compare(oldPassword, user.password);
+    if (!isPasswordValid) {
+      throw new AppError(401, 'Invalid old password');
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { password: hashedPassword },
+    });
+
+    // Invalidate all refresh tokens
+    await redis.del(`refresh_token:${userId}`);
+  }
+}

@@ -1,0 +1,108 @@
+# ============================================================
+# Stage 1: Dependencies
+# ============================================================
+FROM node:20-alpine AS deps
+
+WORKDIR /app
+
+# Install pnpm
+RUN npm install -g pnpm@8
+
+# Copy package files
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/backend/package.json ./apps/backend/
+COPY packages/database/package.json ./packages/database/
+COPY packages/shared/package.json ./packages/shared/
+
+# Install dependencies (production only)
+RUN pnpm install --frozen-lockfile --prod
+
+# ============================================================
+# Stage 2: Builder
+# ============================================================
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Install pnpm
+RUN npm install -g pnpm@8
+
+# Copy package files
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/backend/package.json ./apps/backend/
+COPY packages/database/package.json ./packages/database/
+COPY packages/shared/package.json ./packages/shared/
+
+# Install ALL dependencies (dev + prod) for building
+RUN pnpm install --frozen-lockfile
+
+# Copy source code
+COPY apps/backend ./apps/backend
+COPY packages/database ./packages/database
+COPY packages/shared ./packages/shared
+COPY tsconfig.json ./
+
+# Generate Prisma Client
+WORKDIR /app/packages/database
+RUN pnpm exec prisma generate
+
+# Build backend
+WORKDIR /app/apps/backend
+RUN pnpm run build
+
+# ============================================================
+# Stage 3: Runtime
+# ============================================================
+FROM node:20-alpine AS runner
+
+WORKDIR /app
+
+# Install dumb-init for proper signal handling
+RUN apk add --no-cache dumb-init wget
+
+# Install pnpm
+RUN npm install -g pnpm@8
+
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 expressjs
+
+# Copy production dependencies from deps stage
+COPY --from=deps --chown=expressjs:nodejs /app/node_modules ./node_modules
+COPY --from=deps --chown=expressjs:nodejs /app/apps/backend/node_modules ./apps/backend/node_modules
+COPY --from=deps --chown=expressjs:nodejs /app/packages/database/node_modules ./packages/database/node_modules
+COPY --from=deps --chown=expressjs:nodejs /app/packages/shared/node_modules ./packages/shared/node_modules
+
+# Copy built application from builder stage
+COPY --from=builder --chown=expressjs:nodejs /app/apps/backend/dist ./apps/backend/dist
+COPY --from=builder --chown=expressjs:nodejs /app/packages/database ./packages/database
+COPY --from=builder --chown=expressjs:nodejs /app/packages/shared ./packages/shared
+
+# Copy package.json files (needed for workspace resolution)
+COPY --chown=expressjs:nodejs package.json pnpm-workspace.yaml ./
+COPY --chown=expressjs:nodejs apps/backend/package.json ./apps/backend/
+COPY --chown=expressjs:nodejs packages/database/package.json ./packages/database/
+COPY --chown=expressjs:nodejs packages/shared/package.json ./packages/shared/
+
+# Set working directory to backend
+WORKDIR /app/apps/backend
+
+# Switch to non-root user
+USER expressjs
+
+# Expose port
+EXPOSE 3000
+
+# Environment variables
+ENV NODE_ENV=production \
+    PORT=3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
+
+# Use dumb-init to handle signals properly
+ENTRYPOINT ["dumb-init", "--"]
+
+# Start application
+CMD ["node", "dist/server.js"]

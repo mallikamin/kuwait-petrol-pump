@@ -1,0 +1,290 @@
+import { useQuery } from '@tanstack/react-query';
+import { AlertCircle, DollarSign, Fuel, Package, ShoppingBag, Clock, Users, TrendingUp } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+import { SalesChart } from '@/components/charts/SalesChart';
+import { PaymentPieChart } from '@/components/charts/PaymentPieChart';
+import { dashboardApi } from '@/api';
+import { formatCurrency, formatDateTime } from '@/utils/format';
+
+function StatCard({ title, value, icon, trend }: { title: string; value: string | number; icon: React.ReactNode; trend?: string }) {
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <CardTitle className="text-sm font-medium">{title}</CardTitle>
+        {icon}
+      </CardHeader>
+      <CardContent>
+        <div className="text-2xl font-bold">{value}</div>
+        {trend && <p className="text-xs text-muted-foreground">{trend}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function Dashboard() {
+  const { data: stats, isLoading: statsLoading } = useQuery({
+    queryKey: ['dashboard-stats'],
+    queryFn: dashboardApi.getStats,
+    refetchInterval: 30000, // Refetch every 30 seconds
+  });
+
+  const { data: salesChartData, isLoading: salesChartLoading } = useQuery({
+    queryKey: ['dashboard-sales-chart'],
+    queryFn: () => dashboardApi.getSalesChart(),
+    refetchInterval: 60000,
+  });
+
+  const { data: paymentStats, isLoading: paymentStatsLoading } = useQuery({
+    queryKey: ['dashboard-payment-stats'],
+    queryFn: dashboardApi.getPaymentStats,
+    refetchInterval: 60000,
+  });
+
+  const { data: recentTransactions, isLoading: transactionsLoading } = useQuery({
+    queryKey: ['dashboard-recent-transactions'],
+    queryFn: () => dashboardApi.getRecentTransactions(10),
+    refetchInterval: 30000,
+  });
+
+  const { data: lowStockProducts, isLoading: lowStockLoading } = useQuery({
+    queryKey: ['dashboard-low-stock'],
+    queryFn: dashboardApi.getLowStockProducts,
+    refetchInterval: 300000, // 5 minutes
+  });
+
+  const { data: topCustomers, isLoading: topCustomersLoading } = useQuery({
+    queryKey: ['dashboard-top-customers'],
+    queryFn: () => dashboardApi.getTopCustomers(5),
+    refetchInterval: 300000,
+  });
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+        <p className="text-muted-foreground">Overview of your petrol pump operations</p>
+      </div>
+
+      {/* Stats Grid */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        {statsLoading ? (
+          <>
+            {[...Array(4)].map((_, i) => (
+              <Skeleton key={i} className="h-32" />
+            ))}
+          </>
+        ) : (
+          <>
+            <StatCard
+              title="Today's Sales"
+              value={formatCurrency(stats?.today_sales || 0)}
+              icon={<DollarSign className="h-4 w-4 text-muted-foreground" />}
+              trend="Total revenue today"
+            />
+            <StatCard
+              title="Fuel Sales"
+              value={formatCurrency(stats?.today_fuel_sales || 0)}
+              icon={<Fuel className="h-4 w-4 text-muted-foreground" />}
+              trend="Fuel revenue today"
+            />
+            <StatCard
+              title="Product Sales"
+              value={formatCurrency(stats?.today_product_sales || 0)}
+              icon={<ShoppingBag className="h-4 w-4 text-muted-foreground" />}
+              trend="Non-fuel revenue today"
+            />
+            <StatCard
+              title="Active Shifts"
+              value={stats?.active_shifts || 0}
+              icon={<Clock className="h-4 w-4 text-muted-foreground" />}
+              trend="Currently open shifts"
+            />
+          </>
+        )}
+      </div>
+
+      {/* Secondary Stats */}
+      <div className="grid gap-4 md:grid-cols-3">
+        {statsLoading ? (
+          <>
+            {[...Array(3)].map((_, i) => (
+              <Skeleton key={i} className="h-32" />
+            ))}
+          </>
+        ) : (
+          <>
+            <StatCard
+              title="Pending Bifurcations"
+              value={stats?.pending_bifurcations || 0}
+              icon={<AlertCircle className="h-4 w-4 text-yellow-500" />}
+              trend="Needs verification"
+            />
+            <StatCard
+              title="Low Stock Items"
+              value={stats?.low_stock_products || 0}
+              icon={<Package className="h-4 w-4 text-red-500" />}
+              trend="Below minimum level"
+            />
+            <StatCard
+              title="Total Customers"
+              value={stats?.total_customers || 0}
+              icon={<Users className="h-4 w-4 text-muted-foreground" />}
+              trend="Registered customers"
+            />
+          </>
+        )}
+      </div>
+
+      {/* Charts */}
+      <div className="grid gap-4 md:grid-cols-2">
+        {salesChartLoading ? (
+          <Skeleton className="h-[400px]" />
+        ) : (
+          <SalesChart data={salesChartData || []} />
+        )}
+        {paymentStatsLoading ? (
+          <Skeleton className="h-[400px]" />
+        ) : (
+          <PaymentPieChart data={paymentStats || []} />
+        )}
+      </div>
+
+      {/* Tables Grid */}
+      <div className="grid gap-4 md:grid-cols-2">
+        {/* Recent Transactions */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent Transactions</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {transactionsLoading ? (
+              <div className="space-y-2">
+                {[...Array(5)].map((_, i) => (
+                  <Skeleton key={i} className="h-12" />
+                ))}
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Time</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Amount</TableHead>
+                    <TableHead>Payment</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {recentTransactions?.map((transaction) => (
+                    <TableRow key={transaction.id}>
+                      <TableCell className="text-xs">
+                        {formatDateTime(transaction.created_at)}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={transaction.sale_type === 'fuel' ? 'default' : 'secondary'}>
+                          {transaction.sale_type}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        {formatCurrency(transaction.net_amount)}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{transaction.payment_method}</Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Low Stock Products */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Low Stock Alert</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {lowStockLoading ? (
+              <div className="space-y-2">
+                {[...Array(5)].map((_, i) => (
+                  <Skeleton key={i} className="h-12" />
+                ))}
+              </div>
+            ) : lowStockProducts && lowStockProducts.length > 0 ? (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Product</TableHead>
+                    <TableHead>Code</TableHead>
+                    <TableHead>Min Level</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {lowStockProducts.map((product) => (
+                    <TableRow key={product.id}>
+                      <TableCell className="font-medium">{product.name}</TableCell>
+                      <TableCell>{product.code}</TableCell>
+                      <TableCell>{product.min_stock_level}</TableCell>
+                      <TableCell>
+                        <Badge variant="destructive">Low Stock</Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-8">
+                All products are well stocked
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Top Customers */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Top Customers</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {topCustomersLoading ? (
+            <div className="space-y-2">
+              {[...Array(5)].map((_, i) => (
+                <Skeleton key={i} className="h-12" />
+              ))}
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Customer</TableHead>
+                  <TableHead>Code</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Current Balance</TableHead>
+                  <TableHead>Credit Limit</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {topCustomers?.map((customer) => (
+                  <TableRow key={customer.id}>
+                    <TableCell className="font-medium">{customer.name}</TableCell>
+                    <TableCell>{customer.code}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{customer.customer_type}</Badge>
+                    </TableCell>
+                    <TableCell>{formatCurrency(customer.current_balance)}</TableCell>
+                    <TableCell>{formatCurrency(customer.credit_limit)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

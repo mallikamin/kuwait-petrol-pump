@@ -1,0 +1,74 @@
+import { Bell, Moon, Sun, LogOut, User } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { useAuthStore } from '@/store/auth';
+import { useThemeStore } from '@/store/theme';
+import { cn } from '@/utils/cn';
+
+interface TopBarProps {
+  sidebarCollapsed: boolean;
+}
+
+export function TopBar({ sidebarCollapsed }: TopBarProps) {
+  const navigate = useNavigate();
+  const { user, logout } = useAuthStore();
+  const { theme, toggleTheme } = useThemeStore();
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
+
+  return (
+    <header
+      className={cn(
+        'fixed top-0 right-0 z-30 flex h-16 items-center justify-between border-b bg-card px-6 transition-all duration-300',
+        sidebarCollapsed ? 'left-16' : 'left-64'
+      )}
+    >
+      <div className="flex items-center gap-4">
+        <h2 className="text-lg font-semibold">Welcome, {user?.full_name}</h2>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <Button variant="ghost" size="icon" onClick={toggleTheme} title="Toggle theme">
+          {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+        </Button>
+
+        <Button variant="ghost" size="icon" title="Notifications">
+          <Bell className="h-5 w-5" />
+        </Button>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon">
+              <User className="h-5 w-5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel>
+              <div className="flex flex-col space-y-1">
+                <p className="text-sm font-medium leading-none">{user?.full_name}</p>
+                <p className="text-xs leading-none text-muted-foreground">{user?.email}</p>
+                <p className="text-xs leading-none text-muted-foreground capitalize">{user?.role}</p>
+              </div>
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={handleLogout}>
+              <LogOut className="mr-2 h-4 w-4" />
+              <span>Log out</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </header>
+  );
+}

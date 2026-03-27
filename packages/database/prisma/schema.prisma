@@ -1,0 +1,484 @@
+// Kuwait Petrol Pump POS - Database Schema
+// Generated: 2026-03-26
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// CORE ENTITIES
+// ============================================================
+
+/// Organization (Multi-tenant root entity)
+model Organization {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String   @db.VarChar(255)
+  currency  String   @default("PKR") @db.VarChar(3)
+  timezone  String   @default("Asia/Karachi") @db.VarChar(50)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  branches  Branch[]
+  users     User[]
+  customers Customer[]
+  products  Product[]
+
+  @@map("organizations")
+}
+
+/// Branch (Petrol pump location)
+model Branch {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  name           String   @db.VarChar(255)
+  location       String?  @db.Text
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  organization    Organization     @relation(fields: [organizationId], references: [id])
+  dispensingUnits DispensingUnit[]
+  users           User[]
+  shifts          Shift[]
+  shiftInstances  ShiftInstance[]
+  sales           Sale[]
+  stockLevels     StockLevel[]
+  bifurcations    Bifurcation[]
+
+  @@map("branches")
+}
+
+// ============================================================
+// FUEL MANAGEMENT
+// ============================================================
+
+/// Fuel Type (PMG, HSD, etc.)
+model FuelType {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code      String   @db.VarChar(10) // 'PMG', 'HSD'
+  name      String   @db.VarChar(100) // 'Petrol', 'Diesel'
+  unit      String   @default("liters") @db.VarChar(10)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  prices    FuelPrice[]
+  nozzles   Nozzle[]
+  fuelSales FuelSale[]
+
+  @@map("fuel_types")
+}
+
+/// Fuel Price History
+model FuelPrice {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  fuelTypeId    String    @map("fuel_type_id") @db.Uuid
+  pricePerLiter Decimal   @map("price_per_liter") @db.Decimal(10, 2)
+  effectiveFrom DateTime  @map("effective_from") @db.Timestamptz
+  effectiveTo   DateTime? @map("effective_to") @db.Timestamptz
+  changedBy     String?   @map("changed_by") @db.Uuid
+  notes         String?   @db.Text
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  fuelType    FuelType @relation(fields: [fuelTypeId], references: [id])
+  changedByUser User?  @relation(fields: [changedBy], references: [id])
+
+  @@index([fuelTypeId, effectiveFrom, effectiveTo], name: "idx_fuel_prices_effective")
+  @@map("fuel_prices")
+}
+
+/// Dispensing Unit (Fuel dispenser machine)
+model DispensingUnit {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  branchId   String   @map("branch_id") @db.Uuid
+  unitNumber Int      @map("unit_number")
+  name       String?  @db.VarChar(100) // 'Unit 1', 'Unit A'
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  branch  Branch   @relation(fields: [branchId], references: [id])
+  nozzles Nozzle[]
+
+  @@unique([branchId, unitNumber])
+  @@map("dispensing_units")
+}
+
+/// Nozzle (Fuel nozzle on a dispensing unit)
+model Nozzle {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  dispensingUnitId String   @map("dispensing_unit_id") @db.Uuid
+  nozzleNumber     Int      @map("nozzle_number")
+  fuelTypeId       String   @map("fuel_type_id") @db.Uuid
+  meterType        String   @default("digital") @map("meter_type") @db.VarChar(20) // 'digital' or 'analog'
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  dispensingUnit DispensingUnit @relation(fields: [dispensingUnitId], references: [id])
+  fuelType       FuelType       @relation(fields: [fuelTypeId], references: [id])
+  meterReadings  MeterReading[]
+  fuelSales      FuelSale[]
+
+  @@unique([dispensingUnitId, nozzleNumber])
+  @@map("nozzles")
+}
+
+// ============================================================
+// USERS & AUTHENTICATION
+// ============================================================
+
+/// User (System users with role-based access)
+model User {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  branchId       String?  @map("branch_id") @db.Uuid // NULL for org-level users
+  username       String   @unique @db.VarChar(100)
+  email          String?  @db.VarChar(255)
+  passwordHash   String   @map("password_hash") @db.VarChar(255)
+  fullName       String?  @map("full_name") @db.VarChar(255)
+  role           String   @db.VarChar(50) // 'admin', 'manager', 'accountant', 'cashier', 'operator'
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  organization         Organization   @relation(fields: [organizationId], references: [id])
+  branch               Branch?        @relation(fields: [branchId], references: [id])
+  openedShifts         ShiftInstance[] @relation("ShiftOpenedBy")
+  closedShifts         ShiftInstance[] @relation("ShiftClosedBy")
+  meterReadings        MeterReading[]
+  sales                Sale[]
+  bifurcations         Bifurcation[]
+  auditLogs            AuditLog[]
+  fuelPriceChanges     FuelPrice[]
+
+  @@index([organizationId], name: "idx_users_org")
+  @@index([role], name: "idx_users_role")
+  @@map("users")
+}
+
+// ============================================================
+// SHIFTS & METER READINGS
+// ============================================================
+
+/// Shift (Shift configuration)
+model Shift {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  branchId   String   @map("branch_id") @db.Uuid
+  shiftNumber Int     @map("shift_number") // 1, 2, 3
+  name       String?  @db.VarChar(100) // 'Morning', 'Night'
+  startTime  DateTime @map("start_time") @db.Time
+  endTime    DateTime @map("end_time") @db.Time
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  branch         Branch          @relation(fields: [branchId], references: [id])
+  shiftInstances ShiftInstance[]
+
+  @@map("shifts")
+}
+
+/// Shift Instance (Daily shift record)
+model ShiftInstance {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shiftId   String    @map("shift_id") @db.Uuid
+  branchId  String    @map("branch_id") @db.Uuid
+  date      DateTime  @db.Date
+  openedAt  DateTime? @map("opened_at") @db.Timestamptz
+  openedBy  String?   @map("opened_by") @db.Uuid
+  closedAt  DateTime? @map("closed_at") @db.Timestamptz
+  closedBy  String?   @map("closed_by") @db.Uuid
+  status    String    @default("pending") @db.VarChar(20) // 'pending', 'open', 'closed'
+  notes     String?   @db.Text
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  shift         Shift           @relation(fields: [shiftId], references: [id])
+  branch        Branch          @relation(fields: [branchId], references: [id])
+  openedByUser  User?           @relation("ShiftOpenedBy", fields: [openedBy], references: [id])
+  closedByUser  User?           @relation("ShiftClosedBy", fields: [closedBy], references: [id])
+  meterReadings MeterReading[]
+  sales         Sale[]
+  bifurcations  Bifurcation[]
+
+  @@unique([shiftId, date])
+  @@index([branchId, date], name: "idx_shift_instances_date")
+  @@map("shift_instances")
+}
+
+/// Meter Reading (Fuel meter readings at shift open/close)
+model MeterReading {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nozzleId        String   @map("nozzle_id") @db.Uuid
+  shiftInstanceId String   @map("shift_instance_id") @db.Uuid
+  readingType     String   @map("reading_type") @db.VarChar(20) // 'opening', 'closing'
+  meterValue      Decimal  @map("meter_value") @db.Decimal(12, 2)
+  imageUrl        String?  @map("image_url") @db.Text
+  ocrResult       Decimal? @map("ocr_result") @db.Decimal(12, 2)
+  isManualOverride Boolean @default(false) @map("is_manual_override")
+  recordedBy      String?  @map("recorded_by") @db.Uuid
+  recordedAt      DateTime @default(now()) @map("recorded_at") @db.Timestamptz
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  nozzle         Nozzle        @relation(fields: [nozzleId], references: [id])
+  shiftInstance  ShiftInstance @relation(fields: [shiftInstanceId], references: [id])
+  recordedByUser User?         @relation(fields: [recordedBy], references: [id])
+
+  @@index([shiftInstanceId], name: "idx_meter_readings_shift")
+  @@index([nozzleId, recordedAt], name: "idx_meter_readings_nozzle")
+  @@map("meter_readings")
+}
+
+// ============================================================
+// CUSTOMERS
+// ============================================================
+
+/// Customer (Credit customers)
+model Customer {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  name           String   @db.VarChar(255)
+  phone          String?  @db.VarChar(50)
+  email          String?  @db.VarChar(255)
+  address        String?  @db.Text
+  vehicleNumbers String[] @map("vehicle_numbers") // Array of vehicle numbers
+  creditLimit    Decimal? @map("credit_limit") @db.Decimal(12, 2)
+  creditDays     Int?     @map("credit_days")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id])
+  sales        Sale[]
+
+  @@index([organizationId], name: "idx_customers_org")
+  @@map("customers")
+}
+
+// ============================================================
+// SALES
+// ============================================================
+
+/// Sale (Master transaction record)
+model Sale {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  branchId        String    @map("branch_id") @db.Uuid
+  shiftInstanceId String?   @map("shift_instance_id") @db.Uuid
+  saleDate        DateTime  @default(now()) @map("sale_date") @db.Timestamptz
+  saleType        String    @map("sale_type") @db.VarChar(20) // 'fuel', 'non_fuel'
+  totalAmount     Decimal   @map("total_amount") @db.Decimal(12, 2)
+  taxAmount       Decimal   @default(0) @map("tax_amount") @db.Decimal(12, 2)
+  discountAmount  Decimal   @default(0) @map("discount_amount") @db.Decimal(12, 2)
+  paymentMethod   String    @map("payment_method") @db.VarChar(50) // 'cash', 'credit', 'card', 'pso_card'
+  customerId      String?   @map("customer_id") @db.Uuid
+  vehicleNumber   String?   @map("vehicle_number") @db.VarChar(50)
+  slipNumber      String?   @map("slip_number") @db.VarChar(100)
+  cashierId       String?   @map("cashier_id") @db.Uuid
+  qbSynced        Boolean   @default(false) @map("qb_synced")
+  qbInvoiceId     String?   @map("qb_invoice_id") @db.VarChar(100)
+  qbSyncedAt      DateTime? @map("qb_synced_at") @db.Timestamptz
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  branch         Branch         @relation(fields: [branchId], references: [id])
+  shiftInstance  ShiftInstance? @relation(fields: [shiftInstanceId], references: [id])
+  customer       Customer?      @relation(fields: [customerId], references: [id])
+  cashier        User?          @relation(fields: [cashierId], references: [id])
+  fuelSales      FuelSale[]
+  nonFuelSales   NonFuelSale[]
+  qbSyncLogs     QBSyncLog[]
+
+  @@index([saleDate], name: "idx_sales_date")
+  @@index([branchId, saleDate], name: "idx_sales_branch")
+  @@index([customerId], name: "idx_sales_customer")
+  @@index([qbSynced, qbSyncedAt], name: "idx_sales_qb_sync")
+  @@map("sales")
+}
+
+/// Fuel Sale (Fuel sale line items)
+model FuelSale {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  saleId         String   @map("sale_id") @db.Uuid
+  nozzleId       String   @map("nozzle_id") @db.Uuid
+  fuelTypeId     String   @map("fuel_type_id") @db.Uuid
+  quantityLiters Decimal  @map("quantity_liters") @db.Decimal(10, 2)
+  pricePerLiter  Decimal  @map("price_per_liter") @db.Decimal(10, 2)
+  totalAmount    Decimal  @map("total_amount") @db.Decimal(12, 2)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  sale     Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  nozzle   Nozzle   @relation(fields: [nozzleId], references: [id])
+  fuelType FuelType @relation(fields: [fuelTypeId], references: [id])
+
+  @@index([saleId], name: "idx_fuel_sales_sale")
+  @@map("fuel_sales")
+}
+
+// ============================================================
+// INVENTORY
+// ============================================================
+
+/// Product (Non-fuel inventory items)
+model Product {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId    String   @map("organization_id") @db.Uuid
+  sku               String   @db.VarChar(100)
+  name              String   @db.VarChar(255)
+  category          String?  @db.VarChar(100)
+  barcode           String?  @db.VarChar(100)
+  unitPrice         Decimal  @map("unit_price") @db.Decimal(12, 2)
+  costPrice         Decimal? @map("cost_price") @db.Decimal(12, 2)
+  isActive          Boolean  @default(true) @map("is_active")
+  lowStockThreshold Int?     @map("low_stock_threshold")
+  qbItemId          String?  @map("qb_item_id") @db.VarChar(100)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  stockLevels  StockLevel[]
+  nonFuelSales NonFuelSale[]
+  qbSyncLogs   QBSyncLog[]
+
+  @@unique([organizationId, sku])
+  @@index([organizationId], name: "idx_products_org")
+  @@index([barcode], name: "idx_products_barcode")
+  @@map("products")
+}
+
+/// Stock Level (Inventory levels per branch)
+model StockLevel {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  productId String   @map("product_id") @db.Uuid
+  branchId  String   @map("branch_id") @db.Uuid
+  quantity  Int      @default(0)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  product Product @relation(fields: [productId], references: [id])
+  branch  Branch  @relation(fields: [branchId], references: [id])
+
+  @@unique([productId, branchId])
+  @@index([productId], name: "idx_stock_levels_product")
+  @@index([branchId], name: "idx_stock_levels_branch")
+  @@map("stock_levels")
+}
+
+/// Non-Fuel Sale (Non-fuel sale line items)
+model NonFuelSale {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  saleId      String   @map("sale_id") @db.Uuid
+  productId   String   @map("product_id") @db.Uuid
+  quantity    Int
+  unitPrice   Decimal  @map("unit_price") @db.Decimal(12, 2)
+  totalAmount Decimal  @map("total_amount") @db.Decimal(12, 2)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  sale    Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([saleId], name: "idx_non_fuel_sales_sale")
+  @@map("non_fuel_sales")
+}
+
+// ============================================================
+// BIFURCATION (Sales Reconciliation)
+// ============================================================
+
+/// Bifurcation (Daily sales reconciliation)
+model Bifurcation {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  branchId        String    @map("branch_id") @db.Uuid
+  date            DateTime  @db.Date
+  shiftInstanceId String?   @map("shift_instance_id") @db.Uuid // NULL for end-of-day
+  // Fuel totals by type
+  pmgTotalLiters  Decimal?  @map("pmg_total_liters") @db.Decimal(10, 2)
+  pmgTotalAmount  Decimal?  @map("pmg_total_amount") @db.Decimal(12, 2)
+  hsdTotalLiters  Decimal?  @map("hsd_total_liters") @db.Decimal(10, 2)
+  hsdTotalAmount  Decimal?  @map("hsd_total_amount") @db.Decimal(12, 2)
+  // Payment breakdown
+  cashAmount      Decimal?  @map("cash_amount") @db.Decimal(12, 2)
+  creditAmount    Decimal?  @map("credit_amount") @db.Decimal(12, 2)
+  cardAmount      Decimal?  @map("card_amount") @db.Decimal(12, 2)
+  psoCardAmount   Decimal?  @map("pso_card_amount") @db.Decimal(12, 2)
+  // Verification
+  expectedTotal   Decimal?  @map("expected_total") @db.Decimal(12, 2)
+  actualTotal     Decimal?  @map("actual_total") @db.Decimal(12, 2)
+  variance        Decimal?  @map("variance") @db.Decimal(12, 2)
+  varianceNotes   String?   @map("variance_notes") @db.Text
+  bifurcatedBy    String?   @map("bifurcated_by") @db.Uuid
+  bifurcatedAt    DateTime? @map("bifurcated_at") @db.Timestamptz
+  status          String    @default("pending") @db.VarChar(20) // 'pending', 'completed', 'verified'
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  branch           Branch         @relation(fields: [branchId], references: [id])
+  shiftInstance    ShiftInstance? @relation(fields: [shiftInstanceId], references: [id])
+  bifurcatedByUser User?          @relation(fields: [bifurcatedBy], references: [id])
+
+  @@unique([branchId, date, shiftInstanceId])
+  @@index([branchId, date], name: "idx_bifurcations_date")
+  @@map("bifurcations")
+}
+
+// ============================================================
+// QUICKBOOKS INTEGRATION
+// ============================================================
+
+/// QuickBooks Sync Log
+model QBSyncLog {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entityType   String    @map("entity_type") @db.VarChar(50) // 'sale', 'customer', 'product'
+  entityId     String    @map("entity_id") @db.Uuid
+  operation    String    @db.VarChar(20) // 'create', 'update'
+  qbId         String?   @map("qb_id") @db.VarChar(100)
+  status       String    @db.VarChar(20) // 'pending', 'success', 'failed'
+  errorMessage String?   @map("error_message") @db.Text
+  syncedAt     DateTime? @map("synced_at") @db.Timestamptz
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations (polymorphic - manual resolution needed)
+  sale    Sale?    @relation(fields: [entityId], references: [id])
+  product Product? @relation(fields: [entityId], references: [id])
+
+  @@index([status, createdAt], name: "idx_qb_sync_status")
+  @@index([entityType, entityId], name: "idx_qb_sync_entity")
+  @@map("qb_sync_log")
+}
+
+// ============================================================
+// AUDIT
+// ============================================================
+
+/// Audit Log (System audit trail)
+model AuditLog {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  action     String   @db.VarChar(100)
+  entityType String?  @map("entity_type") @db.VarChar(50)
+  entityId   String?  @map("entity_id") @db.Uuid
+  changes    Json?    @db.JsonB
+  ipAddress  String?  @map("ip_address") @db.VarChar(45)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt], name: "idx_audit_log_user")
+  @@index([entityType, entityId], name: "idx_audit_log_entity")
+  @@map("audit_log")
+}

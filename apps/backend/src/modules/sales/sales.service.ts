@@ -1,0 +1,471 @@
+import { prisma } from '../../config/database';
+import { AppError } from '../../middleware/error.middleware';
+import { Decimal } from '@prisma/client/runtime/library';
+
+interface CreateFuelSaleData {
+  branchId: string;
+  shiftInstanceId?: string;
+  nozzleId: string;
+  fuelTypeId: string;
+  quantityLiters: number;
+  pricePerLiter: number;
+  paymentMethod: 'cash' | 'credit' | 'card' | 'pso_card';
+  customerId?: string;
+  vehicleNumber?: string;
+  slipNumber?: string;
+}
+
+interface CreateNonFuelSaleData {
+  branchId: string;
+  shiftInstanceId?: string;
+  items: Array<{
+    productId: string;
+    quantity: number;
+    unitPrice: number;
+  }>;
+  paymentMethod: 'cash' | 'credit' | 'card';
+  customerId?: string;
+  taxAmount?: number;
+  discountAmount?: number;
+}
+
+export class SalesService {
+  /**
+   * Create a fuel sale
+   */
+  async createFuelSale(data: CreateFuelSaleData, userId: string, organizationId: string) {
+    const {
+      branchId,
+      shiftInstanceId,
+      nozzleId,
+      fuelTypeId,
+      quantityLiters,
+      pricePerLiter,
+      paymentMethod,
+      customerId,
+      vehicleNumber,
+      slipNumber,
+    } = data;
+
+    // Verify branch belongs to organization
+    const branch = await prisma.branch.findFirst({
+      where: { id: branchId, organizationId },
+    });
+
+    if (!branch) {
+      throw new AppError(404, 'Branch not found');
+    }
+
+    // Verify nozzle exists and is active
+    const nozzle = await prisma.nozzle.findFirst({
+      where: {
+        id: nozzleId,
+        isActive: true,
+        dispensingUnit: { branchId },
+      },
+    });
+
+    if (!nozzle) {
+      throw new AppError(404, 'Nozzle not found or inactive');
+    }
+
+    // Verify customer if provided
+    if (customerId) {
+      const customer = await prisma.customer.findFirst({
+        where: { id: customerId, organizationId },
+      });
+      if (!customer) {
+        throw new AppError(404, 'Customer not found');
+      }
+    }
+
+    // Calculate total
+    const totalAmount = quantityLiters * pricePerLiter;
+
+    // Create sale transaction
+    const sale = await prisma.sale.create({
+      data: {
+        branchId,
+        shiftInstanceId,
+        saleType: 'fuel',
+        totalAmount: new Decimal(totalAmount),
+        paymentMethod,
+        customerId,
+        vehicleNumber,
+        slipNumber,
+        cashierId: userId,
+        fuelSales: {
+          create: {
+            nozzleId,
+            fuelTypeId,
+            quantityLiters: new Decimal(quantityLiters),
+            pricePerLiter: new Decimal(pricePerLiter),
+            totalAmount: new Decimal(totalAmount),
+          },
+        },
+      },
+      include: {
+        fuelSales: {
+          include: {
+            nozzle: {
+              include: {
+                dispensingUnit: true,
+              },
+            },
+            fuelType: true,
+          },
+        },
+        customer: true,
+        cashier: {
+          select: {
+            id: true,
+            fullName: true,
+            username: true,
+          },
+        },
+      },
+    });
+
+    return sale;
+  }
+
+  /**
+   * Create a non-fuel sale
+   */
+  async createNonFuelSale(data: CreateNonFuelSaleData, userId: string, organizationId: string) {
+    const {
+      branchId,
+      shiftInstanceId,
+      items,
+      paymentMethod,
+      customerId,
+      taxAmount = 0,
+      discountAmount = 0,
+    } = data;
+
+    // Verify branch belongs to organization
+    const branch = await prisma.branch.findFirst({
+      where: { id: branchId, organizationId },
+    });
+
+    if (!branch) {
+      throw new AppError(404, 'Branch not found');
+    }
+
+    // Verify all products exist
+    const productIds = items.map(item => item.productId);
+    const products = await prisma.product.findMany({
+      where: {
+        id: { in: productIds },
+        organizationId,
+        isActive: true,
+      },
+    });
+
+    if (products.length !== productIds.length) {
+      throw new AppError(404, 'One or more products not found');
+    }
+
+    // Verify customer if provided
+    if (customerId) {
+      const customer = await prisma.customer.findFirst({
+        where: { id: customerId, organizationId },
+      });
+      if (!customer) {
+        throw new AppError(404, 'Customer not found');
+      }
+    }
+
+    // Calculate total
+    const subtotal = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+    const totalAmount = subtotal + taxAmount - discountAmount;
+
+    // Create sale transaction with items
+    const sale = await prisma.sale.create({
+      data: {
+        branchId,
+        shiftInstanceId,
+        saleType: 'non_fuel',
+        totalAmount: new Decimal(totalAmount),
+        taxAmount: new Decimal(taxAmount),
+        discountAmount: new Decimal(discountAmount),
+        paymentMethod,
+        customerId,
+        cashierId: userId,
+        nonFuelSales: {
+          create: items.map(item => ({
+            productId: item.productId,
+            quantity: item.quantity,
+            unitPrice: new Decimal(item.unitPrice),
+            totalAmount: new Decimal(item.quantity * item.unitPrice),
+          })),
+        },
+      },
+      include: {
+        nonFuelSales: {
+          include: {
+            product: true,
+          },
+        },
+        customer: true,
+        cashier: {
+          select: {
+            id: true,
+            fullName: true,
+            username: true,
+          },
+        },
+      },
+    });
+
+    // Update stock levels
+    for (const item of items) {
+      await prisma.stockLevel.updateMany({
+        where: {
+          productId: item.productId,
+          branchId,
+        },
+        data: {
+          quantity: {
+            decrement: item.quantity,
+          },
+        },
+      });
+    }
+
+    return sale;
+  }
+
+  /**
+   * Get sales with filters
+   */
+  async getSales(
+    organizationId: string,
+    filters: {
+      branchId?: string;
+      shiftInstanceId?: string;
+      saleType?: 'fuel' | 'non_fuel';
+      paymentMethod?: string;
+      customerId?: string;
+      startDate?: Date;
+      endDate?: Date;
+      limit?: number;
+      offset?: number;
+    }
+  ) {
+    const {
+      branchId,
+      shiftInstanceId,
+      saleType,
+      paymentMethod,
+      customerId,
+      startDate,
+      endDate,
+      limit = 50,
+      offset = 0,
+    } = filters;
+
+    const where: any = {
+      branch: { organizationId },
+    };
+
+    if (branchId) where.branchId = branchId;
+    if (shiftInstanceId) where.shiftInstanceId = shiftInstanceId;
+    if (saleType) where.saleType = saleType;
+    if (paymentMethod) where.paymentMethod = paymentMethod;
+    if (customerId) where.customerId = customerId;
+
+    if (startDate || endDate) {
+      where.saleDate = {};
+      if (startDate) where.saleDate.gte = startDate;
+      if (endDate) where.saleDate.lte = endDate;
+    }
+
+    const [sales, total] = await Promise.all([
+      prisma.sale.findMany({
+        where,
+        include: {
+          fuelSales: {
+            include: {
+              nozzle: {
+                include: {
+                  dispensingUnit: true,
+                },
+              },
+              fuelType: true,
+            },
+          },
+          nonFuelSales: {
+            include: {
+              product: true,
+            },
+          },
+          customer: true,
+          cashier: {
+            select: {
+              id: true,
+              fullName: true,
+              username: true,
+            },
+          },
+        },
+        orderBy: { saleDate: 'desc' },
+        take: limit,
+        skip: offset,
+      }),
+      prisma.sale.count({ where }),
+    ]);
+
+    return {
+      sales,
+      pagination: {
+        total,
+        limit,
+        offset,
+        pages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  /**
+   * Get sale by ID
+   */
+  async getSaleById(saleId: string, organizationId: string) {
+    const sale = await prisma.sale.findFirst({
+      where: {
+        id: saleId,
+        branch: { organizationId },
+      },
+      include: {
+        branch: true,
+        shiftInstance: {
+          include: {
+            shift: true,
+          },
+        },
+        fuelSales: {
+          include: {
+            nozzle: {
+              include: {
+                dispensingUnit: true,
+              },
+            },
+            fuelType: true,
+          },
+        },
+        nonFuelSales: {
+          include: {
+            product: true,
+          },
+        },
+        customer: true,
+        cashier: {
+          select: {
+            id: true,
+            fullName: true,
+            username: true,
+          },
+        },
+      },
+    });
+
+    if (!sale) {
+      throw new AppError(404, 'Sale not found');
+    }
+
+    return sale;
+  }
+
+  /**
+   * Get sales summary
+   */
+  async getSalesSummary(
+    branchId: string,
+    organizationId: string,
+    filters: {
+      shiftInstanceId?: string;
+      startDate?: Date;
+      endDate?: Date;
+    }
+  ) {
+    // Verify branch belongs to organization
+    const branch = await prisma.branch.findFirst({
+      where: { id: branchId, organizationId },
+    });
+
+    if (!branch) {
+      throw new AppError(404, 'Branch not found');
+    }
+
+    const { shiftInstanceId, startDate, endDate } = filters;
+
+    const where: any = { branchId };
+
+    if (shiftInstanceId) {
+      where.shiftInstanceId = shiftInstanceId;
+    } else if (startDate || endDate) {
+      where.saleDate = {};
+      if (startDate) where.saleDate.gte = startDate;
+      if (endDate) where.saleDate.lte = endDate;
+    }
+
+    // Get aggregated data
+    const [totalSales, fuelSales, nonFuelSales, paymentBreakdown] = await Promise.all([
+      // Total sales count and amount
+      prisma.sale.aggregate({
+        where,
+        _count: true,
+        _sum: {
+          totalAmount: true,
+        },
+      }),
+      // Fuel sales summary
+      prisma.fuelSale.aggregate({
+        where: {
+          sale: where,
+        },
+        _sum: {
+          quantityLiters: true,
+          totalAmount: true,
+        },
+      }),
+      // Non-fuel sales summary
+      prisma.nonFuelSale.aggregate({
+        where: {
+          sale: where,
+        },
+        _sum: {
+          quantity: true,
+          totalAmount: true,
+        },
+      }),
+      // Payment method breakdown
+      prisma.sale.groupBy({
+        by: ['paymentMethod'],
+        where,
+        _sum: {
+          totalAmount: true,
+        },
+        _count: true,
+      }),
+    ]);
+
+    return {
+      totalSales: totalSales._count,
+      totalAmount: totalSales._sum.totalAmount?.toNumber() || 0,
+      fuelSales: {
+        totalLiters: fuelSales._sum.quantityLiters?.toNumber() || 0,
+        totalAmount: fuelSales._sum.totalAmount?.toNumber() || 0,
+      },
+      nonFuelSales: {
+        totalItems: nonFuelSales._sum.quantity || 0,
+        totalAmount: nonFuelSales._sum.totalAmount?.toNumber() || 0,
+      },
+      paymentBreakdown: paymentBreakdown.map(pm => ({
+        method: pm.paymentMethod,
+        count: pm._count,
+        amount: pm._sum.totalAmount?.toNumber() || 0,
+      })),
+    };
+  }
+}
