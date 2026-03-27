@@ -1,16 +1,9 @@
 import { prisma } from '../../config/database';
 import { AppError } from '../../middleware/error.middleware';
 import { Decimal } from '@prisma/client/runtime/library';
+import { CreateProductInput } from './products.schema';
 
-interface CreateProductData {
-  sku: string;
-  name: string;
-  category?: string;
-  barcode?: string;
-  unitPrice: number;
-  costPrice?: number;
-  lowStockThreshold?: number;
-}
+type CreateProductData = CreateProductInput;
 
 interface UpdateProductData {
   sku?: string;
@@ -44,7 +37,7 @@ export class ProductsService {
       offset = 0,
     } = filters;
 
-    const where: any = {
+    const where: Record<string, unknown> = {
       organizationId,
     };
 
@@ -200,7 +193,7 @@ export class ProductsService {
       }
     }
 
-    const updateData: any = {};
+    const updateData: Record<string, unknown> = {};
 
     if (data.sku !== undefined) updateData.sku = data.sku;
     if (data.name !== undefined) updateData.name = data.name;
@@ -273,7 +266,7 @@ export class ProductsService {
       throw new AppError(404, 'Product not found');
     }
 
-    const where: any = {
+    const where: Record<string, unknown> = {
       productId,
     };
 
@@ -393,7 +386,7 @@ export class ProductsService {
    * Get products with low stock levels
    */
   async getLowStockProducts(organizationId: string, branchId?: string) {
-    const where: any = {
+    const where: Record<string, unknown> = {
       organization: { id: organizationId },
       lowStockThreshold: { gt: 0 },
     };

@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Plus, Building2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,7 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { branchesApi } from '@/api';
 
 export function Branches() {
-  const [page, setPage] = useState(1);
+  const page = 1; // TODO: Add pagination
 
   const { data, isLoading } = useQuery({
     queryKey: ['branches', page],

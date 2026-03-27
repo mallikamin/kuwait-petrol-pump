@@ -1,45 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
-import { z } from 'zod';
 import { BifurcationService } from './bifurcation.service';
-
-const createBifurcationSchema = z.object({
-  branchId: z.string().uuid(),
-  date: z.string().datetime().transform(val => new Date(val)),
-  shiftInstanceId: z.string().uuid().optional(),
-  pmgTotalLiters: z.number().nonnegative().optional(),
-  pmgTotalAmount: z.number().nonnegative().optional(),
-  hsdTotalLiters: z.number().nonnegative().optional(),
-  hsdTotalAmount: z.number().nonnegative().optional(),
-  cashAmount: z.number().nonnegative().optional(),
-  creditAmount: z.number().nonnegative().optional(),
-  cardAmount: z.number().nonnegative().optional(),
-  psoCardAmount: z.number().nonnegative().optional(),
-  expectedTotal: z.number().optional(),
-  actualTotal: z.number().nonnegative(),
-  varianceNotes: z.string().optional(),
-});
-
-const getBifurcationByDateSchema = z.object({
-  branchId: z.string().uuid().optional(),
-  date: z.string().datetime().transform(val => new Date(val)),
-});
-
-const idParamSchema = z.object({
-  id: z.string().uuid(),
-});
-
-const getBifurcationHistorySchema = z.object({
-  branchId: z.string().uuid(),
-  startDate: z.string().datetime().transform(val => new Date(val)).optional(),
-  endDate: z.string().datetime().transform(val => new Date(val)).optional(),
-  status: z.enum(['pending', 'completed', 'verified']).optional(),
-  limit: z.string().transform(val => parseInt(val, 10)).optional(),
-  offset: z.string().transform(val => parseInt(val, 10)).optional(),
-});
-
-const getPendingBifurcationsSchema = z.object({
-  branchId: z.string().uuid(),
-});
+import {
+  createBifurcationSchema,
+  idParamSchema,
+  CreateBifurcationInput,
+} from './bifurcation.schema';
 
 export class BifurcationController {
   private bifurcationService: BifurcationService;
@@ -63,10 +28,10 @@ export class BifurcationController {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
-      const data = createBifurcationSchema.parse(req.body);
+      const data: CreateBifurcationInput = createBifurcationSchema.parse(req.body);
 
       const bifurcation = await this.bifurcationService.createBifurcation(
-        data as any,
+        data,
         req.user.userId,
         req.user.organizationId
       );

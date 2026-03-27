@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Plus, Users } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,7 +9,7 @@ import { customersApi } from '@/api';
 import { formatCurrency } from '@/utils/format';
 
 export function Customers() {
-  const [page, setPage] = useState(1);
+  const page = 1; // TODO: Add pagination
 
   const { data, isLoading } = useQuery({
     queryKey: ['customers', page],

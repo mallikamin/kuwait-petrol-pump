@@ -1,49 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
-import { z } from 'zod';
 import { ProductsService } from './products.service';
-
-// Validation schemas
-const createProductSchema = z.object({
-  sku: z.string().min(1).max(100),
-  name: z.string().min(1).max(255),
-  category: z.string().max(100).optional(),
-  barcode: z.string().max(100).optional(),
-  unitPrice: z.number().positive(),
-  costPrice: z.number().positive().optional(),
-  lowStockThreshold: z.number().int().nonnegative().optional(),
-});
-
-const updateProductSchema = z.object({
-  sku: z.string().min(1).max(100).optional(),
-  name: z.string().min(1).max(255).optional(),
-  category: z.string().max(100).optional(),
-  barcode: z.string().max(100).optional(),
-  unitPrice: z.number().positive().optional(),
-  costPrice: z.number().positive().optional(),
-  lowStockThreshold: z.number().int().nonnegative().optional(),
-  isActive: z.boolean().optional(),
-});
-
-const getProductsQuerySchema = z.object({
-  search: z.string().optional(),
-  category: z.string().optional(),
-  isActive: z.enum(['true', 'false']).optional(),
-  limit: z.string().regex(/^\d+$/).optional(),
-  offset: z.string().regex(/^\d+$/).optional(),
-});
-
-const searchProductsQuerySchema = z.object({
-  q: z.string().min(1),
-});
-
-const stockLevelSchema = z.object({
-  branchId: z.string().uuid(),
-  quantity: z.number().int().nonnegative(),
-});
-
-const idParamSchema = z.object({
-  id: z.string().uuid(),
-});
+import {
+  createProductSchema,
+  updateProductSchema,
+  getProductsQuerySchema,
+  searchProductsQuerySchema,
+  stockLevelSchema,
+  idParamSchema,
+  CreateProductInput,
+} from './products.schema';
 
 export class ProductsController {
   private service: ProductsService;
@@ -88,9 +53,9 @@ export class ProductsController {
         return res.status(401).json({ error: 'Not authenticated' });
       }
 
-      const data = createProductSchema.parse(req.body);
+      const data: CreateProductInput = createProductSchema.parse(req.body);
 
-      const product = await this.service.createProduct(data as any, req.user.organizationId);
+      const product = await this.service.createProduct(data, req.user.organizationId);
 
       res.status(201).json(product);
     } catch (error) {

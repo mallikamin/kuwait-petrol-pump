@@ -44,7 +44,7 @@ export function createApp() {
   app.use(express.urlencoded({ extended: true }));
 
   // Health check (both paths for nginx proxy and direct access)
-  const healthHandler = (req: any, res: any) => {
+  const healthHandler = (_req: express.Request, res: express.Response) => {
     res.json({
       status: 'ok',
       timestamp: new Date().toISOString(),

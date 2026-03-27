@@ -4,6 +4,20 @@ import bcrypt from 'bcrypt';
 import { prisma } from '../../config/database';
 import { AppError } from '../../middleware/error.middleware';
 
+type User = {
+  id: string;
+  username: string;
+  email: string | null;
+  fullName: string | null;
+  role: string;
+  branchId: string | null;
+  organizationId: string;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  branch?: { id: string; name: string } | null;
+};
+
 // ---------------------------------------------------------------------------
 // Validation Schemas
 // ---------------------------------------------------------------------------
@@ -65,7 +79,7 @@ const SALT_ROUNDS = 10;
  * Strip sensitive fields and remap to snake_case for the frontend contract.
  * Frontend User type: { id, username, email, full_name, role, branch_id, is_active, created_at }
  */
-function toUserResponse(user: any) {
+function toUserResponse(user: User) {
   return {
     id: user.id,
     username: user.username,
@@ -106,7 +120,7 @@ export class UsersController {
       const page = query.page ?? 1;
       const skip = (page - 1) * pageSize;
 
-      const where: any = {
+      const where: Record<string, unknown> = {
         organizationId: req.user.organizationId,
       };
 
@@ -310,7 +324,7 @@ export class UsersController {
         }
       }
 
-      const updateData: any = {};
+      const updateData: Record<string, unknown> = {};
 
       if (data.username !== undefined) {
         updateData.username = data.username.trim();

@@ -243,14 +243,14 @@ export class ShiftsService {
 
     const { startDate, endDate, status, limit = 50, offset = 0 } = filters;
 
-    const where: any = {
+    const where: Record<string, unknown> = {
       branchId,
     };
 
     if (startDate || endDate) {
-      where.date = {};
-      if (startDate) where.date.gte = startDate;
-      if (endDate) where.date.lte = endDate;
+      where.date = {} as Record<string, Date>;
+      if (startDate) (where.date as Record<string, Date>).gte = startDate;
+      if (endDate) (where.date as Record<string, Date>).lte = endDate;
     }
 
     if (status) {

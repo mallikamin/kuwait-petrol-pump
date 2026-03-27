@@ -1,6 +1,5 @@
 import { prisma } from '../../config/database';
 import { AppError } from '../../middleware/error.middleware';
-import { Decimal } from '@prisma/client/runtime/library';
 
 export class ReportsService {
   /**
@@ -183,7 +182,12 @@ export class ReportsService {
     });
 
     // Calculate meter variance for each nozzle
-    const nozzleReadings: { [key: string]: any } = {};
+    type NozzleReadingData = {
+      nozzle: typeof meterReadings[0]['nozzle'];
+      opening: typeof meterReadings[0] | null;
+      closing: typeof meterReadings[0] | null;
+    };
+    const nozzleReadings: Record<string, NozzleReadingData> = {};
     for (const reading of meterReadings) {
       const nozzleKey = `${reading.nozzle.dispensingUnit.unitNumber}-${reading.nozzle.nozzleNumber}`;
       if (!nozzleReadings[nozzleKey]) {
@@ -201,7 +205,7 @@ export class ReportsService {
     }
 
     // Calculate variances
-    const meterVariances = Object.values(nozzleReadings).map((data: any) => {
+    const meterVariances = Object.values(nozzleReadings).map((data) => {
       const opening = data.opening ? parseFloat(data.opening.meterValue.toString()) : null;
       const closing = data.closing ? parseFloat(data.closing.meterValue.toString()) : null;
       const variance = opening !== null && closing !== null ? closing - opening : null;
@@ -364,7 +368,16 @@ export class ReportsService {
     });
 
     // Group by shift and nozzle
-    const shiftVariances: { [key: string]: any } = {};
+    type NozzleData = {
+      nozzle: { id: string; unitNumber: number; nozzleNumber: number; fuelType: string };
+      opening: number | null;
+      closing: number | null;
+    };
+    type ShiftVarianceData = {
+      shiftInstance: { id: string; date: Date; shiftName: string };
+      nozzles: Record<string, NozzleData>;
+    };
+    const shiftVariances: Record<string, ShiftVarianceData> = {};
 
     for (const reading of meterReadings) {
       const shiftKey = reading.shiftInstanceId;
@@ -406,8 +419,8 @@ export class ReportsService {
     }
 
     // Calculate variances
-    const report = Object.values(shiftVariances).map((shift: any) => {
-      const nozzleVariances = Object.values(shift.nozzles).map((nozzle: any) => ({
+    const report = Object.values(shiftVariances).map((shift) => {
+      const nozzleVariances = Object.values(shift.nozzles).map((nozzle) => ({
         ...nozzle,
         variance:
           nozzle.opening !== null && nozzle.closing !== null
@@ -415,8 +428,8 @@ export class ReportsService {
             : null,
       }));
 
-      const totalVariance = nozzleVariances.reduce((sum: number, n: any) => {
-        return sum + (n.variance || 0);
+      const totalVariance = nozzleVariances.reduce((sum, n) => {
+        return sum + ((n.variance as number) || 0);
       }, 0);
 
       return {

@@ -10,17 +10,15 @@ export interface TokenPayload {
 }
 
 export function generateAccessToken(payload: TokenPayload): string {
-  const options: SignOptions = {
-    expiresIn: env.JWT_EXPIRY as any,
-  };
-  return jwt.sign(payload, env.JWT_SECRET, options);
+  return jwt.sign(payload, env.JWT_SECRET, {
+    expiresIn: env.JWT_EXPIRY,
+  } as SignOptions);
 }
 
 export function generateRefreshToken(payload: TokenPayload): string {
-  const options: SignOptions = {
-    expiresIn: env.JWT_REFRESH_EXPIRY as any,
-  };
-  return jwt.sign(payload, env.JWT_REFRESH_SECRET, options);
+  return jwt.sign(payload, env.JWT_REFRESH_SECRET, {
+    expiresIn: env.JWT_REFRESH_EXPIRY,
+  } as SignOptions);
 }
 
 export function verifyAccessToken(token: string): TokenPayload {

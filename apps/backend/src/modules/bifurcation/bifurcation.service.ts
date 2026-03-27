@@ -1,23 +1,9 @@
 import { prisma } from '../../config/database';
 import { AppError } from '../../middleware/error.middleware';
 import { Decimal } from '@prisma/client/runtime/library';
+import { CreateBifurcationInput } from './bifurcation.schema';
 
-interface CreateBifurcationData {
-  branchId: string;
-  date: Date;
-  shiftInstanceId?: string;
-  pmgTotalLiters?: number;
-  pmgTotalAmount?: number;
-  hsdTotalLiters?: number;
-  hsdTotalAmount?: number;
-  cashAmount?: number;
-  creditAmount?: number;
-  cardAmount?: number;
-  psoCardAmount?: number;
-  expectedTotal?: number;
-  actualTotal: number;
-  varianceNotes?: string;
-}
+type CreateBifurcationData = CreateBifurcationInput;
 
 interface BifurcationFilters {
   startDate?: Date;
@@ -270,14 +256,14 @@ export class BifurcationService {
       throw new AppError(404, 'Branch not found');
     }
 
-    const where: any = {
+    const where: Record<string, unknown> = {
       branchId,
     };
 
     if (startDate || endDate) {
-      where.date = {};
-      if (startDate) where.date.gte = startDate;
-      if (endDate) where.date.lte = endDate;
+      where.date = {} as Record<string, Date>;
+      if (startDate) (where.date as Record<string, Date>).gte = startDate;
+      if (endDate) (where.date as Record<string, Date>).lte = endDate;
     }
 
     if (status) {

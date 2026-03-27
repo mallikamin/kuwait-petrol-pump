@@ -1,45 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
-import { z } from 'zod';
 import { CustomersService } from './customers.service';
-
-const createCustomerSchema = z.object({
-  name: z.string().min(1, 'Customer name is required'),
-  phone: z.string().optional(),
-  email: z.string().email().optional(),
-  address: z.string().optional(),
-  vehicleNumbers: z.array(z.string()).optional(),
-  creditLimit: z.number().positive().optional(),
-  creditDays: z.number().int().positive().optional(),
-});
-
-const updateCustomerSchema = z.object({
-  name: z.string().min(1).optional(),
-  phone: z.string().optional(),
-  email: z.string().email().optional(),
-  address: z.string().optional(),
-  vehicleNumbers: z.array(z.string()).optional(),
-  creditLimit: z.number().positive().optional(),
-  creditDays: z.number().int().positive().optional(),
-  isActive: z.boolean().optional(),
-});
-
-const getCustomersQuerySchema = z.object({
-  search: z.string().optional(),
-  isActive: z.enum(['true', 'false']).transform(val => val === 'true').optional(),
-  limit: z.string().transform(val => parseInt(val, 10)).optional(),
-  offset: z.string().transform(val => parseInt(val, 10)).optional(),
-});
-
-const getLedgerQuerySchema = z.object({
-  startDate: z.string().datetime().transform(val => new Date(val)).optional(),
-  endDate: z.string().datetime().transform(val => new Date(val)).optional(),
-  limit: z.string().transform(val => parseInt(val, 10)).optional(),
-  offset: z.string().transform(val => parseInt(val, 10)).optional(),
-});
-
-const idParamSchema = z.object({
-  id: z.string().uuid(),
-});
+import {
+  createCustomerSchema,
+  updateCustomerSchema,
+  getCustomersQuerySchema,
+  getLedgerQuerySchema,
+  idParamSchema,
+  CreateCustomerInput,
+} from './customers.schema';
 
 export class CustomersController {
   private customersService: CustomersService;
@@ -86,10 +54,10 @@ export class CustomersController {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
-      const data = createCustomerSchema.parse(req.body);
+      const data: CreateCustomerInput = createCustomerSchema.parse(req.body);
 
       const customer = await this.customersService.createCustomer(
-        data as any,
+        data,
         req.user.organizationId
       );
 

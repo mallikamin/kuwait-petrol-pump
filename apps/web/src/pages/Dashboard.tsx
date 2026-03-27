@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { AlertCircle, DollarSign, Fuel, Package, ShoppingBag, Clock, Users, TrendingUp } from 'lucide-react';
+import { AlertCircle, DollarSign, Fuel, Package, ShoppingBag, Clock, Users } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';

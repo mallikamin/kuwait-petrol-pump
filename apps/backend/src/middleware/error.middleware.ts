@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 import { logger } from '../utils/logger';
-
 
 export class AppError extends Error {
   constructor(
@@ -18,7 +18,7 @@ export function errorHandler(
   err: Error,
   req: Request,
   res: Response,
-  next: NextFunction
+  _next: NextFunction
 ) {
   logger.error('Error:', {
     message: err.message,
@@ -35,16 +35,15 @@ export function errorHandler(
     });
   }
 
-  // Prisma errors (duck-type check for compatibility)
-  const prismaErr = err as any;
-  if (prismaErr.name === 'PrismaClientKnownRequestError') {
-    if (prismaErr.code === 'P2002') {
+  // Prisma errors
+  if (err instanceof PrismaClientKnownRequestError) {
+    if (err.code === 'P2002') {
       return res.status(409).json({
         error: 'Duplicate entry',
-        field: prismaErr.meta?.target,
+        field: err.meta?.target,
       });
     }
-    if (prismaErr.code === 'P2025') {
+    if (err.code === 'P2025') {
       return res.status(404).json({
         error: 'Record not found',
       });

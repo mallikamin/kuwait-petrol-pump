@@ -27,7 +27,7 @@ export function Login() {
       });
       navigate('/');
     },
-    onError: (error: any) => {
+    onError: (error: { response?: { data?: { detail?: string } } }) => {
       toast({
         title: 'Login failed',
         description: error.response?.data?.detail || 'Invalid credentials',

@@ -1,16 +1,9 @@
 import { prisma } from '../../config/database';
 import { AppError } from '../../middleware/error.middleware';
 import { Decimal } from '@prisma/client/runtime/library';
+import { CreateMeterReadingInput } from './meter-readings.schema';
 
-interface CreateMeterReadingData {
-  nozzleId: string;
-  shiftInstanceId: string;
-  readingType: 'opening' | 'closing';
-  meterValue: number;
-  imageUrl?: string;
-  ocrResult?: number;
-  isManualOverride: boolean;
-}
+type CreateMeterReadingData = CreateMeterReadingInput;
 
 export class MeterReadingsService {
   /**

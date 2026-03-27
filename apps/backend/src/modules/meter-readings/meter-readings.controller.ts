@@ -1,33 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
-import { z } from 'zod';
 import { MeterReadingsService } from './meter-readings.service';
-
-const createMeterReadingSchema = z.object({
-  nozzleId: z.string().uuid(),
-  shiftInstanceId: z.string().uuid(),
-  readingType: z.enum(['opening', 'closing']),
-  meterValue: z.number().positive(),
-  imageUrl: z.string().url().optional(),
-  ocrResult: z.number().positive().optional(),
-  isManualOverride: z.boolean().default(false),
-});
-
-const verifyReadingSchema = z.object({
-  verifiedValue: z.number().positive(),
-  isManualOverride: z.boolean(),
-});
-
-const idParamSchema = z.object({
-  id: z.string().uuid(),
-});
-
-const nozzleIdParamSchema = z.object({
-  nozzleId: z.string().uuid(),
-});
-
-const shiftIdParamSchema = z.object({
-  shiftId: z.string().uuid(),
-});
+import {
+  createMeterReadingSchema,
+  verifyReadingSchema,
+  idParamSchema,
+  nozzleIdParamSchema,
+  shiftIdParamSchema,
+  CreateMeterReadingInput,
+} from './meter-readings.schema';
 
 export class MeterReadingsController {
   private meterReadingsService: MeterReadingsService;
@@ -51,10 +31,10 @@ export class MeterReadingsController {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
-      const data = createMeterReadingSchema.parse(req.body);
+      const data: CreateMeterReadingInput = createMeterReadingSchema.parse(req.body);
 
       const meterReading = await this.meterReadingsService.createMeterReading(
-        data as any,
+        data,
         req.user.userId,
         req.user.organizationId
       );

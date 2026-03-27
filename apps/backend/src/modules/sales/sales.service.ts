@@ -1,33 +1,10 @@
 import { prisma } from '../../config/database';
 import { AppError } from '../../middleware/error.middleware';
 import { Decimal } from '@prisma/client/runtime/library';
+import { CreateFuelSaleInput, CreateNonFuelSaleInput } from './sales.schema';
 
-interface CreateFuelSaleData {
-  branchId: string;
-  shiftInstanceId?: string;
-  nozzleId: string;
-  fuelTypeId: string;
-  quantityLiters: number;
-  pricePerLiter: number;
-  paymentMethod: 'cash' | 'credit' | 'card' | 'pso_card';
-  customerId?: string;
-  vehicleNumber?: string;
-  slipNumber?: string;
-}
-
-interface CreateNonFuelSaleData {
-  branchId: string;
-  shiftInstanceId?: string;
-  items: Array<{
-    productId: string;
-    quantity: number;
-    unitPrice: number;
-  }>;
-  paymentMethod: 'cash' | 'credit' | 'card';
-  customerId?: string;
-  taxAmount?: number;
-  discountAmount?: number;
-}
+type CreateFuelSaleData = CreateFuelSaleInput;
+type CreateNonFuelSaleData = CreateNonFuelSaleInput;
 
 export class SalesService {
   /**
@@ -265,7 +242,7 @@ export class SalesService {
       offset = 0,
     } = filters;
 
-    const where: any = {
+    const where: Record<string, unknown> = {
       branch: { organizationId },
     };
 
@@ -276,9 +253,9 @@ export class SalesService {
     if (customerId) where.customerId = customerId;
 
     if (startDate || endDate) {
-      where.saleDate = {};
-      if (startDate) where.saleDate.gte = startDate;
-      if (endDate) where.saleDate.lte = endDate;
+      where.saleDate = {} as Record<string, Date>;
+      if (startDate) (where.saleDate as Record<string, Date>).gte = startDate;
+      if (endDate) (where.saleDate as Record<string, Date>).lte = endDate;
     }
 
     const [sales, total] = await Promise.all([
@@ -399,14 +376,14 @@ export class SalesService {
 
     const { shiftInstanceId, startDate, endDate } = filters;
 
-    const where: any = { branchId };
+    const where: Record<string, unknown> = { branchId };
 
     if (shiftInstanceId) {
       where.shiftInstanceId = shiftInstanceId;
     } else if (startDate || endDate) {
-      where.saleDate = {};
-      if (startDate) where.saleDate.gte = startDate;
-      if (endDate) where.saleDate.lte = endDate;
+      where.saleDate = {} as Record<string, Date>;
+      if (startDate) (where.saleDate as Record<string, Date>).gte = startDate;
+      if (endDate) (where.saleDate as Record<string, Date>).lte = endDate;
     }
 
     // Get aggregated data

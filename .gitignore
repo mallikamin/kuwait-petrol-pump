@@ -39,6 +39,10 @@ Thumbs.db
 *.swo
 *~
 
+# Claude Code session artifacts
+.claude/
+PAUSE_CHECKPOINT_*.md
+
 # Turborepo
 .turbo/
 

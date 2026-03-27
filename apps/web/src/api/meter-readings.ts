@@ -23,7 +23,7 @@ export const meterReadingsApi = {
     return response.data;
   },
 
-  getVarianceReport: async (shiftId: string): Promise<any> => {
+  getVarianceReport: async (shiftId: string): Promise<Record<string, unknown>> => {
     const response = await apiClient.get(`/api/meter-readings/variance-report/${shiftId}`);
     return response.data;
   },

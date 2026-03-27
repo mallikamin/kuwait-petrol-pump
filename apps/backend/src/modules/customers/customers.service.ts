@@ -1,16 +1,9 @@
 import { prisma } from '../../config/database';
 import { AppError } from '../../middleware/error.middleware';
 import { Decimal } from '@prisma/client/runtime/library';
+import { CreateCustomerInput } from './customers.schema';
 
-interface CreateCustomerData {
-  name: string;
-  phone?: string;
-  email?: string;
-  address?: string;
-  vehicleNumbers?: string[];
-  creditLimit?: number;
-  creditDays?: number;
-}
+type CreateCustomerData = CreateCustomerInput;
 
 interface UpdateCustomerData {
   name?: string;
@@ -42,7 +35,7 @@ export class CustomersService {
       offset = 0,
     } = filters;
 
-    const where: any = {
+    const where: Record<string, unknown> = {
       organizationId,
     };
 
@@ -200,7 +193,7 @@ export class CustomersService {
       }
     }
 
-    const updateData: any = {};
+    const updateData: Record<string, unknown> = {};
 
     if (data.name !== undefined) {
       updateData.name = data.name.trim();
@@ -267,15 +260,15 @@ export class CustomersService {
       throw new AppError(404, 'Customer not found');
     }
 
-    const where: any = {
+    const where: Record<string, unknown> = {
       customerId,
       branch: { organizationId },
     };
 
     if (startDate || endDate) {
-      where.saleDate = {};
-      if (startDate) where.saleDate.gte = startDate;
-      if (endDate) where.saleDate.lte = endDate;
+      where.saleDate = {} as Record<string, Date>;
+      if (startDate) (where.saleDate as Record<string, Date>).gte = startDate;
+      if (endDate) (where.saleDate as Record<string, Date>).lte = endDate;
     }
 
     const [sales, total] = await Promise.all([
