@@ -1,6 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
 import { verifyAccessToken, TokenPayload } from '../utils/jwt';
-import { UserRole } from '@prisma/client';
 
 // Extend Express Request type
 declare global {
@@ -32,13 +31,13 @@ export function authenticate(req: Request, res: Response, next: NextFunction) {
   }
 }
 
-export function authorize(...roles: UserRole[]) {
+export function authorize(...roles: string[]) {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
 
-    if (!roles.includes(req.user.role as UserRole)) {
+    if (!roles.includes(req.user.role)) {
       return res.status(403).json({ error: 'Insufficient permissions' });
     }
 

@@ -452,8 +452,8 @@ model QBSyncLog {
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   // Relations (polymorphic - manual resolution needed)
-  sale    Sale?    @relation(fields: [entityId], references: [id])
-  product Product? @relation(fields: [entityId], references: [id])
+  sale    Sale?    @relation(fields: [entityId], references: [id], map: "qb_sync_log_sale_fkey")
+  product Product? @relation(fields: [entityId], references: [id], map: "qb_sync_log_product_fkey")
 
   @@index([status, createdAt], name: "idx_qb_sync_status")
   @@index([entityType, entityId], name: "idx_qb_sync_entity")

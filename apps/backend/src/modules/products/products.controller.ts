@@ -10,7 +10,7 @@ const createProductSchema = z.object({
   barcode: z.string().max(100).optional(),
   unitPrice: z.number().positive(),
   costPrice: z.number().positive().optional(),
-  lowStockThreshold: z.number().int().non_negative().optional(),
+  lowStockThreshold: z.number().int().nonnegative().optional(),
 });
 
 const updateProductSchema = z.object({
@@ -20,7 +20,7 @@ const updateProductSchema = z.object({
   barcode: z.string().max(100).optional(),
   unitPrice: z.number().positive().optional(),
   costPrice: z.number().positive().optional(),
-  lowStockThreshold: z.number().int().non_negative().optional(),
+  lowStockThreshold: z.number().int().nonnegative().optional(),
   isActive: z.boolean().optional(),
 });
 
@@ -38,7 +38,7 @@ const searchProductsQuerySchema = z.object({
 
 const stockLevelSchema = z.object({
   branchId: z.string().uuid(),
-  quantity: z.number().int().non_negative(),
+  quantity: z.number().int().nonnegative(),
 });
 
 const idParamSchema = z.object({

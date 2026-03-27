@@ -17,6 +17,8 @@ out/
 .env
 .env.local
 .env.*.local
+.env.server
+.env.production
 
 # Logs
 logs/

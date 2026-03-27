@@ -12,8 +12,7 @@
     "db:seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
-    "@petrol-pump/database": "workspace:*",
-    "@petrol-pump/shared": "workspace:*",
+    "@kuwait-petrol-pump/database": "workspace:*",
     "@prisma/client": "^5.9.1",
     "express": "^4.18.2",
     "cors": "^2.8.5",
