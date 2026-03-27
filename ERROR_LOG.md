@@ -198,3 +198,66 @@ This rule is now added to `DEPLOYMENT_SAFETY_PROTOCOL.md`.
 - **SSL certificates**: Never reference in nginx config until after certbot succeeds
 
 These rules are now integrated into `DEPLOYMENT_SAFETY_PROTOCOL.md` and project memory.
+
+---
+
+## Database Backup & Restore Procedures
+
+### Manual Backup Command
+```bash
+# Create timestamped backup
+docker exec kuwaitpos-postgres pg_dump -U postgres kuwait_pos | gzip > /root/backups/kuwait-pos-manual-$(date +%Y%m%d-%H%M%S).sql.gz
+
+# Verify backup
+ls -lh /root/backups/kuwait-pos-manual-*.sql.gz
+zcat /root/backups/kuwait-pos-manual-TIMESTAMP.sql.gz | head -20
+```
+
+### Automated Daily Backup (via cron)
+Already configured in `/root/kuwait-backup.sh` (runs daily at 3 AM):
+```bash
+#!/bin/bash
+TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+docker exec kuwaitpos-postgres pg_dump -U postgres kuwait_pos | gzip > /root/backups/kuwait-$TIMESTAMP.sql.gz
+find /root/backups -name "kuwait-*.sql.gz" -mtime +30 -delete
+```
+
+### Restore Command
+```bash
+# Stop backend to prevent writes during restore
+docker compose -f docker-compose.prod.yml stop backend
+
+# Drop and recreate database (DESTRUCTIVE - use with caution)
+docker exec kuwaitpos-postgres psql -U postgres -c "DROP DATABASE kuwait_pos;"
+docker exec kuwaitpos-postgres psql -U postgres -c "CREATE DATABASE kuwait_pos;"
+
+# Restore from backup
+zcat /root/backups/kuwait-pos-manual-TIMESTAMP.sql.gz | docker exec -i kuwaitpos-postgres psql -U postgres -d kuwait_pos
+
+# Restart backend
+docker compose -f docker-compose.prod.yml start backend
+
+# Verify restoration
+docker exec kuwaitpos-postgres psql -U postgres -d kuwait_pos -c "\dt"
+```
+
+### Last Verified Backup
+- **Date**: 2026-03-27 18:04 UTC
+- **File**: `/root/backups/kuwait-pos-manual-20260327-230452.sql.gz`
+- **Size**: 4.1K (compressed)
+- **Tables**: 20 (all application tables present)
+- **Status**: ✅ Valid PostgreSQL dump, restoration verified
+
+### Backup Retention Policy
+- Manual backups: Keep indefinitely in `/root/backups/`
+- Automated backups: Retain for 30 days (auto-deleted by cron script)
+- Critical milestone backups: Tag with descriptive names (e.g., `kuwait-pos-pre-migration-YYYYMMDD.sql.gz`)
+
+### Emergency Recovery Checklist
+1. ✅ Identify most recent valid backup: `ls -lt /root/backups/ | head`
+2. ✅ Stop backend container: `docker compose -f docker-compose.prod.yml stop backend`
+3. ✅ Backup current DB before restore (just in case): `docker exec kuwaitpos-postgres pg_dump -U postgres kuwait_pos | gzip > /root/backups/kuwait-pos-pre-restore-$(date +%Y%m%d-%H%M%S).sql.gz`
+4. ✅ Execute restore command (see above)
+5. ✅ Verify table count and sample data
+6. ✅ Restart backend and test API health endpoint
+7. ✅ Document incident in ERROR_LOG.md
