@@ -10,27 +10,27 @@ export const shiftsApi = {
     start_date?: string;
     end_date?: string;
   }): Promise<PaginatedResponse<Shift>> => {
-    const response = await apiClient.get<PaginatedResponse<Shift>>('/api/v1/shifts', { params });
+    const response = await apiClient.get<PaginatedResponse<Shift>>('/api/shifts', { params });
     return response.data;
   },
 
   getById: async (id: string): Promise<Shift> => {
-    const response = await apiClient.get<Shift>(`/api/v1/shifts/${id}`);
+    const response = await apiClient.get<Shift>(`/api/shifts/${id}`);
     return response.data;
   },
 
   openShift: async (data: { branch_id: string; opening_cash: number }): Promise<Shift> => {
-    const response = await apiClient.post<Shift>('/api/v1/shifts/open', data);
+    const response = await apiClient.post<Shift>('/api/shifts/open', data);
     return response.data;
   },
 
   closeShift: async (shiftId: string, data: { closing_cash: number }): Promise<Shift> => {
-    const response = await apiClient.post<Shift>(`/api/v1/shifts/${shiftId}/close`, data);
+    const response = await apiClient.post<Shift>(`/api/shifts/${shiftId}/close`, data);
     return response.data;
   },
 
   getActive: async (): Promise<Shift[]> => {
-    const response = await apiClient.get<Shift[]>('/api/v1/shifts/active');
+    const response = await apiClient.get<Shift[]>('/api/shifts/active');
     return response.data;
   },
 };

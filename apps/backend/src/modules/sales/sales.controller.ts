@@ -78,7 +78,7 @@ export class SalesController {
 
       const data = createFuelSaleSchema.parse(req.body);
 
-      const sale = await this.salesService.createFuelSale(data, req.user.userId, req.user.organizationId);
+      const sale = await this.salesService.createFuelSale(data as any, req.user.userId, req.user.organizationId);
 
       res.status(201).json({
         sale,
@@ -106,7 +106,7 @@ export class SalesController {
 
       const data = createNonFuelSaleSchema.parse(req.body);
 
-      const sale = await this.salesService.createNonFuelSale(data, req.user.userId, req.user.organizationId);
+      const sale = await this.salesService.createNonFuelSale(data as any, req.user.userId, req.user.organizationId);
 
       res.status(201).json({
         sale,

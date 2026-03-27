@@ -3,30 +3,30 @@ import { User, PaginatedResponse } from '@/types';
 
 export const usersApi = {
   getAll: async (params?: { page?: number; size?: number; search?: string }): Promise<PaginatedResponse<User>> => {
-    const response = await apiClient.get<PaginatedResponse<User>>('/api/v1/users', { params });
+    const response = await apiClient.get<PaginatedResponse<User>>('/api/users', { params });
     return response.data;
   },
 
   getById: async (id: string): Promise<User> => {
-    const response = await apiClient.get<User>(`/api/v1/users/${id}`);
+    const response = await apiClient.get<User>(`/api/users/${id}`);
     return response.data;
   },
 
   create: async (data: Partial<User> & { password: string }): Promise<User> => {
-    const response = await apiClient.post<User>('/api/v1/users', data);
+    const response = await apiClient.post<User>('/api/users', data);
     return response.data;
   },
 
   update: async (id: string, data: Partial<User>): Promise<User> => {
-    const response = await apiClient.put<User>(`/api/v1/users/${id}`, data);
+    const response = await apiClient.put<User>(`/api/users/${id}`, data);
     return response.data;
   },
 
   delete: async (id: string): Promise<void> => {
-    await apiClient.delete(`/api/v1/users/${id}`);
+    await apiClient.delete(`/api/users/${id}`);
   },
 
   resetPassword: async (id: string, newPassword: string): Promise<void> => {
-    await apiClient.post(`/api/v1/users/${id}/reset-password`, { password: newPassword });
+    await apiClient.post(`/api/users/${id}/reset-password`, { password: newPassword });
   },
 };

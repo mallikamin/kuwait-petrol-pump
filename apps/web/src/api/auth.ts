@@ -14,24 +14,19 @@ export interface LoginResponse {
 
 export const authApi = {
   login: async (data: LoginRequest): Promise<LoginResponse> => {
-    const formData = new FormData();
-    formData.append('username', data.username);
-    formData.append('password', data.password);
-
-    const response = await apiClient.post<LoginResponse>('/api/v1/auth/login', formData, {
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
+    const response = await apiClient.post<LoginResponse>('/api/auth/login', {
+      username: data.username,
+      password: data.password,
     });
     return response.data;
   },
 
   getCurrentUser: async (): Promise<User> => {
-    const response = await apiClient.get<User>('/api/v1/auth/me');
+    const response = await apiClient.get<User>('/api/auth/me');
     return response.data;
   },
 
   logout: async (): Promise<void> => {
-    await apiClient.post('/api/v1/auth/logout');
+    await apiClient.post('/api/auth/logout');
   },
 };

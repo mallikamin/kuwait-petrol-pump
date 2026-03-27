@@ -9,22 +9,22 @@ export const meterReadingsApi = {
     nozzle_id?: string;
     reading_type?: 'opening' | 'closing';
   }): Promise<PaginatedResponse<MeterReading>> => {
-    const response = await apiClient.get<PaginatedResponse<MeterReading>>('/api/v1/meter-readings', { params });
+    const response = await apiClient.get<PaginatedResponse<MeterReading>>('/api/meter-readings', { params });
     return response.data;
   },
 
   getById: async (id: string): Promise<MeterReading> => {
-    const response = await apiClient.get<MeterReading>(`/api/v1/meter-readings/${id}`);
+    const response = await apiClient.get<MeterReading>(`/api/meter-readings/${id}`);
     return response.data;
   },
 
   verify: async (id: string, data: { reading_value: number; is_verified: boolean }): Promise<MeterReading> => {
-    const response = await apiClient.patch<MeterReading>(`/api/v1/meter-readings/${id}`, data);
+    const response = await apiClient.patch<MeterReading>(`/api/meter-readings/${id}`, data);
     return response.data;
   },
 
   getVarianceReport: async (shiftId: string): Promise<any> => {
-    const response = await apiClient.get(`/api/v1/meter-readings/variance-report/${shiftId}`);
+    const response = await apiClient.get(`/api/meter-readings/variance-report/${shiftId}`);
     return response.data;
   },
 };

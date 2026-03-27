@@ -5,9 +5,9 @@ import { generateAccessToken, generateRefreshToken, verifyRefreshToken } from '.
 import { AppError } from '../../middleware/error.middleware';
 
 export class AuthService {
-  async login(email: string, password: string) {
+  async login(username: string, password: string) {
     const user = await prisma.user.findUnique({
-      where: { email },
+      where: { username },
       include: { branch: true },
     });
 
@@ -15,14 +15,14 @@ export class AuthService {
       throw new AppError(401, 'Invalid credentials');
     }
 
-    const isPasswordValid = await bcrypt.compare(password, user.password);
+    const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
     if (!isPasswordValid) {
       throw new AppError(401, 'Invalid credentials');
     }
 
     const payload = {
       userId: user.id,
-      email: user.email,
+      email: user.email || user.username,
       role: user.role,
       organizationId: user.organizationId,
       branchId: user.branchId || undefined,
@@ -37,8 +37,9 @@ export class AuthService {
     return {
       user: {
         id: user.id,
+        username: user.username,
         email: user.email,
-        name: user.name,
+        full_name: user.fullName,
         role: user.role,
         branch: user.branch
           ? {
@@ -47,8 +48,9 @@ export class AuthService {
             }
           : null,
       },
-      accessToken,
-      refreshToken,
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      token_type: 'bearer',
     };
   }
 
@@ -83,7 +85,7 @@ export class AuthService {
       throw new AppError(404, 'User not found');
     }
 
-    const isPasswordValid = await bcrypt.compare(oldPassword, user.password);
+    const isPasswordValid = await bcrypt.compare(oldPassword, user.passwordHash);
     if (!isPasswordValid) {
       throw new AppError(401, 'Invalid old password');
     }
@@ -92,7 +94,7 @@ export class AuthService {
 
     await prisma.user.update({
       where: { id: userId },
-      data: { password: hashedPassword },
+      data: { passwordHash: hashedPassword },
     });
 
     // Invalidate all refresh tokens

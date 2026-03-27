@@ -89,7 +89,7 @@ export class CustomersController {
       const data = createCustomerSchema.parse(req.body);
 
       const customer = await this.customersService.createCustomer(
-        data,
+        data as any,
         req.user.organizationId
       );
 

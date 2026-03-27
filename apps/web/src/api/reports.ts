@@ -9,27 +9,27 @@ export interface ReportParams {
 
 export const reportsApi = {
   getDailySales: async (params: ReportParams): Promise<any> => {
-    const response = await apiClient.get('/api/v1/reports/daily-sales', { params });
+    const response = await apiClient.get('/api/reports/daily-sales', { params });
     return response.data;
   },
 
   getShiftReport: async (shiftId: string): Promise<any> => {
-    const response = await apiClient.get(`/api/v1/reports/shift/${shiftId}`);
+    const response = await apiClient.get(`/api/reports/shift/${shiftId}`);
     return response.data;
   },
 
   getCustomerLedger: async (customerId: string, params: Omit<ReportParams, 'branch_id'>): Promise<any> => {
-    const response = await apiClient.get(`/api/v1/reports/customer-ledger/${customerId}`, { params });
+    const response = await apiClient.get(`/api/reports/customer-ledger/${customerId}`, { params });
     return response.data;
   },
 
   getInventoryReport: async (params: { branch_id?: string }): Promise<any> => {
-    const response = await apiClient.get('/api/v1/reports/inventory', { params });
+    const response = await apiClient.get('/api/reports/inventory', { params });
     return response.data;
   },
 
   exportReport: async (reportType: string, params: ReportParams): Promise<Blob> => {
-    const response = await apiClient.get(`/api/v1/reports/${reportType}/export`, {
+    const response = await apiClient.get(`/api/reports/${reportType}/export`, {
       params,
       responseType: 'blob',
     });

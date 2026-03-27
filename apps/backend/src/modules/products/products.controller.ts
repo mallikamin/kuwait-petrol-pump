@@ -90,7 +90,7 @@ export class ProductsController {
 
       const data = createProductSchema.parse(req.body);
 
-      const product = await this.service.createProduct(data, req.user.organizationId);
+      const product = await this.service.createProduct(data as any, req.user.organizationId);
 
       res.status(201).json(product);
     } catch (error) {

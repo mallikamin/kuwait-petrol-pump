@@ -66,7 +66,7 @@ export class BifurcationController {
       const data = createBifurcationSchema.parse(req.body);
 
       const bifurcation = await this.bifurcationService.createBifurcation(
-        data,
+        data as any,
         req.user.userId,
         req.user.organizationId
       );

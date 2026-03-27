@@ -14,17 +14,17 @@ export interface SalesFilters {
 
 export const salesApi = {
   getAll: async (params?: SalesFilters): Promise<PaginatedResponse<Sale>> => {
-    const response = await apiClient.get<PaginatedResponse<Sale>>('/api/v1/sales', { params });
+    const response = await apiClient.get<PaginatedResponse<Sale>>('/api/sales', { params });
     return response.data;
   },
 
   getById: async (id: string): Promise<Sale> => {
-    const response = await apiClient.get<Sale>(`/api/v1/sales/${id}`);
+    const response = await apiClient.get<Sale>(`/api/sales/${id}`);
     return response.data;
   },
 
   exportToCSV: async (params?: SalesFilters): Promise<Blob> => {
-    const response = await apiClient.get('/api/v1/sales/export', {
+    const response = await apiClient.get('/api/sales/export', {
       params,
       responseType: 'blob',
     });

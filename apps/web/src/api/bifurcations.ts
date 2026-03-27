@@ -8,12 +8,12 @@ export const bifurcationsApi = {
     shift_id?: string;
     status?: 'pending' | 'verified' | 'rejected';
   }): Promise<PaginatedResponse<Bifurcation>> => {
-    const response = await apiClient.get<PaginatedResponse<Bifurcation>>('/api/v1/bifurcations', { params });
+    const response = await apiClient.get<PaginatedResponse<Bifurcation>>('/api/bifurcation', { params });
     return response.data;
   },
 
   getById: async (id: string): Promise<Bifurcation> => {
-    const response = await apiClient.get<Bifurcation>(`/api/v1/bifurcations/${id}`);
+    const response = await apiClient.get<Bifurcation>(`/api/bifurcation/${id}`);
     return response.data;
   },
 
@@ -26,12 +26,12 @@ export const bifurcationsApi = {
     physical_cash: number;
     notes?: string;
   }): Promise<Bifurcation> => {
-    const response = await apiClient.post<Bifurcation>('/api/v1/bifurcations', data);
+    const response = await apiClient.post<Bifurcation>('/api/bifurcation', data);
     return response.data;
   },
 
   verify: async (id: string, data: { status: 'verified' | 'rejected'; notes?: string }): Promise<Bifurcation> => {
-    const response = await apiClient.patch<Bifurcation>(`/api/v1/bifurcations/${id}/verify`, data);
+    const response = await apiClient.patch<Bifurcation>(`/api/bifurcation/${id}/verify`, data);
     return response.data;
   },
 };

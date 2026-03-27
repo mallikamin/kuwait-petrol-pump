@@ -17,6 +17,8 @@ import customersRoutes from './modules/customers/customers.routes';
 import productsRoutes from './modules/products/products.routes';
 import bifurcationRoutes from './modules/bifurcation/bifurcation.routes';
 import reportsRoutes from './modules/reports/reports.routes';
+import dashboardRoutes from './modules/dashboard/dashboard.routes';
+import usersRoutes from './modules/users/users.routes';
 
 export function createApp() {
   const app = express();
@@ -41,14 +43,16 @@ export function createApp() {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
-  // Health check
-  app.get('/health', (req, res) => {
+  // Health check (both paths for nginx proxy and direct access)
+  const healthHandler = (req: any, res: any) => {
     res.json({
       status: 'ok',
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
     });
-  });
+  };
+  app.get('/health', healthHandler);
+  app.get('/api/health', healthHandler);
 
   // API Routes
   app.use('/api/auth', authRoutes);
@@ -63,6 +67,9 @@ export function createApp() {
   app.use('/api/products', productsRoutes);
   app.use('/api/bifurcation', bifurcationRoutes);
   app.use('/api/reports', reportsRoutes);
+  app.use('/api/dashboard', dashboardRoutes);
+
+  app.use('/api/users', usersRoutes);
 
   // Root endpoint
   app.get('/', (req, res) => {
@@ -85,6 +92,8 @@ export function createApp() {
         products: '/api/products/*',
         bifurcation: '/api/bifurcation/*',
         reports: '/api/reports/*',
+        dashboard: '/api/dashboard/*',
+        users: '/api/users/*',
       },
       documentation: 'See BUILD_STATUS.md for full API documentation',
     });

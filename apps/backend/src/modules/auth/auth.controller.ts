@@ -1,10 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
+import { prisma } from '../../config/database';
 
 const loginSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(6),
+  username: z.string().min(1),
+  password: z.string().min(1),
 });
 
 const refreshSchema = z.object({
@@ -25,8 +26,8 @@ export class AuthController {
 
   login = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { email, password } = loginSchema.parse(req.body);
-      const result = await this.authService.login(email, password);
+      const { username, password } = loginSchema.parse(req.body);
+      const result = await this.authService.login(username, password);
       res.json(result);
     } catch (error) {
       next(error);
@@ -60,7 +61,23 @@ export class AuthController {
       if (!req.user) {
         return res.status(401).json({ error: 'Not authenticated' });
       }
-      res.json({ user: req.user });
+      const user = await prisma.user.findUnique({
+        where: { id: req.user.userId },
+        include: { branch: { select: { id: true, name: true } } },
+      });
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      res.json({
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        full_name: user.fullName,
+        role: user.role,
+        branch_id: user.branchId,
+        is_active: user.isActive,
+        branch: user.branch,
+      });
     } catch (error) {
       next(error);
     }

@@ -54,7 +54,7 @@ export class MeterReadingsController {
       const data = createMeterReadingSchema.parse(req.body);
 
       const meterReading = await this.meterReadingsService.createMeterReading(
-        data,
+        data as any,
         req.user.userId,
         req.user.organizationId
       );
