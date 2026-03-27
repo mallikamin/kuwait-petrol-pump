@@ -553,7 +553,6 @@ export class ReportsService {
         name: customer.name,
         phone: customer.phone,
         email: customer.email,
-        accountType: customer.accountType,
       },
       dateRange: {
         startDate,
@@ -590,7 +589,6 @@ export class ReportsService {
 
     // Get all fuel types and their availability
     const fuelTypes = await prisma.fuelType.findMany({
-      where: { organizationId },
       include: {
         nozzles: {
           where: {
@@ -598,6 +596,9 @@ export class ReportsService {
               branchId,
             },
             isActive: true,
+          },
+          include: {
+            dispensingUnit: true,
           },
         },
       },
