@@ -19,6 +19,7 @@ import bifurcationRoutes from './modules/bifurcation/bifurcation.routes';
 import reportsRoutes from './modules/reports/reports.routes';
 import dashboardRoutes from './modules/dashboard/dashboard.routes';
 import usersRoutes from './modules/users/users.routes';
+import syncRoutes from './modules/sync/sync.routes';
 
 export function createApp() {
   const app = express();
@@ -68,6 +69,7 @@ export function createApp() {
   app.use('/api/bifurcation', bifurcationRoutes);
   app.use('/api/reports', reportsRoutes);
   app.use('/api/dashboard', dashboardRoutes);
+  app.use('/api/sync', syncRoutes); // Sprint 1: Offline Foundation
 
   app.use('/api/users', usersRoutes);
 
@@ -93,6 +95,7 @@ export function createApp() {
         bifurcation: '/api/bifurcation/*',
         reports: '/api/reports/*',
         dashboard: '/api/dashboard/*',
+        sync: '/api/sync/*',
         users: '/api/users/*',
       },
       documentation: 'See BUILD_STATUS.md for full API documentation',

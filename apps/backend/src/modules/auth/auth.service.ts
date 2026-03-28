@@ -6,12 +6,14 @@ import { AppError } from '../../middleware/error.middleware';
 
 export class AuthService {
   async login(username: string, password: string) {
-    const user = await prisma.user.findUnique({
-      where: { username },
+    // Use findFirst since compound unique requires organizationId
+    // For single-org system, this finds the user by username
+    const user = await prisma.user.findFirst({
+      where: { username, isActive: true },
       include: { branch: true },
     });
 
-    if (!user || !user.isActive) {
+    if (!user) {
       throw new AppError(401, 'Invalid credentials');
     }
 

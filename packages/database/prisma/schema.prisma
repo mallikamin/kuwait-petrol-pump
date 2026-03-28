@@ -144,7 +144,7 @@ model User {
   id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
   branchId       String?  @map("branch_id") @db.Uuid // NULL for org-level users
-  username       String   @unique @db.VarChar(100)
+  username       String   @db.VarChar(100) // Tenant-scoped uniqueness (see @@unique below)
   email          String?  @db.VarChar(255)
   passwordHash   String   @map("password_hash") @db.VarChar(255)
   fullName       String?  @map("full_name") @db.VarChar(255)
@@ -164,6 +164,7 @@ model User {
   auditLogs        AuditLog[]
   fuelPriceChanges FuelPrice[]
 
+  @@unique([organizationId, username], name: "unique_org_username") // Multi-tenant safety
   @@index([organizationId], name: "idx_users_org")
   @@index([role], name: "idx_users_role")
   @@map("users")
@@ -231,6 +232,12 @@ model MeterReading {
   isManualOverride Boolean  @default(false) @map("is_manual_override")
   recordedBy       String?  @map("recorded_by") @db.Uuid
   recordedAt       DateTime @default(now()) @map("recorded_at") @db.Timestamptz
+  // Offline sync tracking (Sprint 1)
+  syncStatus       String   @default("pending") @map("sync_status") @db.VarChar(20) // 'pending', 'synced', 'failed'
+  offlineQueueId   String?  @map("offline_queue_id") @db.VarChar(100) // Idempotency key (tenant-scoped, see @@unique)
+  syncAttempts     Int      @default(0) @map("sync_attempts") @db.Integer
+  lastSyncAttempt  DateTime? @map("last_sync_attempt") @db.Timestamptz
+  syncError        String?  @map("sync_error") @db.Text
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   // Relations
@@ -238,8 +245,11 @@ model MeterReading {
   shiftInstance  ShiftInstance @relation(fields: [shiftInstanceId], references: [id])
   recordedByUser User?         @relation(fields: [recordedBy], references: [id])
 
+  @@unique([nozzleId, offlineQueueId], name: "unique_nozzle_offline_queue") // Multi-tenant safety (nozzle implies org)
   @@index([shiftInstanceId], name: "idx_meter_readings_shift")
   @@index([nozzleId, recordedAt], name: "idx_meter_readings_nozzle")
+  @@index([syncStatus, lastSyncAttempt], name: "idx_meter_readings_sync_status")
+  @@index([offlineQueueId], name: "idx_meter_readings_offline_queue")
   @@map("meter_readings")
 }
 
@@ -292,6 +302,12 @@ model Sale {
   qbSynced        Boolean   @default(false) @map("qb_synced")
   qbInvoiceId     String?   @map("qb_invoice_id") @db.VarChar(100)
   qbSyncedAt      DateTime? @map("qb_synced_at") @db.Timestamptz
+  // Offline sync tracking (Sprint 1)
+  syncStatus      String    @default("pending") @map("sync_status") @db.VarChar(20) // 'pending', 'synced', 'failed'
+  offlineQueueId  String?   @map("offline_queue_id") @db.VarChar(100) // Idempotency key (tenant-scoped, see @@unique)
+  syncAttempts    Int       @default(0) @map("sync_attempts") @db.Integer
+  lastSyncAttempt DateTime? @map("last_sync_attempt") @db.Timestamptz
+  syncError       String?   @map("sync_error") @db.Text
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -304,10 +320,14 @@ model Sale {
   nonFuelSales  NonFuelSale[]
   qbSyncLogs    QBSyncLog[]
 
+  @@unique([branchId, offlineQueueId], name: "unique_branch_offline_queue") // Multi-tenant safety (branch implies org)
   @@index([saleDate], name: "idx_sales_date")
   @@index([branchId, saleDate], name: "idx_sales_branch")
+  @@index([branchId, syncStatus, lastSyncAttempt], name: "idx_sales_branch_sync") // For 100-pump scale
   @@index([customerId], name: "idx_sales_customer")
   @@index([qbSynced, qbSyncedAt], name: "idx_sales_qb_sync")
+  @@index([syncStatus, lastSyncAttempt], name: "idx_sales_sync_status")
+  @@index([offlineQueueId], name: "idx_sales_offline_queue")
   @@map("sales")
 }
 

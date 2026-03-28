@@ -215,13 +215,16 @@ export class UsersController {
 
       const data = createUserSchema.parse(req.body);
 
-      // Check if username already exists (globally unique in schema)
-      const existingUser = await prisma.user.findUnique({
-        where: { username: data.username },
+      // Check if username already exists in this organization
+      const existingUser = await prisma.user.findFirst({
+        where: {
+          username: data.username,
+          organizationId: req.user.organizationId,
+        },
       });
 
       if (existingUser) {
-        throw new AppError(409, 'Username already exists');
+        throw new AppError(409, 'Username already exists in your organization');
       }
 
       // If branchId is provided, verify it belongs to the same organization
@@ -299,14 +302,17 @@ export class UsersController {
         throw new AppError(400, 'You cannot change your own role');
       }
 
-      // If username is changing, check uniqueness
+      // If username is changing, check uniqueness within organization
       if (data.username && data.username !== existingUser.username) {
-        const usernameExists = await prisma.user.findUnique({
-          where: { username: data.username },
+        const usernameExists = await prisma.user.findFirst({
+          where: {
+            username: data.username,
+            organizationId: req.user.organizationId,
+          },
         });
 
         if (usernameExists) {
-          throw new AppError(409, 'Username already exists');
+          throw new AppError(409, 'Username already exists in your organization');
         }
       }
 
