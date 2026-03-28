@@ -1,0 +1,68 @@
+# Petrol Pumps.docx - Extracted Requirements
+
+## Core Objectives
+1. Digitize petrol pump operations end-to-end
+2. Minimize manual data entry using OCR and automation
+3. Integrate sales, purchases, and expenses into unified system
+4. Enable real-time reporting and monitoring of Sales/Customer balances etc
+5. Provide seamless integration with QuickBooks Online
+6. Support scalability for multiple petrol pump locations
+
+## Major Components
+1. Mobile application with built-in POS, OCR scanning of Dispensing units' meter (Liters sold), online ordering all integrated with POS itself
+2. Single POS System for both fuel and non-fuel items
+3. Inventory Management System
+4. QB Online Integration
+5. Admin Dashboard & Reporting
+6. Multi-Branch Management
+
+## POS System - Fuel Sales Workflow
+
+### Step 1: Meter Reading via Mobile App
+- Pump staff capture images of dispensing unit meters (separately for PMG and HSD nozzle wise)
+- OCR will scan and read meter readings automatically
+- Data captured:
+  * Date & time
+  * Pump number / dispensing unit
+  * Fuel type (PMG / HSD or Nozzle number)
+  * Meter reading value
+
+### Step 2: Automatic Sales Calculation
+- System stores last shift closing reading
+- Current reading will be subtracted with last closing
+- Separate calculations for PMG (Petrol) and HSD (Diesel)
+- System automatically applies current fuel rates
+
+### Step 3: Sales Bifurcation Screen
+- After automatic calculation, accountant/manager allocates total sales into payment types:
+  * Cash
+  * Credit
+  * Bank Card
+  * PSO Card (or other fuel cards)
+
+**Data Capture During Bifurcation:**
+- For Cash Sales: Option to mark as walk-in customer
+- For Credit Sales:
+  * Customer name
+  * Vehicle number
+  * Slip number
+- Bifurcation must be done separately for HSD and PMG
+- System validation: Total bifurcation must match total calculated sales
+
+## General POS Features
+- Option of Built-in POS within application
+- Real-time transaction recording
+- Shift-based operations (opening & closing)
+- Operator login and tracking
+
+## Non-Fuel Sales
+- Sales of items: Engine oil, Oil filters, Other retail items
+- Features:
+  * Item-wise billing
+  * Inventory deduction
+  * Separate reporting from fuel sales
+
+## Requirements
+- Fast and responsive interface
+- **Offline capability with sync when internet is restored** (CRITICAL)
+- Hardware compatibility (receipt printer, barcode scanner if needed)

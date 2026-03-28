@@ -24,10 +24,14 @@ model Organization {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
-  branches  Branch[]
-  users     User[]
-  customers Customer[]
-  products  Product[]
+  branches      Branch[]
+  users         User[]
+  customers     Customer[]
+  products      Product[]
+  qbConnections QBConnection[]
+  qbSyncQueue   QBSyncQueue[]
+  qbSyncLogs    QBSyncLog[]
+  qbSnapshots   QBEntitySnapshot[]
 
   @@map("organizations")
 }
@@ -87,8 +91,8 @@ model FuelPrice {
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   // Relations
-  fuelType    FuelType @relation(fields: [fuelTypeId], references: [id])
-  changedByUser User?  @relation(fields: [changedBy], references: [id])
+  fuelType      FuelType @relation(fields: [fuelTypeId], references: [id])
+  changedByUser User?    @relation(fields: [changedBy], references: [id])
 
   @@index([fuelTypeId, effectiveFrom, effectiveTo], name: "idx_fuel_prices_effective")
   @@map("fuel_prices")
@@ -150,15 +154,15 @@ model User {
   updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
-  organization         Organization   @relation(fields: [organizationId], references: [id])
-  branch               Branch?        @relation(fields: [branchId], references: [id])
-  openedShifts         ShiftInstance[] @relation("ShiftOpenedBy")
-  closedShifts         ShiftInstance[] @relation("ShiftClosedBy")
-  meterReadings        MeterReading[]
-  sales                Sale[]
-  bifurcations         Bifurcation[]
-  auditLogs            AuditLog[]
-  fuelPriceChanges     FuelPrice[]
+  organization     Organization    @relation(fields: [organizationId], references: [id])
+  branch           Branch?         @relation(fields: [branchId], references: [id])
+  openedShifts     ShiftInstance[] @relation("ShiftOpenedBy")
+  closedShifts     ShiftInstance[] @relation("ShiftClosedBy")
+  meterReadings    MeterReading[]
+  sales            Sale[]
+  bifurcations     Bifurcation[]
+  auditLogs        AuditLog[]
+  fuelPriceChanges FuelPrice[]
 
   @@index([organizationId], name: "idx_users_org")
   @@index([role], name: "idx_users_role")
@@ -171,14 +175,14 @@ model User {
 
 /// Shift (Shift configuration)
 model Shift {
-  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  branchId   String   @map("branch_id") @db.Uuid
-  shiftNumber Int     @map("shift_number") // 1, 2, 3
-  name       String?  @db.VarChar(100) // 'Morning', 'Night'
-  startTime  DateTime @map("start_time") @db.Time
-  endTime    DateTime @map("end_time") @db.Time
-  isActive   Boolean  @default(true) @map("is_active")
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  branchId    String   @map("branch_id") @db.Uuid
+  shiftNumber Int      @map("shift_number") // 1, 2, 3
+  name        String?  @db.VarChar(100) // 'Morning', 'Night'
+  startTime   DateTime @map("start_time") @db.Time
+  endTime     DateTime @map("end_time") @db.Time
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   // Relations
   branch         Branch          @relation(fields: [branchId], references: [id])
@@ -202,10 +206,10 @@ model ShiftInstance {
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   // Relations
-  shift         Shift           @relation(fields: [shiftId], references: [id])
-  branch        Branch          @relation(fields: [branchId], references: [id])
-  openedByUser  User?           @relation("ShiftOpenedBy", fields: [openedBy], references: [id])
-  closedByUser  User?           @relation("ShiftClosedBy", fields: [closedBy], references: [id])
+  shift         Shift          @relation(fields: [shiftId], references: [id])
+  branch        Branch         @relation(fields: [branchId], references: [id])
+  openedByUser  User?          @relation("ShiftOpenedBy", fields: [openedBy], references: [id])
+  closedByUser  User?          @relation("ShiftClosedBy", fields: [closedBy], references: [id])
   meterReadings MeterReading[]
   sales         Sale[]
   bifurcations  Bifurcation[]
@@ -217,17 +221,17 @@ model ShiftInstance {
 
 /// Meter Reading (Fuel meter readings at shift open/close)
 model MeterReading {
-  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  nozzleId        String   @map("nozzle_id") @db.Uuid
-  shiftInstanceId String   @map("shift_instance_id") @db.Uuid
-  readingType     String   @map("reading_type") @db.VarChar(20) // 'opening', 'closing'
-  meterValue      Decimal  @map("meter_value") @db.Decimal(12, 2)
-  imageUrl        String?  @map("image_url") @db.Text
-  ocrResult       Decimal? @map("ocr_result") @db.Decimal(12, 2)
-  isManualOverride Boolean @default(false) @map("is_manual_override")
-  recordedBy      String?  @map("recorded_by") @db.Uuid
-  recordedAt      DateTime @default(now()) @map("recorded_at") @db.Timestamptz
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nozzleId         String   @map("nozzle_id") @db.Uuid
+  shiftInstanceId  String   @map("shift_instance_id") @db.Uuid
+  readingType      String   @map("reading_type") @db.VarChar(20) // 'opening', 'closing'
+  meterValue       Decimal  @map("meter_value") @db.Decimal(12, 2)
+  imageUrl         String?  @map("image_url") @db.Text
+  ocrResult        Decimal? @map("ocr_result") @db.Decimal(12, 2)
+  isManualOverride Boolean  @default(false) @map("is_manual_override")
+  recordedBy       String?  @map("recorded_by") @db.Uuid
+  recordedAt       DateTime @default(now()) @map("recorded_at") @db.Timestamptz
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   // Relations
   nozzle         Nozzle        @relation(fields: [nozzleId], references: [id])
@@ -292,13 +296,13 @@ model Sale {
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
-  branch         Branch         @relation(fields: [branchId], references: [id])
-  shiftInstance  ShiftInstance? @relation(fields: [shiftInstanceId], references: [id])
-  customer       Customer?      @relation(fields: [customerId], references: [id])
-  cashier        User?          @relation(fields: [cashierId], references: [id])
-  fuelSales      FuelSale[]
-  nonFuelSales   NonFuelSale[]
-  qbSyncLogs     QBSyncLog[]
+  branch        Branch         @relation(fields: [branchId], references: [id])
+  shiftInstance ShiftInstance? @relation(fields: [shiftInstanceId], references: [id])
+  customer      Customer?      @relation(fields: [customerId], references: [id])
+  cashier       User?          @relation(fields: [cashierId], references: [id])
+  fuelSales     FuelSale[]
+  nonFuelSales  NonFuelSale[]
+  qbSyncLogs    QBSyncLog[]
 
   @@index([saleDate], name: "idx_sales_date")
   @@index([branchId, saleDate], name: "idx_sales_branch")
@@ -439,25 +443,254 @@ model Bifurcation {
 // QUICKBOOKS INTEGRATION
 // ============================================================
 
-/// QuickBooks Sync Log
+// ---------------------------------------------------------------------------
+// TRACK A: Minimum-Safe Sync Foundation (Phase 1)
+// Source: POS-Project QB integration (ported from Python to TypeScript/Prisma)
+// ---------------------------------------------------------------------------
+
+/// QuickBooks Connection (OAuth2 tokens + health tracking)
+model QBConnection {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+
+  // Organization link
+  organizationId String       @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Connection metadata
+  companyName String @map("company_name") @db.VarChar(255)
+  realmId     String @map("realm_id") @db.VarChar(50) // QB Online company ID
+
+  // OAuth2 tokens (encrypted with Node crypto AES-256-GCM)
+  accessTokenEncrypted  String?   @map("access_token_encrypted") @db.Text
+  refreshTokenEncrypted String?   @map("refresh_token_encrypted") @db.Text
+  accessTokenExpiresAt  DateTime? @map("access_token_expires_at") @db.Timestamptz
+  refreshTokenExpiresAt DateTime? @map("refresh_token_expires_at") @db.Timestamptz
+
+  // Connection health
+  isActive       Boolean   @default(true) @map("is_active")
+  lastSyncAt     DateTime? @map("last_sync_at") @db.Timestamptz
+  lastSyncStatus String?   @map("last_sync_status") @db.VarChar(20) // 'success' | 'failed' | 'in_progress'
+
+  // Financial safety controls (Rule 1: Read-only first, Rule 8: Kill switch)
+  syncMode         String  @default("READ_ONLY") @map("sync_mode") @db.VarChar(20) // 'READ_ONLY' | 'WRITE_ENABLED'
+  globalKillSwitch Boolean @default(false) @map("global_kill_switch") // Emergency stop all syncs
+  approvalRequired Boolean @default(true) @map("approval_required") // Require manual approval for write batches
+
+  // Metadata
+  connectedBy String   @map("connected_by") @db.Uuid // User ID who connected
+  connectedAt DateTime @default(now()) @map("connected_at") @db.Timestamptz
+  companyInfo Json?    @map("company_info") @db.JsonB // Cached QB company data
+
+  // Relations
+  syncQueue       QBSyncQueue[]
+  syncLogs        QBSyncLog[]
+  entitySnapshots QBEntitySnapshot[]
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@unique([organizationId, realmId], name: "uq_qb_conn_org_realm")
+  @@index([organizationId, isActive], name: "idx_qb_conn_org_active")
+  @@map("qb_connections")
+}
+
+/// QuickBooks Sync Queue (Async job queue with retry + idempotency)
+model QBSyncQueue {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+
+  // Connection link
+  connectionId String       @map("connection_id") @db.Uuid
+  connection   QBConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  organizationId String       @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Job metadata
+  jobType    String  @map("job_type") @db.VarChar(50) // 'create_sales_receipt' | 'sync_customer' | 'sync_item'
+  entityType String  @map("entity_type") @db.VarChar(50) // 'sale' | 'customer' | 'product'
+  entityId   String? @map("entity_id") @db.Uuid
+
+  // Priority and status
+  priority Int    @default(5) @db.Integer // 0=critical, 5=normal, 10=bulk
+  status   String @default("pending") @db.VarChar(20) // 'pending' | 'processing' | 'completed' | 'failed' | 'dead_letter' | 'cancelled'
+
+  // Payload and result
+  payload Json? @db.JsonB // Serialized data for sync operation
+  result  Json? @db.JsonB // QB API response on success
+
+  // Error tracking (Track A: Error taxonomy)
+  errorMessage   String? @map("error_message") @db.Text
+  errorCode      String? @map("error_code") @db.VarChar(50) // QB API error code
+  errorDetail    Json?   @map("error_detail") @db.JsonB // Full QB error response
+  httpStatusCode Int?    @map("http_status_code") @db.Integer // HTTP status from QB API
+
+  // Retry policy (Track A: Exponential backoff)
+  retryCount  Int       @default(0) @map("retry_count") @db.Integer
+  maxRetries  Int       @default(3) @map("max_retries") @db.Integer
+  nextRetryAt DateTime? @map("next_retry_at") @db.Timestamptz
+
+  // Timing
+  startedAt   DateTime? @map("started_at") @db.Timestamptz
+  completedAt DateTime? @map("completed_at") @db.Timestamptz
+  durationMs  Int?      @map("duration_ms") @db.Integer
+
+  // Idempotency (Track A: DB constraint enforcement)
+  idempotencyKey String? @map("idempotency_key") @db.VarChar(100)
+
+  // Financial safety controls (Rule 4: Pre-sync checkpoint, Rule 8: Replay)
+  batchId             String?   @map("batch_id") @db.Uuid // Group related operations for atomic approval
+  checkpointId        String?   @map("checkpoint_id") @db.Uuid // DB backup checkpoint before execution
+  approvalStatus      String    @default("pending_approval") @map("approval_status") @db.VarChar(20) // 'pending_approval' | 'approved' | 'rejected'
+  approvedBy          String?   @map("approved_by") @db.Uuid // User who approved the write operation
+  approvedAt          DateTime? @map("approved_at") @db.Timestamptz
+  replayableFromBatch String?   @map("replayable_from_batch") @db.Uuid // Reference to batch for replay capability
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@unique([organizationId, idempotencyKey], name: "uq_qb_sync_queue_org_idempotency")
+  @@index([organizationId, status, priority], name: "idx_qb_sync_queue_org_status_prio")
+  @@index([organizationId, nextRetryAt], name: "idx_qb_sync_queue_org_retry")
+  @@index([status, createdAt], name: "idx_qb_sync_queue_status_created")
+  @@index([organizationId, batchId], name: "idx_qb_sync_queue_org_batch")
+  @@index([organizationId, approvalStatus], name: "idx_qb_sync_queue_org_approval")
+  @@index([checkpointId], name: "idx_qb_sync_queue_checkpoint")
+  @@map("qb_sync_queue")
+}
+
+/// QuickBooks Sync Log (Enhanced audit trail with error taxonomy + timing)
 model QBSyncLog {
-  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  entityType   String    @map("entity_type") @db.VarChar(50) // 'sale', 'customer', 'product'
-  entityId     String    @map("entity_id") @db.Uuid
-  operation    String    @db.VarChar(20) // 'create', 'update'
-  qbId         String?   @map("qb_id") @db.VarChar(100)
-  status       String    @db.VarChar(20) // 'pending', 'success', 'failed'
-  errorMessage String?   @map("error_message") @db.Text
-  syncedAt     DateTime? @map("synced_at") @db.Timestamptz
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+
+  // Connection link (Track A addition)
+  connectionId String?       @map("connection_id") @db.Uuid
+  connection   QBConnection? @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  organizationId String       @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Entity tracking
+  entityType String @map("entity_type") @db.VarChar(50) // 'sale', 'customer', 'product'
+  entityId   String @map("entity_id") @db.Uuid
+  operation  String @db.VarChar(20) // 'create', 'update', 'delete'
+
+  // QB entity ID
+  qbId        String? @map("qb_id") @db.VarChar(100)
+  qbDocNumber String? @map("qb_doc_number") @db.VarChar(50) // Sales receipt number, invoice number, etc.
+
+  // Status (Track A: Enhanced states)
+  status String @db.VarChar(20) // 'success' | 'failed' | 'skipped' | 'partial'
+
+  // HTTP details (Track A: Full audit trail)
+  httpMethod     String? @map("http_method") @db.VarChar(10) // 'GET' | 'POST' | 'PUT'
+  httpUrl        String? @map("http_url") @db.VarChar(500)
+  httpStatusCode Int?    @map("http_status_code") @db.Integer
+
+  // Request/Response (Track A: Full payload logging)
+  requestPayload  Json? @map("request_payload") @db.JsonB
+  responsePayload Json? @map("response_payload") @db.JsonB
+
+  // Error tracking (Track A: Error taxonomy)
+  errorMessage String? @map("error_message") @db.Text
+  errorCode    String? @map("error_code") @db.VarChar(50) // QB API error code
+  errorDetail  Json?   @map("error_detail") @db.JsonB
+
+  // Timing (Track A: Performance tracking)
+  durationMs Int? @map("duration_ms") @db.Integer
+
+  // Financial tracking (Track A: Audit amounts)
+  amountCents Int? @map("amount_cents") @db.Integer // For quick financial audit
+
+  // Batch tracking
+  batchId String? @map("batch_id") @db.Uuid // Groups related sync operations
+
+  syncedAt  DateTime? @map("synced_at") @db.Timestamptz
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   // Relations (polymorphic - manual resolution needed)
   sale    Sale?    @relation(fields: [entityId], references: [id], map: "qb_sync_log_sale_fkey")
   product Product? @relation(fields: [entityId], references: [id], map: "qb_sync_log_product_fkey")
 
+  @@index([organizationId, status, createdAt], name: "idx_qb_sync_log_org_status")
+  @@index([organizationId, entityType, entityId], name: "idx_qb_sync_log_org_entity")
+  @@index([organizationId, batchId], name: "idx_qb_sync_log_org_batch")
   @@index([status, createdAt], name: "idx_qb_sync_status")
   @@index([entityType, entityId], name: "idx_qb_sync_entity")
   @@map("qb_sync_log")
+}
+
+/// QuickBooks Audit Log (Rule 3: Immutable append-only log for ALL QB operations)
+model QuickBooksAuditLog {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+
+  // Operation tracking
+  operation   String  @db.VarChar(100) // 'CREATE', 'UPDATE', 'READ', 'SYNC_START', 'SYNC_COMPLETE', 'BATCH_CREATE', etc.
+  entity_type String  @map("entity_type") @db.VarChar(50) // 'Customer', 'Item', 'Invoice', 'sale', 'customer', 'product'
+  entity_id   String? @map("entity_id") @db.VarChar(100) // QB ID or local UUID
+
+  // Direction and status
+  direction String @db.VarChar(20) // 'APP_TO_QB' | 'QB_TO_APP'
+  status    String @db.VarChar(20) // 'SUCCESS' | 'FAILURE' | 'PENDING'
+
+  // Payloads (redacted for security)
+  request_payload  Json?   @map("request_payload") @db.JsonB
+  response_payload Json?   @map("response_payload") @db.JsonB
+  error_message    String? @map("error_message") @db.Text
+
+  // Metadata
+  metadata Json? @db.JsonB
+
+  created_at DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([operation, created_at], name: "idx_qb_audit_operation_time")
+  @@index([entity_type, entity_id], name: "idx_qb_audit_entity")
+  @@index([status, created_at], name: "idx_qb_audit_status_time")
+  @@index([created_at], name: "idx_qb_audit_created")
+  @@map("quickbooks_audit_log")
+}
+
+/// QuickBooks Entity Snapshot (Rule 5: QB fallback snapshots for disaster recovery)
+model QBEntitySnapshot {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+
+  // Connection link
+  connectionId String       @map("connection_id") @db.Uuid
+  connection   QBConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  organizationId String       @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // QB entity identification
+  qbEntityType String @map("qb_entity_type") @db.VarChar(50) // 'Customer' | 'Item' | 'Invoice' | 'Payment' | 'Account'
+  qbEntityId   String @map("qb_entity_id") @db.VarChar(50) // QuickBooks ID (not our UUID)
+  qbEntityName String @map("qb_entity_name") @db.VarChar(255) // For quick reference
+
+  // Local entity mapping (optional)
+  localEntityType String? @map("local_entity_type") @db.VarChar(50) // 'customer' | 'product' | 'sale'
+  localEntityId   String? @map("local_entity_id") @db.Uuid // Our local ID
+
+  // Full QB entity data (immutable snapshot)
+  snapshotData Json    @map("snapshot_data") @db.JsonB // Complete QB entity JSON response
+  syncVersion  Int     @default(1) @map("sync_version") @db.Integer // Incremental version tracking
+  syncHash     String? @map("sync_hash") @db.VarChar(64) // SHA-256 of snapshot data for change detection
+
+  // Snapshot metadata
+  snapshotType String  @map("snapshot_type") @db.VarChar(20) // 'pre_sync' | 'post_sync' | 'manual' | 'scheduled'
+  snapshotBy   String? @map("snapshot_by") @db.Uuid // User ID if manual snapshot
+  notes        String? @db.Text // Admin notes about this snapshot
+
+  // Timing
+  snapshotAt DateTime @map("snapshot_at") @db.Timestamptz
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // Retention (for cleanup jobs)
+  expiresAt DateTime? @map("expires_at") @db.Timestamptz // Null = keep forever
+
+  @@index([organizationId, qbEntityType, qbEntityId], name: "idx_qb_snapshot_org_entity")
+  @@index([organizationId, snapshotType, snapshotAt], name: "idx_qb_snapshot_org_type_time")
+  @@index([connectionId, snapshotAt], name: "idx_qb_snapshot_conn_time")
+  @@index([expiresAt], name: "idx_qb_snapshot_expires") // For cleanup jobs
+  @@map("qb_entity_snapshots")
 }
 
 // ============================================================

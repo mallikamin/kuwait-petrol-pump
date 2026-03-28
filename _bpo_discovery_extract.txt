@@ -1,0 +1,430 @@
+﻿ Kuwait Petrol Pump POS
+
+              System
+
+  Pre-Development Discovery Questionnaire
+
+                             Prepared by: Malik Amin
+                             Company: Sitara Infotech
+
+                                Date: March 25, 2026
+                                      Version: 1.0
+
+Building a solution 100x better than what you currently have
+ Table of Contents
+
+   1. Current System Pain Points
+   2. Fuel Operations
+   3. Sales & Payment Processing
+   4. Non-Fuel Inventory
+   5. Hardware & Infrastructure
+   6. QuickBooks Integration
+   7. Users & Permissions
+   8. Multi-Branch Operations
+   9. Reporting Needs
+   10. Site Visit & Demo
+   11. Additional Information
+   12. Sign-off
+2.1 What's Not Working?
+Rate your satisfaction with TRIMS POS in these areas (1 = Very Unsatisfied, 10 = Very Satisfied):
+
+Area                   Rating    What's the specific problem?
+Speed/Performance       6 /10
+                               Sometimes slow, Not allowing to save the entry unless until
+User Interface          6 /10  whole day transactions are entered and tallied with total
+Offline Capability        /10  sale(which can sometime takes 40-50 entries and in case
+Reporting                      upon submission error comes then the accountant will have
+Accuracy                3 /10  to re do all the transactions from scratch)
+Training Ease           3 /10  Quite old school interface,
+Mobile App              5 /10
+Multi-branch Features   4 /10  Not tested much yet
+
+                          /10  Very Limited
+
+                               Issues coming after every change, repetition of errors, bugs
+                               etc
+                               Available for training but takes a lot of time in
+                               corrections/bug fixes
+                               Limited usage as errors are coming every now and then
+
+                               Not tested much
+
+What are your TOP 3 pain points with TRIMS that MUST be fixed?
+
+  1. Repetition of same errors or bugs
+  2. Takes quite a long time to fix even a small thing
+  3.
+
+2.2 Automation Needs
+
+What manual work do you do that should be automated?
+
+Currently the staff at petrol pumps note down the meter readings after every shift on a register, then the
+ accountant subtracts the figures of all nozzles from previous shift and multiply by the rate. This should
+  be automated via Mobile App (OCR Scanning) � POS. Then he enters the figure and the credit sales
+
+                                       from the register in POS and generate reports
+    CRITICAL SECTION: This information is essential for database design. Please be as detailed and
+accurate as possible.
+
+3.1 Dispensing Units Configuration
+Total Dispensing Units at Main Branch:
+
+4
+
+For each unit, fill in this table:
+
+Unit #  Nozzles               Fuel Type(s)                 Meter Type                        Notes
+1       2 nozzles              PMG  HSD  Both              Digital  Analog
+2       1 nozzle               PMG HSD  Both               Digital  Analog
+3       1 nozzles             PMG  HSD  Both               Digital  Analog
+4       2 nozzles             PMG  HSD Both                Digital  Analog
+5                              PMG  HSD  Both               Digital  Analog
+            nozzles
+
+*Add more rows on separate sheet if needed
+
+Nozzle Naming Convention (Example: "Machine 1 - Nozzle 1" or "Unit A - PMG - 1"):
+
+     TIP: Can you take photos of your meters and share with us? This will help us train the
+OCR
+
+systeYme.s, will send photos  Will take during site visit  Not possible
+a. Fuel Pricing                                Price per Liter (KWD)
+Current Fuel Prices:                         321.17 Rs/Liter
+                                             335.86 Rs/Liter
+  Fuel Type
+  PMG (Petrol)
+  HSD (Diesel)
+  Other (if applicable)
+
+How often do fuel prices change?
+     Daily
+     Weekly
+
+ When government announces (irregular)
+     Rarely
+      Other:
+
+Who has authority to change prices in the system?
+
+It will depend on the client. Can either be their accountant or manager
+
+b. Shift Operations
+
+How many shifts per day?
+     1 shift
+
+ 2 shifts
+     3 shifts
+
+Other: It also varies from Client to Client
+
+Shift Timings:
+
+Shift                                                                    From  To
+Shift 1
+Shift 2 (if applicable)                      Varies from client to client
+Shift 3 (if applicable)                      and area wise. (For demo lets
+                                             assume a 12 hour shift)
+Number of pump operators per shift:
+
+For Demo we can assume 1 per each Dispensing unit plus one cashier, one GM and 1 Accountant
+
+c. Meter Reading Process
+Current Process with TRIMS - What are the exact steps?
+
+  Step 1: From mobile app take picture of meter at shift close
+  Step 2: The app will scan and show us the result to verify
+  Step 3: If correct then we will submit it, otherwise we will retake the picture
+  Step 4: Once submitted it will go into the POS page where all calculations will be done
+
+How long does the entire meter reading process take currently?
+
+If everything is smooth then it does not take more than 5 to 10 minutes from Picture to POS initial calculations.
+
+What's your acceptable variance between expected and actual readings?
+ Zero tolerance - must match exactly
+
+     �1 liter per nozzle
+     �5 liters per nozzle
+     �10 liters per nozzle
+      �1% of total volume
+      Other:
+
+d. Sales Bifurcation Process
+
+        CRITICAL: This is a core feature - we need to understand it perfectly.
+
+When does bifurcation happen?
+     At the time of each fuel sale (cashier does it immediately)
+     End of each shift (manager does it for all sales)
+
+ End of day (accountant does it)
+      Other: Will also depend upon client (It can be done at end of each shift)
+Walk us through your EXACT bifurcation process:
+
+   Example: "Total PMG sold = 1000 liters. Manager sits at computer, sees total is 28,000 KWD.
+   Manager enters: Cash = 20,000 KWD, Credit = 5,000 KWD, Card = 3,000 KWD. System validates
+   total matches. Manager saves."
+
+  Your process:
+    � Total sales recorded: PMG � 1,000 liters, HSD � 1,000 liters.
+    � Initially, petrol pump operators are unable to identify how much cash received relates to PMG or
+         HSD, as this requires additional tracking resources.
+    � The accountant first reviews all credit sale invoices (petrol pump slips) and records them in the
+         POS system with proper classification between PMG and HSD.
+    � Next, sales made through bank cards and pump cards are entered into the system.
+    � Once all identifiable transactions have been recorded, the remaining balance is treated as cash
+         sales and allocated accordingly.
+4.1 Payment Methods
+What percentage of your fuel sales are in each payment type?
+
+Never the same, also it will depend on number of factors especially the area in which pump is operating.
+
+Payment Type                                                  Percentage
+Cash                                                                  %
+Credit (Account customers)                                            %
+Debit/Credit Cards                                                    %
+PSO/Fuel Cards                                                        %
+Other (specify)                                                       %
+TOTAL
+                                                              100%
+
+4.2 Credit Sales Management
+
+Number of Active Credit Customers:
+      Less than 10 (If in a residential area)
+     10-25
+     25-50
+     50-100 (if in an Industrial area like Sundar Estate)
+     100-250
+      250+
+What information do you track for each credit customer? (Check all that apply)
+     Customer name (person or company)
+     Phone number
+     Email address
+     Physical address
+     Commercial Registration (CR) number
+     Tax/VAT number
+     Vehicle number(s)
+     Driver name(s)
+     Credit limit (KWD amount)
+      Credit period (e.g., 30 days)
+      Other: Customer name, Vehicle Number, Slip Number
+
+Credit Terms:
+Standard credit period:
+
+     7 days
+     15 days
+     30 days
+     45 days
+     60 days
+Varies by customer
+
+Typical credit limit per customer:  Rs
+    CRITICAL SECTION: Exact hardware models are essential for integration. Please check device
+labels/stickers for model numbers.
+
+6.1 POS Computer/Terminal
+At your main POS station, what do you currently use?
+
+Specification        Details
+Device Type          Desktop PC  Laptop  Tablet  All-in-one touchscreen
+Operating System     Windows 10  Windows 11  Mac OS  Other:
+Age of device         0-1 year 1-3 years  3-5 years  5+ years
+RAM                   2GB  4GB  8GB  16GB  Don't know
+Condition             Working perfectly  Working but slow  Needs replacement
+
+6.2 Receipt Printer
+
+CRITICAL: We need exact model for driver integration. Please check the printer label/sticker.
+Receipt Printer Details:
+
+Item                      Information
+Do you have one?           Yes (fill details below)  No, need to buy
+Brand/Model
+Type                       Thermal  Dot matrix  Inkjet/Laser  Don't know
+Connection                 USB  Network  WiFi  Bluetooth  Don't know
+Paper Width                58mm  80mm  Don't know
+Working Status             Works perfectly  Sometimes jams  Need replacement
+
+Receipt Requirements - What should appear on customer receipts? I think everything is essential
+     Station/Branch name
+     Company logo
+      Date and time
+     Receipt/Transaction number
+     Cashier/operator name
+     Itemized list
+     Subtotal, Tax, Total
+     Payment method
+     Customer name (for credit)
+     Vehicle number (for credit)
+
+and slip number
+     QR code
+     Footer message
+
+Receipt language:  English only  Arabic only  Both (bilingual)
+6.3 Network & Internet
+Internet Connection:
+
+Item              Details
+Provider         PTCL
+Type
+Reliability          Fiber  DSL  4G/5G  Other:
+Backup Internet    Very reliable (99%) Reliable (95%)  Unreliable (often down)
+                   Yes  No, but need  No, not needed
+
+Important Question: If internet goes down, should the system still work?
+
+      YES - System MUST work offline (recommended for petrol pumps)
+     Prefer offline capability
+     No, online-only is fine
+    CRITICAL SECTION: Integration depends on your QB plan type. Please answer carefully or
+involve your accountant.
+
+7.1 QuickBooks Subscription
+
+Do you currently use QuickBooks?
+ Yes, QuickBooks Online (proceed to next questions)
+
+     Yes, QuickBooks Desktop (limited API - we need to discuss)
+     No, but planning to start
+      No, using different software:
+      No, using Excel only
+
+If using QuickBooks Online, which plan?
+     Simple Start ( No API - cannot integrate!)
+     Essentials (Limited API)
+     Plus (Full API - recommended)
+
+ Advanced (Full API)
+      Don't know (please check QB subscription settings)
+
+    IMPORTANT: If you have Simple Start, we cannot integrate directly. You'll need to upgrade to
+Essentials or Plus.
+
+7.2 QuickBooks Setup
+
+Who manages your QuickBooks account?
+
+Owner
+
+In-house accountant
+
+External accountant (Name:                  )
+
+ Accounting firm (Name: BPO WORLD LIMITED)
+Can we get temporary test access to your QB account for integration setup?
+ Yes (we'll need Admin credentials for testing only)
+
+     Yes, but need to check with accountant first
+     No, but can provide screenshots
+     Not sure, let's discuss
+
+7.3 What to Sync
+
+What data should automatically sync from POS to QuickBooks?
+     Daily sales summary (one journal entry per day)
+     Individual invoices for each credit sale
+     Customer payments/receipts
+     Inventory quantity updates
+     Product/service items
+     Expenses (supplier purchases)
+
+ All of the above
+
+Sync Frequency:
+ Real-time (immediately after each sale) -
+Recommended
+
+Every 15 minutes
+
+Hourly
+
+Once daily (at    time)
+
+Manual (we'll click sync when ready)
+10.1 Daily Reports (Most Critical)
+What reports do you NEED every day? Rate importance (1-5, where 5 = Critical):
+
+Report                Rating    Who needs it?
+Daily Sales Summary           Owner-Accounting firm
+Shift Report          1 2 3
+Payment Type Summary  4 5     Owner-accountant-accounting
+Meter Reading Report          firm
+Variance Report       1 2 3
+Credit Sales List     4 5     Accountant(In house person)
+Cash Reconciliation
+Low Stock Alert       1 2 3   In house Accountant
+                      4 5
+                              We will extract that from QB
+                      1 2 3   otherwise gain and loss of fuel
+                      4 5     is needed by the in house
+                              accountant every day.
+                      1 2 3   Owner and In house accountant
+                      4 5
+                              Mostly it will be generated
+                      1 2 3   through QB Online
+                      4 5
+                              Usually don't happen but the
+                      1 2 3   owner needs to check the stock
+                      4 5     levels especially before change
+                              of rate is expected
+                      1 2 3
+                      4 5
+10.2 Real-Time Dashboard
+
+What should appear on the live dashboard? (Check all that apply)
+       Today's sales (so far)
+      Yesterday's sales (for
+
+comparison)
+
+     Current shift sales
+      Payment type breakdown (pie
+chart)
+     Hourly sales trend
+     Top selling items
+      Current stock
+levels
+     Low stock warnings
+       Credit outstanding total
+       Branch performance (if multi-branch)
+12.1 Questionnaire Completed By
+Please provide details of who completed this questionnaire:
+
+Field               Information
+Name
+Role/Title        Abdul Rehman
+Company           COO
+Email             BPO WORLD LIMITED
+Phone             Abdul.rehman@skpgroup.net
+Date Completed    0331-4126252
+                  26-03-2026
+
+12.2 Accuracy Confirmation
+
+Please confirm:
+ I confirm all information provided is accurate to the best of my knowledge
+ I understand Sitara Infotech will use this information to design our solution
+ I authorize Sitara Infotech to contact me for clarifications
+ I approve site visit and TRIMS system access as indicated
+I understand this is not a contract, just information gathering
+
+Signature:
+
+Abdul Rehman
+
+Date: 26-03-2026
+                         Sitara Infotech
+
+                      Building solutions 100x better
+
+                 sitaratech.info | amin@sitaratech.info
+
+Document Version: 1.0 | Date: March 25, 2026 | Prepared by: Malik Amin
+                  Estimated Completion Time: 30-45 minutes
+
