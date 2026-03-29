@@ -27,6 +27,21 @@ export interface PreflightResult {
 export interface QBControls {
   killSwitch: boolean;
   syncMode: SyncMode;
+  approvalRequired: boolean;
+}
+
+export interface QBControlsResponse {
+  success: boolean;
+  controls: QBControls;
+  status: {
+    connected: boolean;
+    canRead: boolean;
+    canWrite: boolean;
+    canWriteReal: boolean;
+    isDryRun: boolean;
+    lastSyncAt: string | null;
+    lastSyncStatus: string | null;
+  };
 }
 
 export interface QBConnection {
@@ -45,22 +60,44 @@ export interface QBOAuthStatus {
 export interface QBEntityMapping {
   id: string;
   entityType: 'customer' | 'item' | 'payment_method';
-  localEntityId: string;
+  localId: string;
   localName: string;
-  qbEntityId: string;
+  qbId: string;
   qbName: string;
   createdAt: string;
   updatedAt: string;
 }
 
+export interface QBMappingsResponse {
+  success: boolean;
+  count: number;
+  mappings: QBEntityMapping[];
+}
+
 export interface CreateMappingRequest {
   entityType: 'customer' | 'item' | 'payment_method';
-  localEntityId: string;
+  localId: string;
   localName: string;
-  qbEntityId: string;
-  qbName: string;
+  qbId: string;
+  qbName?: string;
 }
 
 export interface BulkMappingRequest {
   mappings: CreateMappingRequest[];
+}
+
+export interface BulkMappingResult {
+  success: boolean;
+  entityType: 'customer' | 'item' | 'payment_method';
+  localId: string;
+  qbId?: string;
+  error?: string;
+}
+
+export interface BulkMappingResponse {
+  success: boolean;
+  totalRows: number;
+  successCount: number;
+  failureCount: number;
+  results: BulkMappingResult[];
 }

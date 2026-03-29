@@ -1,11 +1,12 @@
-import { apiClient, handleApiError } from './client';
+import { apiClient } from './client';
 import type {
   PreflightResult,
-  QBControls,
+  QBControlsResponse,
   QBOAuthStatus,
-  QBEntityMapping,
+  QBMappingsResponse,
   CreateMappingRequest,
   BulkMappingRequest,
+  BulkMappingResponse,
   SyncMode,
 } from '@/types/quickbooks';
 
@@ -32,7 +33,7 @@ export const quickbooksApi = {
   },
 
   // Controls (admin-only)
-  async getControls(): Promise<QBControls> {
+  async getControls(): Promise<QBControlsResponse> {
     const response = await apiClient.get('/api/quickbooks/controls');
     return response.data;
   },
@@ -46,26 +47,22 @@ export const quickbooksApi = {
   },
 
   // Entity Mappings
-  async getMappings(): Promise<QBEntityMapping[]> {
+  async getMappings(): Promise<QBMappingsResponse> {
     const response = await apiClient.get('/api/quickbooks/mappings');
     return response.data;
   },
 
   async createMapping(
     mapping: CreateMappingRequest
-  ): Promise<{ success: boolean; mapping: QBEntityMapping }> {
+  ): Promise<{ success: boolean; mapping: any }> {
     const response = await apiClient.post('/api/quickbooks/mappings', mapping);
     return response.data;
   },
 
   async bulkCreateMappings(
     payload: BulkMappingRequest
-  ): Promise<{ success: boolean; created: number; errors: string[] }> {
+  ): Promise<BulkMappingResponse> {
     const response = await apiClient.post('/api/quickbooks/mappings/bulk', payload);
     return response.data;
-  },
-
-  async deleteMapping(id: string): Promise<void> {
-    await apiClient.delete(`/api/quickbooks/mappings/${id}`);
   },
 };
