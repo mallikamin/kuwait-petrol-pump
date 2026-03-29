@@ -2,7 +2,7 @@
  * QuickBooks Financial Safety Gates
  *
  * NON-NEGOTIABLE ENFORCEMENT:
- * 1. syncMode gate (READ_ONLY/WRITE_ENABLED)
+ * 1. syncMode gate (READ_ONLY/DRY_RUN/FULL_SYNC)
  * 2. approvalRequired gate for write batches
  * 3. globalKillSwitch hard stop
  *
@@ -56,8 +56,9 @@ export async function checkKillSwitch(organizationId: string): Promise<void> {
  * Gate 2: Check if sync mode allows write operations
  *
  * @throws {QBSafetyGateError} if in READ_ONLY mode
+ * @returns sync mode for caller to handle DRY_RUN appropriately
  */
-export async function checkSyncMode(organizationId: string): Promise<void> {
+export async function checkSyncMode(organizationId: string): Promise<string> {
   const connection = await prisma.qBConnection.findFirst({
     where: { organizationId },
     select: { syncMode: true, id: true }
@@ -71,13 +72,16 @@ export async function checkSyncMode(organizationId: string): Promise<void> {
     );
   }
 
-  if (connection.syncMode !== 'WRITE_ENABLED') {
+  if (connection.syncMode === 'READ_ONLY') {
     throw new QBSafetyGateError(
-      `QB sync mode is ${connection.syncMode}. Write operations blocked. Admin must enable WRITE_ENABLED mode first.`,
+      `QB sync mode is READ_ONLY. Write operations blocked. Admin must enable DRY_RUN or FULL_SYNC mode first.`,
       'READ_ONLY_MODE',
       organizationId
     );
   }
+
+  // DRY_RUN and FULL_SYNC both pass this gate (handler decides how to proceed)
+  return connection.syncMode;
 }
 
 /**
@@ -198,15 +202,19 @@ export async function deactivateKillSwitch(organizationId: string): Promise<void
 }
 
 /**
- * Enable write mode (switch from READ_ONLY to WRITE_ENABLED)
+ * Set sync mode (READ_ONLY, DRY_RUN, or FULL_SYNC)
  *
- * CRITICAL: Only call this after verifying:
- * - Read-only testing completed (2 weeks)
+ * CRITICAL: Only call FULL_SYNC after verifying:
+ * - Read-only testing completed
+ * - DRY_RUN testing completed
  * - All safety controls tested
  * - Backups configured
  * - User explicitly approved
  */
-export async function enableWriteMode(organizationId: string): Promise<void> {
+export async function setSyncMode(
+  organizationId: string,
+  mode: 'READ_ONLY' | 'DRY_RUN' | 'FULL_SYNC'
+): Promise<void> {
   const connection = await prisma.qBConnection.findFirst({
     where: { organizationId }
   });
@@ -215,17 +223,31 @@ export async function enableWriteMode(organizationId: string): Promise<void> {
     throw new Error('No QuickBooks connection found');
   }
 
-  if (connection.syncMode === 'WRITE_ENABLED') {
-    console.log(`⚠️ Write mode already enabled for org ${organizationId}`);
+  if (connection.syncMode === mode) {
+    console.log(`⚠️ Sync mode already set to ${mode} for org ${organizationId}`);
     return;
   }
 
   await prisma.qBConnection.update({
     where: { id: connection.id },
-    data: { syncMode: 'WRITE_ENABLED' }
+    data: { syncMode: mode }
   });
 
-  console.log(`⚠️ WRITE MODE ENABLED for org ${organizationId}`);
+  console.log(`🔄 Sync mode changed to ${mode} for org ${organizationId}`);
+}
+
+/**
+ * Enable write mode (switch from READ_ONLY to FULL_SYNC)
+ *
+ * @deprecated Use setSyncMode('FULL_SYNC') instead
+ * CRITICAL: Only call this after verifying:
+ * - Read-only testing completed (2 weeks)
+ * - All safety controls tested
+ * - Backups configured
+ * - User explicitly approved
+ */
+export async function enableWriteMode(organizationId: string): Promise<void> {
+  await setSyncMode(organizationId, 'FULL_SYNC');
 }
 
 /**
@@ -234,12 +256,7 @@ export async function enableWriteMode(organizationId: string): Promise<void> {
  * Use to temporarily disable writes without activating kill switch.
  */
 export async function disableWriteMode(organizationId: string): Promise<void> {
-  await prisma.qBConnection.updateMany({
-    where: { organizationId },
-    data: { syncMode: 'READ_ONLY' }
-  });
-
-  console.log(`🔒 Write mode disabled (READ_ONLY) for org ${organizationId}`);
+  await setSyncMode(organizationId, 'READ_ONLY');
 }
 
 /**
@@ -329,7 +346,9 @@ export async function getSafetyStatus(organizationId: string) {
   return {
     connected: true,
     canRead: !connection.globalKillSwitch,
-    canWrite: !connection.globalKillSwitch && connection.syncMode === 'WRITE_ENABLED',
+    canWrite: !connection.globalKillSwitch && connection.syncMode !== 'READ_ONLY',
+    canWriteReal: !connection.globalKillSwitch && connection.syncMode === 'FULL_SYNC',
+    isDryRun: connection.syncMode === 'DRY_RUN',
     killSwitchActive: connection.globalKillSwitch,
     syncMode: connection.syncMode,
     approvalRequired: connection.approvalRequired,

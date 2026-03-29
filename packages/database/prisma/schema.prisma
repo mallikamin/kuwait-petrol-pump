@@ -24,14 +24,15 @@ model Organization {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
-  branches      Branch[]
-  users         User[]
-  customers     Customer[]
-  products      Product[]
-  qbConnections QBConnection[]
-  qbSyncQueue   QBSyncQueue[]
-  qbSyncLogs    QBSyncLog[]
-  qbSnapshots   QBEntitySnapshot[]
+  branches        Branch[]
+  users           User[]
+  customers       Customer[]
+  products        Product[]
+  qbConnections   QBConnection[]
+  qbSyncQueue     QBSyncQueue[]
+  qbSyncLogs      QBSyncLog[]
+  qbSnapshots     QBEntitySnapshot[]
+  qbEntityMappings QBEntityMapping[]
 
   @@map("organizations")
 }
@@ -492,7 +493,7 @@ model QBConnection {
   lastSyncStatus String?   @map("last_sync_status") @db.VarChar(20) // 'success' | 'failed' | 'in_progress'
 
   // Financial safety controls (Rule 1: Read-only first, Rule 8: Kill switch)
-  syncMode         String  @default("READ_ONLY") @map("sync_mode") @db.VarChar(20) // 'READ_ONLY' | 'WRITE_ENABLED'
+  syncMode         String  @default("READ_ONLY") @map("sync_mode") @db.VarChar(20) // 'READ_ONLY' | 'DRY_RUN' | 'FULL_SYNC'
   globalKillSwitch Boolean @default(false) @map("global_kill_switch") // Emergency stop all syncs
   approvalRequired Boolean @default(true) @map("approval_required") // Require manual approval for write batches
 
@@ -711,6 +712,41 @@ model QBEntitySnapshot {
   @@index([connectionId, snapshotAt], name: "idx_qb_snapshot_conn_time")
   @@index([expiresAt], name: "idx_qb_snapshot_expires") // For cleanup jobs
   @@map("qb_entity_snapshots")
+}
+
+/// QuickBooks Entity Mapping (Local entity ID → QB entity ID mappings)
+model QBEntityMapping {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+
+  // Organization link
+  organizationId String       @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Entity type (customer, payment_method, item)
+  entityType String @map("entity_type") @db.VarChar(50)
+
+  // Local entity ID (from Kuwait POS system)
+  localId String @map("local_id") @db.VarChar(100)
+
+  // QuickBooks entity ID
+  qbId String @map("qb_id") @db.VarChar(100)
+
+  // QuickBooks entity name (for display/reference)
+  qbName String? @map("qb_name") @db.VarChar(255)
+
+  // Active status
+  isActive Boolean @default(true) @map("is_active")
+
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Unique constraints for data integrity
+  @@unique([organizationId, entityType, localId], name: "uq_qb_mapping_org_type_local")
+  @@unique([organizationId, entityType, qbId], name: "uq_qb_mapping_org_type_qb")
+  @@index([organizationId, entityType], name: "idx_qb_mapping_org_type")
+  @@index([organizationId, isActive], name: "idx_qb_mapping_org_active")
+  @@map("qb_entity_mappings")
 }
 
 // ============================================================
