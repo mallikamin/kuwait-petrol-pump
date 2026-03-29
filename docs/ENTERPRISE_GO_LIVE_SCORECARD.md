@@ -1,6 +1,6 @@
 # Kuwait Petrol Pump - Enterprise Go-Live Scorecard
 
-Last Updated: 2026-03-29 23:40:00 +05:00
+Last Updated: 2026-03-30 00:25:00 +05:00
 Author: Codex
 Scope: Whole application (Backend API, Web Dashboard, Desktop POS, Mobile App, Data/Infra/Ops)
 Purpose: Single source of truth for production-readiness decisions with measurable, auditable criteria.
@@ -224,11 +224,13 @@ Current status snapshot:
 - Route-level code splitting and performance tuning.
 
 Current status snapshot:
-- P0: Yellow (manual E2E validation pending; all code-level gates complete)
+- P0: Red (manual E2E validation FAILED - white screen on authenticated routes)
 - P1: Yellow
 - P2: Yellow
 
-Evidence: docs/reports/WEB_P0_CLOSEOUT_2026-03-29.md
+Evidence:
+- docs/reports/WEB_P0_CLOSEOUT_2026-03-29.md (code-level verification)
+- docs/reports/WEB_P0_E2E_FAILURE_2026-03-30.md (E2E failure report)
 
 ---
 
