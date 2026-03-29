@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>PetrolPump POS Logo</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #f0f0f0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: Arial, sans-serif;
+        }
+        .logo-container {
+            background: white;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        #logo {
+            display: block;
+        }
+        .instructions {
+            margin-top: 20px;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            max-width: 500px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .instructions h3 {
+            margin-top: 0;
+            color: #2563eb;
+        }
+        .instructions ol {
+            line-height: 1.8;
+        }
+        button {
+            margin-top: 10px;
+            padding: 10px 20px;
+            background: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #1e40af;
+        }
+    </style>
+</head>
+<body>
+    <div class="logo-container">
+        <canvas id="logo" width="100" height="100"></canvas>
+    </div>
+
+    <button onclick="downloadLogo()">Download Logo (PNG)</button>
+
+    <div class="instructions">
+        <h3>Instructions:</h3>
+        <ol>
+            <li>Click the "Download Logo" button above</li>
+            <li>Save the file as <strong>logo.png</strong></li>
+            <li>Go back to Intuit Developer Portal</li>
+            <li>Upload this logo in the "App logo" field</li>
+        </ol>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('logo');
+        const ctx = canvas.getContext('2d');
+
+        // Background - gradient blue
+        const gradient = ctx.createLinearGradient(0, 0, 100, 100);
+        gradient.addColorStop(0, '#3b82f6');
+        gradient.addColorStop(1, '#2563eb');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, 100, 100);
+
+        // Draw petrol pump nozzle icon (simplified)
+        ctx.strokeStyle = 'white';
+        ctx.fillStyle = 'white';
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        // Pump body
+        ctx.fillStyle = 'white';
+        ctx.fillRect(35, 25, 30, 35);
+
+        // Pump top
+        ctx.fillRect(30, 20, 40, 8);
+
+        // Display screen
+        ctx.fillStyle = '#1e40af';
+        ctx.fillRect(40, 30, 20, 15);
+
+        // Nozzle hose
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(55, 60);
+        ctx.lineTo(60, 70);
+        ctx.lineTo(55, 80);
+        ctx.stroke();
+
+        // Nozzle handle
+        ctx.fillStyle = 'white';
+        ctx.beginPath();
+        ctx.arc(55, 80, 5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Base
+        ctx.fillRect(30, 60, 40, 5);
+
+        // Add text "POS"
+        ctx.fillStyle = 'white';
+        ctx.font = 'bold 14px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('POS', 50, 90);
+
+        // Download function
+        function downloadLogo() {
+            const link = document.createElement('a');
+            link.download = 'petrolpump-pos-logo.png';
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }
+    </script>
+</body>
+</html>
