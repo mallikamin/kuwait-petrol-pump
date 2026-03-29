@@ -1,6 +1,6 @@
 # Kuwait Petrol Pump - Enterprise Go-Live Scorecard
 
-Last Updated: 2026-03-29 21:58:51 +05:00
+Last Updated: 2026-03-29 23:24:00 +05:00
 Author: Codex
 Scope: Whole application (Backend API, Web Dashboard, Desktop POS, Mobile App, Data/Infra/Ops)
 Purpose: Single source of truth for production-readiness decisions with measurable, auditable criteria.
@@ -23,7 +23,16 @@ Purpose: Single source of truth for production-readiness decisions with measurab
   - Build passes.
   - QuickBooks hardening suites pass (148/148).
 - Web/Desktop:
-  - In restricted shell, build commands can fail with spawn EPERM (environment limitation); must be re-verified on CI/normal host runner.
+  - Web host-runner verification completed for Task 6.1 remediation:
+    - QuickBooks panel tests pass (14/14).
+    - `apps/web` production build passes (TypeScript + Vite, 0 errors).
+    - Task 6.1 remediation committed on branch `chore/stabilize-qb-cutover-2026-03-29` at `db143ba`.
+  - Web host-runner verification completed for Task 6 scaffold (2026-03-29):
+    - QuickBooks component tests pass (14/14): ControlsPanel.test.tsx (6/6), MappingsPanel.test.tsx (8/8).
+    - `apps/web` production build passes (TypeScript + Vite, 0 errors, bundle 954.91 kB).
+    - Test harness complete: vitest config, test setup utilities, component tests.
+    - Task 6 scaffold pending commit (separate from Task 6.1).
+  - Restricted shell EPERM process-spawn limitation still applies for some local sandbox runs.
 - Mobile:
   - Type-check currently reports real TS issues; not release-ready.
 
@@ -186,22 +195,26 @@ Current status snapshot:
 ### 4.2 Web Dashboard (React/Vite)
 
 #### P0 gates
-- Production build verified in unrestricted runner/CI.
-- Auth-protected flows working end-to-end against live backend.
+- Production build verified in unrestricted runner/CI:
+  - ✅ Host-runner build passes (2026-03-29): TypeScript + Vite, 0 errors, 954.91 kB bundle.
+- Auth-protected flows working end-to-end against live backend:
+  - ⏳ Pending E2E validation against deployed backend.
 - QuickBooks admin operational UI complete:
-  - preflight trigger/results
-  - kill switch toggle
-  - sync mode selector with guardrails and confirmation steps.
+  - ✅ Kill switch toggle: implemented in ControlsPanel with confirmation dialogs.
+  - ✅ Sync mode selector: implemented with READ_ONLY/DRY_RUN/FULL_SYNC guardrails.
+  - ✅ Mappings UI: ControlsPanel + MappingsPanel + QuickBooks page scaffold with tabs.
+  - ⏳ Preflight trigger/results: PreflightPanel imported, implementation validation pending.
 
 #### P1 gates
 - Bundle optimization plan if > target budgets.
-- Role-based UI affordances and safe disabled states.
+- Role-based UI affordances and safe disabled states:
+  - ✅ Admin/manager role checks present in ControlsPanel and MappingsPanel.
 
 #### P2 gates
 - Route-level code splitting and performance tuning.
 
 Current status snapshot:
-- P0: Yellow (verification/UI control completeness)
+- P0: Yellow (E2E auth flows + preflight implementation validation pending)
 - P1: Yellow
 - P2: Yellow
 
