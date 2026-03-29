@@ -14,18 +14,23 @@ import {
   checkAllSafetyGates,
   enableWriteMode,
   disableWriteMode,
+  setSyncMode,
   activateKillSwitch,
   deactivateKillSwitch,
   approveSyncBatch,
+  getSafetyStatus,
 } from './safety-gates';
 import { ReplayService } from './replay';
 import { RateLimiter } from './rate-limiter';
 import { CompanyLock } from './company-lock';
 import { AuditLogger } from './audit-logger';
+import { EntityMappingService, EntityType } from './entity-mapping.service';
 import { PrismaClient } from '@prisma/client';
 import { encryptToken, decryptToken } from './encryption';
 import { generateState, validateState } from './oauth-state';
 import { authenticate, authorize } from '../../middleware/auth.middleware';
+import { runPreflightChecks } from './preflight.service';
+import { OpLog } from './error-classifier';
 import OAuthClient from 'intuit-oauth';
 
 const prisma = new PrismaClient();
@@ -291,6 +296,177 @@ router.get('/health', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/quickbooks/preflight
+ * Run production readiness checks (authenticated admin/manager)
+ */
+router.get('/preflight', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { organizationId } = req.user;
+
+    console.log(`[QB Preflight] Running checks for org ${organizationId}`);
+
+    const result = await runPreflightChecks(organizationId);
+
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/**
+ * GET /api/quickbooks/controls
+ * Get current operational controls (kill switch + sync mode) - admin only
+ */
+router.get('/controls', authenticate, authorize('admin'), async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { organizationId } = req.user;
+
+    const status = await getSafetyStatus(organizationId);
+
+    res.json({
+      success: true,
+      controls: {
+        killSwitch: status.killSwitchActive,
+        syncMode: status.syncMode,
+        approvalRequired: status.approvalRequired
+      },
+      status: {
+        connected: status.connected,
+        canRead: status.canRead,
+        canWrite: status.canWrite,
+        canWriteReal: status.canWriteReal,
+        isDryRun: status.isDryRun,
+        lastSyncAt: status.lastSyncAt,
+        lastSyncStatus: status.lastSyncStatus
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/**
+ * POST /api/quickbooks/controls
+ * Update operational controls (kill switch or sync mode) - admin only
+ */
+router.post('/controls', authenticate, authorize('admin'), async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { organizationId, userId } = req.user;
+    const { killSwitch, syncMode, reason } = req.body;
+
+    // Validate at least one control specified
+    if (killSwitch === undefined && !syncMode) {
+      return res.status(400).json({
+        error: 'Must specify at least one control: killSwitch (boolean) or syncMode (READ_ONLY|DRY_RUN|FULL_SYNC)'
+      });
+    }
+
+    // Validate syncMode if provided
+    if (syncMode && !['READ_ONLY', 'DRY_RUN', 'FULL_SYNC'].includes(syncMode)) {
+      return res.status(400).json({
+        error: 'Invalid syncMode. Must be: READ_ONLY, DRY_RUN, or FULL_SYNC'
+      });
+    }
+
+    // Validate killSwitch if provided
+    if (killSwitch !== undefined && typeof killSwitch !== 'boolean') {
+      return res.status(400).json({
+        error: 'killSwitch must be boolean'
+      });
+    }
+
+    // Get current state for idempotency check
+    const currentStatus = await getSafetyStatus(organizationId);
+
+    const changes: any = {};
+    let changed = false;
+
+    // Update kill switch (idempotent)
+    if (killSwitch !== undefined && killSwitch !== currentStatus.killSwitchActive) {
+      if (killSwitch) {
+        await activateKillSwitch(organizationId);
+      } else {
+        await deactivateKillSwitch(organizationId);
+      }
+      changes.killSwitch = { from: currentStatus.killSwitchActive, to: killSwitch };
+      changed = true;
+
+      // Log control change
+      console.log(OpLog.controlChange('killSwitch', currentStatus.killSwitchActive, killSwitch, userId));
+    }
+
+    // Update sync mode (idempotent)
+    if (syncMode && syncMode !== currentStatus.syncMode) {
+      await setSyncMode(organizationId, syncMode);
+      changes.syncMode = { from: currentStatus.syncMode, to: syncMode };
+      changed = true;
+
+      // Log control change
+      console.log(OpLog.controlChange('syncMode', currentStatus.syncMode, syncMode, userId));
+    }
+
+    // Log audit trail (even if no changes for tracking)
+    await AuditLogger.log({
+      operation: 'UPDATE_CONTROLS',
+      entity_type: 'connection',
+      direction: 'APP_TO_QB',
+      status: 'SUCCESS',
+      metadata: {
+        userId,
+        organizationId,
+        changes,
+        reason: reason || 'No reason provided',
+        changed
+      }
+    });
+
+    if (!changed) {
+      return res.json({
+        success: true,
+        message: 'No changes applied (controls already in desired state)',
+        controls: {
+          killSwitch: currentStatus.killSwitchActive,
+          syncMode: currentStatus.syncMode
+        }
+      });
+    }
+
+    // Return updated state
+    const newStatus = await getSafetyStatus(organizationId);
+
+    res.json({
+      success: true,
+      message: 'Controls updated successfully',
+      changes,
+      controls: {
+        killSwitch: newStatus.killSwitchActive,
+        syncMode: newStatus.syncMode
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/**
  * GET /api/quickbooks/safety-gates
  * Get current safety gate status (authenticated)
  */
@@ -317,6 +493,9 @@ router.get('/safety-gates', authenticate, async (req: Request, res: Response) =>
 /**
  * POST /api/quickbooks/safety-gates/sync-mode
  * Set sync mode (READ_ONLY or WRITE_ENABLED) - admin/manager only
+ *
+ * @deprecated Use POST /api/quickbooks/controls instead for DRY_RUN/FULL_SYNC support
+ * BACKWARD COMPATIBILITY: WRITE_ENABLED maps to FULL_SYNC
  */
 router.post('/safety-gates/sync-mode', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
   try {
@@ -335,6 +514,7 @@ router.post('/safety-gates/sync-mode', authenticate, authorize('admin', 'manager
       return res.status(400).json({ error: 'mode must be READ_ONLY or WRITE_ENABLED' });
     }
 
+    // Backward compatibility: WRITE_ENABLED → FULL_SYNC
     if (mode === 'WRITE_ENABLED') {
       await enableWriteMode(organizationId);
     } else {
@@ -346,10 +526,15 @@ router.post('/safety-gates/sync-mode', authenticate, authorize('admin', 'manager
       entity_type: 'connection',
       direction: 'APP_TO_QB',
       status: 'SUCCESS',
-      metadata: { organizationId, userId, mode },
+      metadata: { organizationId, userId, mode, mappedTo: mode === 'WRITE_ENABLED' ? 'FULL_SYNC' : 'READ_ONLY' },
     });
 
-    res.json({ success: true, mode });
+    res.json({
+      success: true,
+      mode,
+      warning: 'This endpoint is deprecated. Use POST /api/quickbooks/controls for DRY_RUN/FULL_SYNC support.',
+      actualSyncMode: mode === 'WRITE_ENABLED' ? 'FULL_SYNC' : 'READ_ONLY'
+    });
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : String(error),
@@ -686,6 +871,187 @@ router.get('/audit/failures', authenticate, authorize('admin', 'manager'), async
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+// ============================================================
+// ENTITY MAPPING ENDPOINTS
+// ============================================================
+
+/**
+ * GET /api/quickbooks/mappings
+ * List entity mappings with optional filters (authenticated)
+ */
+router.get('/mappings', authenticate, async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { organizationId } = req.user;
+    const { entityType, localId, qbId, isActive } = req.query;
+
+    // Validate entityType if provided
+    if (entityType) {
+      const validTypes: EntityType[] = ['customer', 'payment_method', 'item'];
+      if (!validTypes.includes(entityType as EntityType)) {
+        return res.status(400).json({
+          error: `Invalid entityType: ${entityType}. Must be one of: ${validTypes.join(', ')}`
+        });
+      }
+    }
+
+    // Build filters
+    const filters: any = {};
+    if (entityType) filters.entityType = entityType as EntityType;
+    if (localId) filters.localId = localId as string;
+    if (qbId) filters.qbId = qbId as string;
+    if (isActive !== undefined) filters.isActive = isActive === 'true';
+
+    // List mappings
+    const mappings = await EntityMappingService.listMappings(organizationId, filters);
+
+    res.json({
+      success: true,
+      count: mappings.length,
+      mappings
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+/**
+ * POST /api/quickbooks/mappings
+ * Upsert single entity mapping (authenticated admin/manager)
+ */
+router.post('/mappings', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { organizationId, userId } = req.user;
+    const { entityType, localId, qbId, qbName } = req.body;
+
+    // Validate required fields
+    if (!entityType || !localId || !qbId) {
+      return res.status(400).json({
+        error: 'Missing required fields: entityType, localId, qbId'
+      });
+    }
+
+    // Validate entityType
+    const validTypes: EntityType[] = ['customer', 'payment_method', 'item'];
+    if (!validTypes.includes(entityType)) {
+      return res.status(400).json({
+        error: `Invalid entityType: ${entityType}. Must be one of: ${validTypes.join(', ')}`
+      });
+    }
+
+    // Upsert mapping
+    const mapping = await EntityMappingService.upsertMapping(
+      organizationId,
+      entityType,
+      localId,
+      qbId,
+      qbName
+    );
+
+    // Log audit trail
+    await AuditLogger.log({
+      operation: 'UPSERT_ENTITY_MAPPING',
+      entity_type: entityType,
+      entity_id: localId,
+      direction: 'APP_TO_QB',
+      status: 'SUCCESS',
+      metadata: {
+        userId,
+        organizationId,
+        localId,
+        qbId,
+        qbName: mapping.qbName
+      }
+    });
+
+    res.json({
+      success: true,
+      mapping
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+/**
+ * POST /api/quickbooks/mappings/bulk
+ * Bulk upsert entity mappings (authenticated admin/manager)
+ */
+router.post('/mappings/bulk', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { organizationId, userId } = req.user;
+    const { mappings } = req.body;
+
+    // Validate payload
+    if (!mappings || !Array.isArray(mappings) || mappings.length === 0) {
+      return res.status(400).json({
+        error: 'Missing required field: mappings (must be non-empty array)'
+      });
+    }
+
+    // Validate each mapping row
+    const validTypes: EntityType[] = ['customer', 'payment_method', 'item'];
+    for (let i = 0; i < mappings.length; i++) {
+      const row = mappings[i];
+      if (!row.entityType || !row.localId || !row.qbId) {
+        return res.status(400).json({
+          error: `Mapping row ${i}: Missing required fields (entityType, localId, qbId)`
+        });
+      }
+      if (!validTypes.includes(row.entityType)) {
+        return res.status(400).json({
+          error: `Mapping row ${i}: Invalid entityType ${row.entityType}. Must be one of: ${validTypes.join(', ')}`
+        });
+      }
+    }
+
+    // Bulk upsert
+    const results = await EntityMappingService.bulkUpsert(organizationId, mappings);
+
+    // Log audit trail
+    await AuditLogger.log({
+      operation: 'BULK_UPSERT_ENTITY_MAPPINGS',
+      entity_type: 'mapping',
+      direction: 'APP_TO_QB',
+      status: 'SUCCESS',
+      metadata: {
+        userId,
+        organizationId,
+        totalRows: mappings.length,
+        successCount: results.filter(r => r.success).length,
+        failureCount: results.filter(r => !r.success).length
+      }
+    });
+
+    res.json({
+      success: true,
+      totalRows: mappings.length,
+      successCount: results.filter(r => r.success).length,
+      failureCount: results.filter(r => !r.success).length,
+      results
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error)
     });
   }
 });

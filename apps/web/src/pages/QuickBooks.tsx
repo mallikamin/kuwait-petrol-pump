@@ -2,12 +2,19 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AlertCircle, CheckCircle2, Link2, Unlink } from 'lucide-react';
-import { apiClient } from '@/api/client';
+import { quickbooksApi } from '@/api/quickbooks';
+import { useAuthStore } from '@/store/auth';
+import { PreflightPanel } from '@/components/quickbooks/PreflightPanel';
+import { ControlsPanel } from '@/components/quickbooks/ControlsPanel';
+import { MappingsPanel } from '@/components/quickbooks/MappingsPanel';
+import type { QBOAuthStatus } from '@/types/quickbooks';
 
 export default function QuickBooks() {
-  const [status, setStatus] = useState<any>(null);
+  const [status, setStatus] = useState<QBOAuthStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const user = useAuthStore((state) => state.user);
 
   useEffect(() => {
     fetchStatus();
@@ -16,8 +23,8 @@ export default function QuickBooks() {
   const fetchStatus = async () => {
     try {
       setLoading(true);
-      const response = await apiClient.get('/api/quickbooks/oauth/status');
-      setStatus(response.data);
+      const response = await quickbooksApi.getOAuthStatus();
+      setStatus(response);
     } catch (error) {
       console.error('Failed to fetch QB status:', error);
     } finally {
@@ -27,8 +34,8 @@ export default function QuickBooks() {
 
   const handleConnect = async () => {
     try {
-      const response = await apiClient.get('/api/quickbooks/oauth/authorize');
-      window.location.href = response.data.authorizationUrl;
+      const response = await quickbooksApi.initiateOAuth();
+      window.location.href = response.authorizationUrl;
     } catch (error) {
       console.error('Failed to initiate OAuth:', error);
     }
@@ -38,12 +45,14 @@ export default function QuickBooks() {
     if (!confirm('Are you sure you want to disconnect QuickBooks?')) return;
 
     try {
-      await apiClient.post('/api/quickbooks/oauth/disconnect');
+      await quickbooksApi.disconnect();
       await fetchStatus();
     } catch (error) {
       console.error('Failed to disconnect:', error);
     }
   };
+
+  const userRole = user?.role || 'cashier';
 
   return (
     <div className="space-y-6">
@@ -54,6 +63,7 @@ export default function QuickBooks() {
         </p>
       </div>
 
+      {/* OAuth Connection Status */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -70,9 +80,7 @@ export default function QuickBooks() {
               </Badge>
             )}
           </CardTitle>
-          <CardDescription>
-            Manage your QuickBooks Online connection
-          </CardDescription>
+          <CardDescription>Manage your QuickBooks Online connection</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {loading ? (
@@ -82,16 +90,24 @@ export default function QuickBooks() {
               <div className="space-y-2">
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <span className="font-medium">Company:</span>
-                  <span>{status.connection.companyName}</span>
+                  <span>{status.connection?.companyName}</span>
                   <span className="font-medium">Sync Mode:</span>
                   <span>
-                    <Badge variant={status.connection.syncMode === 'READ_ONLY' ? 'outline' : 'default'}>
-                      {status.connection.syncMode}
+                    <Badge
+                      variant={
+                        status.connection?.syncMode === 'READ_ONLY'
+                          ? 'outline'
+                          : status.connection?.syncMode === 'FULL_SYNC'
+                          ? 'default'
+                          : 'secondary'
+                      }
+                    >
+                      {status.connection?.syncMode}
                     </Badge>
                   </span>
                   <span className="font-medium">Last Sync:</span>
                   <span>
-                    {status.connection.lastSyncAt
+                    {status.connection?.lastSyncAt
                       ? new Date(status.connection.lastSyncAt).toLocaleString()
                       : 'Never'}
                   </span>
@@ -122,20 +138,24 @@ export default function QuickBooks() {
         </CardContent>
       </Card>
 
+      {/* Production Cutover Controls (only if connected) */}
       {status?.connected && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Safety Controls</CardTitle>
-            <CardDescription>
-              QuickBooks sync is currently in READ-ONLY mode for safety
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">
-              Write mode can be enabled from the safety gates page once initial sync is verified.
-            </p>
-          </CardContent>
-        </Card>
+        <Tabs defaultValue="preflight" className="w-full">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="preflight">Preflight</TabsTrigger>
+            <TabsTrigger value="controls">Controls</TabsTrigger>
+            <TabsTrigger value="mappings">Mappings</TabsTrigger>
+          </TabsList>
+          <TabsContent value="preflight" className="space-y-4">
+            <PreflightPanel onRefresh={fetchStatus} />
+          </TabsContent>
+          <TabsContent value="controls" className="space-y-4">
+            <ControlsPanel userRole={userRole} />
+          </TabsContent>
+          <TabsContent value="mappings" className="space-y-4">
+            <MappingsPanel userRole={userRole} />
+          </TabsContent>
+        </Tabs>
       )}
     </div>
   );
