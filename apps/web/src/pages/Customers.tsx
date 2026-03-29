@@ -55,7 +55,7 @@ export function Customers() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data?.items.map((customer) => (
+                {data?.items?.map((customer) => (
                   <TableRow key={customer.id}>
                     <TableCell className="font-medium">
                       <div className="flex items-center">

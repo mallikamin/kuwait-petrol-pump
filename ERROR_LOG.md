@@ -261,3 +261,89 @@ docker exec kuwaitpos-postgres psql -U postgres -d kuwait_pos -c "\dt"
 5. ✅ Verify table count and sample data
 6. ✅ Restart backend and test API health endpoint
 7. ✅ Document incident in ERROR_LOG.md
+
+---
+
+## Session 2026-03-28: Acceptance Testing + Drift Correction
+
+### [2026-03-28] — Hardcoded password in test script
+- **Error**: `scripts/acceptance-tests.sh` contained `"password":"KuwaitAdmin2024!"` in plain text
+- **Context**: Writing automated acceptance tests that login to the API
+- **Root Cause**: Developer convenience — hardcoded for "quick test", forgot to remove
+- **Fix**: Changed to `API_PASSWORD` environment variable, script now exits with error if not set
+- **Rule**: NEVER hardcode credentials in scripts. Always use environment variables. Any script that authenticates must require `$VAR` or fail.
+
+### [2026-03-28] — JWT token saved to disk in evidence files
+- **Error**: `web-login-response.json` contained full JWT access + refresh tokens
+- **Context**: Acceptance test script saving API responses for evidence
+- **Root Cause**: Saved raw login response without redaction
+- **Fix**: Now saves `web-login-metadata.json` with token length only (not the token itself). Added `acceptance-evidence-*/`, `*EVIDENCE*.json`, `*-login-*.json` to `.gitignore`
+- **Rule**: NEVER save JWTs, tokens, or secrets to evidence files. Redact before writing. Add evidence dirs to `.gitignore`.
+
+### [2026-03-28] — Documentation overclaimed "offline persistence verified"
+- **Error**: Docs said "✅ Offline persistence verified", "✅ IndexedDB working" — but tests were curl-based API tests only
+- **Context**: Acceptance tests used `curl` to POST to `/api/sync/queue`, NOT a browser with IndexedDB
+- **Root Cause**: Conflated backend API validation with UI-level offline persistence. API tests prove the server works, NOT that the browser stores data across refreshes.
+- **Fix**: Rolled back all overclaims to "🟡 Partial - Backend API validated, UI NOT validated". Created `MANUAL_OFFLINE_TEST_CHECKLIST.md` for real UI testing.
+- **Rule**: API tests prove API behavior ONLY. UI offline persistence requires browser-level testing (DevTools offline mode, refresh, verify). NEVER claim "offline works" from curl tests alone.
+
+### [2026-03-28] — Acceptance test duplicate assertion was wrong
+- **Error**: Test asserted `synced=0` on replay and called it "0 duplicates" — misleading
+- **Context**: Testing idempotency by replaying same sync request
+- **Root Cause**: Checked `synced` field but ignored `duplicates` field. The API returns `duplicates>0` when it detects replays, but the script never checked it.
+- **Fix**: Now asserts both `synced=0` AND `duplicates>0` on replay. Saves replay response to evidence.
+- **Rule**: When testing idempotency, assert the POSITIVE signal (duplicates detected) not just the negative (synced=0). A test should prove the mechanism works, not just that nothing happened.
+
+### [2026-03-28] — nginx bind mount not reflecting file changes
+- **Error**: Edited `/root/kuwait-pos/nginx/nginx.conf` on host, but `docker exec ... cat` showed old content
+- **Context**: Changed `$server_name` to `$host` in HTTP redirect, needed nginx to pick it up
+- **Root Cause**: Bind mounts in Docker reflect file changes, BUT `nginx -s reload` reads config from memory cache. The file was updated but nginx's in-memory config was stale. Also, initial `sed` command failed silently due to `$` escaping through SSH.
+- **Fix**: Used `scp` to copy corrected file from local machine, then `docker compose up -d --force-recreate nginx` (not just reload)
+- **Rule**: For nginx config changes: (1) Edit local file, (2) `scp` to server (avoid `sed` through SSH for `$` variables), (3) `docker compose up -d --force-recreate nginx` (not just reload/restart). Always verify with `docker exec ... grep` INSIDE the container.
+
+### [2026-03-28] — sed through SSH fails silently with nginx $variables
+- **Error**: `sed -i 's/$server_name/$host/' ...` via SSH did nothing (no error, no change)
+- **Context**: Trying to replace `$server_name` with `$host` in nginx.conf via SSH
+- **Root Cause**: `$server_name` and `$host` are both valid shell variables. Shell expanded them to empty strings before sed ran. Multiple escaping layers (local shell → SSH → remote shell → sed) made it nearly impossible to escape correctly.
+- **Fix**: Used `scp` to copy the correct file instead of trying to `sed` through SSH
+- **Rule**: NEVER use `sed` through SSH to modify files containing `$` characters (nginx, shell scripts, env files). Instead: edit locally → `scp` to server. If must edit remotely, use `nano`/`vi` interactively or Python with raw strings.
+
+### [2026-03-28] — HTTP→HTTPS redirect used $server_name (broke IP access)
+- **Error**: `http://64.226.65.80/pos` redirected to `https://kuwaitpos.duckdns.org/pos` instead of `https://64.226.65.80/pos`
+- **Context**: User accessing web app via IP (no DNS configured yet)
+- **Root Cause**: nginx HTTP redirect used `$server_name` (which is `kuwaitpos.duckdns.org`) instead of `$host` (which preserves the request Host header)
+- **Fix**: Changed `return 301 https://$server_name$request_uri;` to `return 301 https://$host$request_uri;`
+- **Rule**: For HTTPS redirects, use `$host` (preserves how the client accessed the server) not `$server_name` (hardcoded). This allows both IP and domain access.
+
+---
+
+## Mandatory Pre-Action Checklist (Updated 2026-03-28)
+
+Before ANY deployment, code change, or documentation update:
+
+### Build & Deploy
+- [ ] `pnpm install` locally passes
+- [ ] `pnpm run build` locally passes (0 TypeScript errors)
+- [ ] `docker build` locally succeeds (if Dockerfile changed)
+- [ ] All referenced files in Dockerfile actually exist
+- [ ] No hardcoded secrets in scripts, configs, or committed files
+
+### Nginx Changes
+- [ ] Edit file locally (not via `sed` through SSH)
+- [ ] `scp` file to server
+- [ ] `docker exec ... nginx -t` passes syntax check
+- [ ] `docker compose up -d --force-recreate nginx` (not just reload)
+- [ ] `docker exec ... grep` verifies change INSIDE container
+- [ ] `curl` verify from outside (health, API, frontend)
+
+### Documentation Claims
+- [ ] Only claim what evidence proves (screenshots, DB queries, test output)
+- [ ] API tests prove API behavior — NOT UI behavior
+- [ ] UI offline claims require browser-level testing (DevTools, refresh, restart)
+- [ ] Label evidence by what level it validates (API, UI, E2E)
+
+### Security
+- [ ] No secrets in scripts (use env vars)
+- [ ] No tokens saved to evidence files (redact before writing)
+- [ ] Evidence directories in `.gitignore`
+- [ ] `pg_dump` backup before ANY database operation

@@ -8,13 +8,13 @@ export const fuelPricesApi = {
   },
 
   getPriceHistory: async (fuelTypeId?: string, params?: { page?: number; size?: number }): Promise<PaginatedResponse<FuelPrice>> => {
-    const response = await apiClient.get<PaginatedResponse<FuelPrice>>('/api/fuel-prices', {
-      params: { ...params, fuel_type_id: fuelTypeId },
+    const response = await apiClient.get<FuelPrice[]>('/api/fuel-prices', {
+      params: { ...params, fuelTypeId },
     });
-    return response.data;
+    return { items: response.data, total: response.data.length, page: params?.page || 1, size: params?.size || 50, pages: 1 };
   },
 
-  updatePrice: async (data: { fuel_type_id: string; price: number; effective_from: string }): Promise<FuelPrice> => {
+  updatePrice: async (data: { fuelTypeId: string; price: number; effectiveFrom: string }): Promise<FuelPrice> => {
     const response = await apiClient.post<FuelPrice>('/api/fuel-prices', data);
     return response.data;
   },

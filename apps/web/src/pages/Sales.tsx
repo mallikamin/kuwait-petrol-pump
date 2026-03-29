@@ -11,10 +11,12 @@ import { formatCurrency, formatDateTime } from '@/utils/format';
 export function Sales() {
   const page = 1; // TODO: Add pagination
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['sales', page],
     queryFn: () => salesApi.getAll({ page, size: 20 }),
   });
+
+  const sales = data?.items ?? [];
 
   return (
     <div className="space-y-6">
@@ -46,6 +48,14 @@ export function Sales() {
                 <Skeleton key={i} className="h-16" />
               ))}
             </div>
+          ) : isError ? (
+            <div className="py-8 text-center text-muted-foreground">
+              Failed to load sales. Check your connection and try again.
+            </div>
+          ) : sales.length === 0 ? (
+            <div className="py-8 text-center text-muted-foreground">
+              No sales found.
+            </div>
           ) : (
             <Table>
               <TableHeader>
@@ -60,7 +70,7 @@ export function Sales() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data?.items.map((sale) => (
+                {sales.map((sale) => (
                   <TableRow key={sale.id}>
                     <TableCell className="text-sm">
                       {formatDateTime(sale.created_at)}

@@ -49,16 +49,22 @@ export class SyncController {
         meterReadings: { synced: 0, failed: 0, duplicates: 0, success: true, errors: [] },
       };
 
-      // Sync sales if provided
+      // SECURITY: Overwrite client-supplied identity fields with JWT-authenticated user
+      // Prevents spoofing cashierId/recordedBy and audit corruption
       if (sales && sales.length > 0) {
+        for (const sale of sales) {
+          sale.cashierId = req.user.userId;
+        }
         results.sales = await SyncService.syncSales(
           sales,
           req.user.organizationId
         );
       }
 
-      // Sync meter readings if provided
       if (meterReadings && meterReadings.length > 0) {
+        for (const reading of meterReadings) {
+          reading.recordedBy = req.user.userId;
+        }
         results.meterReadings = await SyncService.syncMeterReadings(
           meterReadings,
           req.user.organizationId

@@ -1,19 +1,23 @@
 # Kuwait Petrol Pump POS - Quick Start Deployment
 
-This is a condensed guide for experienced DevOps engineers. For detailed instructions, see [DEPLOYMENT.md](./DEPLOYMENT.md).
+**DEPRECATED**: Use VERIFIED_DEPLOYMENT_PLAN.md instead (gate-based protocol).
+
+This is a condensed guide for experienced DevOps engineers. For detailed instructions, see VERIFIED_DEPLOYMENT_PLAN.md.
 
 ## Prerequisites
 
-- Server: Ubuntu 22.04+ at 72.255.51.78
+- Server: Ubuntu 22.04+ (see .env.server:DROPLET_IP for target host)
 - Domain: kuwaitpos.duckdns.org (configured)
 - Docker & Docker Compose installed
 - SSH access as root or sudo user
+
+**Note**: Old docs hardcoded wrong IP (72.255.51.78). Current droplet is in .env.server.
 
 ## 1. Initial Server Setup (First Time Only)
 
 ```bash
 # SSH to server
-ssh root@72.255.51.78
+ssh root@64.226.65.80
 
 # Run setup script
 curl -o setup-server.sh https://raw.githubusercontent.com/YOUR_ORG/kuwait-petrol-pump/main/scripts/setup-server.sh
@@ -209,7 +213,7 @@ crontab -e
 
 # Add these lines:
 0 2 * * * /opt/kuwaitpos/scripts/backup-db.sh >> /opt/kuwaitpos/logs/backup.log 2>&1
-0 3 * * * docker run --rm -v /opt/kuwaitpos/nginx/ssl:/etc/letsencrypt certbot/certbot renew && docker compose -f /opt/kuwaitpos/docker-compose.yml exec nginx nginx -s reload
+0 3 * * * docker run --rm -v /opt/kuwaitpos/nginx/ssl:/etc/letsencrypt certbot/certbot renew && docker compose -f /opt/kuwaitpos/docker-compose.prod.yml exec nginx nginx -s reload
 0 */6 * * * /opt/kuwaitpos/scripts/health-check.sh >> /opt/kuwaitpos/logs/health-check.log 2>&1
 ```
 

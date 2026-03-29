@@ -1,8 +1,12 @@
-# 🚀 Kuwait Petrol Pump - Complete Hosting Guide
+# Kuwait Petrol Pump - Complete Hosting Guide
+
+**DEPRECATED**: Use VERIFIED_DEPLOYMENT_PLAN.md instead (gate-based protocol).
 
 **Domain**: kuwaitpos.duckdns.org
-**IP**: 72.255.51.78
+**Target host**: See .env.server line 7 (DROPLET_IP)
 **Date**: March 26, 2026
+
+**Note**: Old docs hardcoded wrong IP (72.255.51.78). Current droplet is in .env.server.
 
 ---
 
@@ -21,7 +25,7 @@
 
 ---
 
-## 🏆 RECOMMENDED: Deploy on Your VPS (72.255.51.78)
+## RECOMMENDED: Deploy on Your Droplet (64.226.65.80)
 
 ### Why Use Your VPS?
 - ✅ **$0/month** - You already own it
@@ -35,13 +39,13 @@
 ## 🚀 Quick Deploy to Your VPS (15 Minutes)
 
 ### Prerequisites
-- SSH access to 72.255.51.78
-- Domain kuwaitpos.duckdns.org pointing to 72.255.51.78
+- SSH access to 64.226.65.80 (password in .env.server line 14)
+- Domain kuwaitpos.duckdns.org pointing to 64.226.65.80
 - Git repository (GitHub/GitLab)
 
 ### Step 1: Connect to Server
 ```bash
-ssh root@72.255.51.78
+ssh root@64.226.65.80
 ```
 
 ### Step 2: Run Setup Script (One-Time)
@@ -155,7 +159,7 @@ curl https://kuwaitpos.duckdns.org/health
    ```
    SSH_PRIVATE_KEY=<your-private-key>
    SSH_USER=root
-   SSH_HOST=72.255.51.78
+   SSH_HOST=64.226.65.80
    POSTGRES_USER=petrolpump
    POSTGRES_PASSWORD=<your-db-password>
    POSTGRES_DB=petrolpump_prod
@@ -366,7 +370,7 @@ eas build --platform android --profile preview
 ### For Your Setup: **Use Your VPS!** 🏆
 
 **Why:**
-1. ✅ **You already have it** (72.255.51.78)
+1. ✅ **You already have it** (64.226.65.80 from .env.server)
 2. ✅ **Domain configured** (kuwaitpos.duckdns.org)
 3. ✅ **All scripts ready** (15-min setup)
 4. ✅ **$0/month** hosting cost
@@ -418,7 +422,7 @@ eas build --platform android --profile preview
 
 Before deployment:
 
-- [ ] Server accessible at 72.255.51.78
+- [ ] Server accessible at 64.226.65.80 (see .env.server:DROPLET_IP)
 - [ ] Domain kuwaitpos.duckdns.org points to IP
 - [ ] SSH access configured
 - [ ] Strong passwords generated
@@ -432,7 +436,7 @@ Before deployment:
 **Ready to deploy?** Run this:
 
 ```bash
-ssh root@72.255.51.78
+ssh root@64.226.65.80
 git clone https://github.com/yourusername/kuwait-petrol-pump.git
 cd kuwait-petrol-pump
 bash scripts/setup-server.sh

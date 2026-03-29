@@ -3,8 +3,8 @@ import { Customer, LedgerEntry, PaginatedResponse } from '@/types';
 
 export const customersApi = {
   getAll: async (params?: { page?: number; size?: number; search?: string }): Promise<PaginatedResponse<Customer>> => {
-    const response = await apiClient.get<PaginatedResponse<Customer>>('/api/customers', { params });
-    return response.data;
+    const response = await apiClient.get<{ customers: Customer[]; pagination: { total: number; page: number; limit: number; pages: number } }>('/api/customers', { params });
+    return { items: response.data.customers, total: response.data.pagination.total, page: response.data.pagination.page, size: response.data.pagination.limit, pages: response.data.pagination.pages };
   },
 
   getById: async (id: string): Promise<Customer> => {

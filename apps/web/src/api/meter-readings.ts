@@ -9,8 +9,8 @@ export const meterReadingsApi = {
     nozzle_id?: string;
     reading_type?: 'opening' | 'closing';
   }): Promise<PaginatedResponse<MeterReading>> => {
-    const response = await apiClient.get<PaginatedResponse<MeterReading>>('/api/meter-readings', { params });
-    return response.data;
+    const response = await apiClient.get<{ readings: MeterReading[] }>('/api/meter-readings', { params });
+    return { items: response.data.readings, total: response.data.readings.length, page: params?.page || 1, size: params?.size || 50, pages: 1 };
   },
 
   getById: async (id: string): Promise<MeterReading> => {

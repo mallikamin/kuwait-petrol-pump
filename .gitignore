@@ -43,6 +43,12 @@ Thumbs.db
 .claude/
 PAUSE_CHECKPOINT_*.md
 
+# Test evidence (may contain tokens/secrets)
+acceptance-evidence-*/
+manual-test-evidence-*/
+*EVIDENCE*.json
+*-login-*.json
+
 # Turborepo
 .turbo/
 

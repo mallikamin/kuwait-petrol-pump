@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { productsApi, salesApi, customersApi } from '../api/endpoints';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { productsApi, customersApi } from '../api/endpoints';
 import { useAppStore } from '../store/appStore';
 import { useCartStore } from '../store/cartStore';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
@@ -11,6 +11,8 @@ import { formatCurrency } from '../utils/format';
 import { toast } from 'sonner';
 import { ShoppingCart, Trash2, Plus, Minus, Search, Barcode } from 'lucide-react';
 import type { PaymentMethod, Product } from '@shared/types';
+import { OfflineQueue } from '../db/indexeddb';
+import { SyncStatusBadge } from '../components/SyncStatusBadge';
 
 export const NonFuelPOS: React.FC = () => {
   const queryClient = useQueryClient();
@@ -44,31 +46,10 @@ export const NonFuelPOS: React.FC = () => {
   const taxAmount = subtotal * taxRate;
   const total = subtotal + taxAmount - discountAmount;
 
-  // Create non-fuel sale mutation
-  const createSaleMutation = useMutation({
-    mutationFn: (data: any) => salesApi.createNonFuelSale(data),
-    onSuccess: (response) => {
-      toast.success('Sale completed successfully');
-      queryClient.invalidateQueries({ queryKey: ['sales-summary'] });
-      queryClient.invalidateQueries({ queryKey: ['sales'] });
-      queryClient.invalidateQueries({ queryKey: ['low-stock'] });
+  const [submitting, setSubmitting] = useState(false);
 
-      // Print receipt
-      if (window.api) {
-        window.api.printReceipt(response.data);
-      }
-
-      // Clear cart
-      clearCart();
-      setCustomerId('');
-      setDiscountAmount(0);
-    },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.error || 'Failed to complete sale');
-    },
-  });
-
-  const handleCheckout = () => {
+  // Offline-first: enqueue to IndexedDB, then flush if online
+  const handleCheckout = async () => {
     if (!currentBranch) {
       toast.error('Please select a branch');
       return;
@@ -79,19 +60,54 @@ export const NonFuelPOS: React.FC = () => {
       return;
     }
 
-    createSaleMutation.mutate({
-      branchId: currentBranch.id,
-      shiftInstanceId: currentShift?.id,
-      items: items.map((item) => ({
-        productId: item.product.id,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-      })),
-      paymentMethod,
-      taxAmount,
-      discountAmount,
-      customerId: customerId || undefined,
-    });
+    setSubmitting(true);
+    try {
+      await OfflineQueue.enqueueSale({
+        branchId: currentBranch.id,
+        shiftInstanceId: currentShift?.id,
+        saleType: 'non_fuel',
+        saleDate: new Date().toISOString(),
+        totalAmount: total,
+        taxAmount,
+        discountAmount,
+        paymentMethod,
+        customerId: customerId || undefined,
+        nonFuelSales: items.map((item) => ({
+          productId: item.product.id,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          totalAmount: item.unitPrice * item.quantity,
+        })),
+      });
+
+      toast.success('Sale queued');
+
+      // Flush immediately if online
+      if (navigator.onLine) {
+        try {
+          const deviceId = localStorage.getItem('deviceId') || 'desktop-' + Math.random().toString(36).substr(2, 9);
+          localStorage.setItem('deviceId', deviceId);
+          const result = await OfflineQueue.flushWhenOnline(deviceId);
+          toast.success(`Synced: ${result.synced} sales`);
+          queryClient.invalidateQueries({ queryKey: ['sales-summary'] });
+          queryClient.invalidateQueries({ queryKey: ['sales'] });
+          queryClient.invalidateQueries({ queryKey: ['low-stock'] });
+        } catch {
+          toast.info('Sale saved locally. Will sync when online.');
+        }
+      } else {
+        toast.info('Offline - sale saved locally');
+      }
+
+      // Clear cart
+      clearCart();
+      setCustomerId('');
+      setDiscountAmount(0);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to queue sale');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleBarcodeInput = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -109,9 +125,12 @@ export const NonFuelPOS: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-slate-900">Non-Fuel POS</h1>
-        <p className="mt-1 text-sm text-slate-600">Sell products and manage shopping cart</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900">Non-Fuel POS</h1>
+          <p className="mt-1 text-sm text-slate-600">Sell products and manage shopping cart</p>
+        </div>
+        <SyncStatusBadge />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -303,7 +322,7 @@ export const NonFuelPOS: React.FC = () => {
                       className="w-full"
                       size="lg"
                       onClick={handleCheckout}
-                      isLoading={createSaleMutation.isPending}
+                      isLoading={submitting}
                     >
                       Complete Sale
                     </Button>

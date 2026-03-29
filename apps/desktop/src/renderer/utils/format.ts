@@ -2,11 +2,11 @@ import { format as dateFnsFormat } from 'date-fns';
 
 export function formatCurrency(amount: string | number): string {
   const num = typeof amount === 'string' ? parseFloat(amount) : amount;
-  return new Intl.NumberFormat('en-KW', {
+  return new Intl.NumberFormat('en-PK', {
     style: 'currency',
-    currency: 'KWD',
-    minimumFractionDigits: 3,
-    maximumFractionDigits: 3,
+    currency: 'PKR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(num);
 }
 

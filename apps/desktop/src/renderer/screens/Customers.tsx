@@ -258,7 +258,7 @@ export const Customers: React.FC = () => {
                 />
 
                 <Input
-                  label="Credit Limit (KWD)"
+                  label="Credit Limit (PKR)"
                   type="number"
                   step="0.001"
                   value={formData.creditLimit}

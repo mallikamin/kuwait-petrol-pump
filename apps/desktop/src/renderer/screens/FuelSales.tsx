@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { nozzlesApi, salesApi, customersApi } from '../api/endpoints';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { nozzlesApi, customersApi } from '../api/endpoints';
 import { useAppStore } from '../store/appStore';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -8,8 +8,10 @@ import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
 import { formatCurrency, formatNumber } from '../utils/format';
 import { toast } from 'sonner';
-import { Fuel, Printer } from 'lucide-react';
+import { Fuel } from 'lucide-react';
 import type { Nozzle, PaymentMethod } from '@shared/types';
+import { OfflineQueue } from '../db/indexeddb';
+import { SyncStatusBadge } from '../components/SyncStatusBadge';
 
 export const FuelSales: React.FC = () => {
   const queryClient = useQueryClient();
@@ -60,32 +62,10 @@ export const FuelSales: React.FC = () => {
     }
   };
 
-  // Create fuel sale mutation
-  const createSaleMutation = useMutation({
-    mutationFn: (data: any) => salesApi.createFuelSale(data),
-    onSuccess: (response) => {
-      toast.success('Fuel sale recorded successfully');
-      queryClient.invalidateQueries({ queryKey: ['sales-summary'] });
-      queryClient.invalidateQueries({ queryKey: ['sales'] });
+  const [submitting, setSubmitting] = useState(false);
 
-      // Print receipt
-      if (window.api) {
-        window.api.printReceipt(response.data);
-      }
-
-      // Reset form
-      setLiters('');
-      setAmount('');
-      setVehicleNumber('');
-      setSlipNumber('');
-      setSelectedCustomerId('');
-    },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.error || 'Failed to record sale');
-    },
-  });
-
-  const handleSubmit = (e: React.FormEvent) => {
+  // Offline-first: enqueue to IndexedDB, then flush if online
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!currentBranch) {
@@ -103,18 +83,58 @@ export const FuelSales: React.FC = () => {
       return;
     }
 
-    createSaleMutation.mutate({
-      branchId: currentBranch.id,
-      shiftInstanceId: currentShift?.id,
-      nozzleId: selectedNozzle.id,
-      fuelTypeId: selectedNozzle.fuelType.id,
-      quantityLiters: parseFloat(liters),
-      pricePerLiter,
-      paymentMethod,
-      vehicleNumber: vehicleNumber || undefined,
-      slipNumber: slipNumber || undefined,
-      customerId: selectedCustomerId || undefined,
-    });
+    setSubmitting(true);
+    try {
+      const totalAmount = parseFloat(amount);
+
+      await OfflineQueue.enqueueSale({
+        branchId: currentBranch.id,
+        shiftInstanceId: currentShift?.id,
+        saleType: 'fuel',
+        saleDate: new Date().toISOString(),
+        totalAmount,
+        paymentMethod,
+        vehicleNumber: vehicleNumber || undefined,
+        slipNumber: slipNumber || undefined,
+        customerId: selectedCustomerId || undefined,
+        fuelSales: [{
+          nozzleId: selectedNozzle.id,
+          fuelTypeId: selectedNozzle.fuelType.id,
+          quantityLiters: parseFloat(liters),
+          pricePerLiter,
+          totalAmount,
+        }],
+      });
+
+      toast.success('Fuel sale queued');
+
+      // Flush immediately if online
+      if (navigator.onLine) {
+        try {
+          const deviceId = localStorage.getItem('deviceId') || 'desktop-' + Math.random().toString(36).substr(2, 9);
+          localStorage.setItem('deviceId', deviceId);
+          const result = await OfflineQueue.flushWhenOnline(deviceId);
+          toast.success(`Synced: ${result.synced} sales`);
+          queryClient.invalidateQueries({ queryKey: ['sales-summary'] });
+          queryClient.invalidateQueries({ queryKey: ['sales'] });
+        } catch {
+          toast.info('Sale saved locally. Will sync when online.');
+        }
+      } else {
+        toast.info('Offline - sale saved locally');
+      }
+
+      // Reset form
+      setLiters('');
+      setAmount('');
+      setVehicleNumber('');
+      setSlipNumber('');
+      setSelectedCustomerId('');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to queue sale');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (!currentShift) {
@@ -133,9 +153,12 @@ export const FuelSales: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-slate-900">Fuel Sales</h1>
-        <p className="mt-1 text-sm text-slate-600">Record fuel dispensing transactions</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900">Fuel Sales</h1>
+          <p className="mt-1 text-sm text-slate-600">Record fuel dispensing transactions</p>
+        </div>
+        <SyncStatusBadge />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -209,7 +232,7 @@ export const FuelSales: React.FC = () => {
 
                 <Input
                   type="number"
-                  label="Amount (KWD)"
+                  label="Amount (PKR)"
                   value={amount}
                   onChange={(e) => handleAmountChange(e.target.value)}
                   placeholder="0.000"
@@ -274,7 +297,7 @@ export const FuelSales: React.FC = () => {
                   type="submit"
                   variant="primary"
                   className="flex-1"
-                  isLoading={createSaleMutation.isPending}
+                  isLoading={submitting}
                   disabled={!selectedNozzle}
                 >
                   Record Sale

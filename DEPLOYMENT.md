@@ -1,6 +1,10 @@
 # Kuwait Petrol Pump POS - Production Deployment Guide
 
-This guide provides complete instructions for deploying the Kuwait Petrol Pump POS backend to production on `kuwaitpos.duckdns.org` (72.255.51.78).
+**DEPRECATED**: Use VERIFIED_DEPLOYMENT_PLAN.md instead (gate-based protocol).
+
+This guide provides complete instructions for deploying the Kuwait Petrol Pump POS backend to production on `kuwaitpos.duckdns.org`.
+
+**Target host**: See .env.server line 7 (DROPLET_IP) - DO NOT hardcode IPs in docs.
 
 ## Table of Contents
 
@@ -31,7 +35,7 @@ This guide provides complete instructions for deploying the Kuwait Petrol Pump P
 - Minimum 2 CPU cores
 - Minimum 4GB RAM
 - Minimum 50GB disk space
-- Static IP: 72.255.51.78
+- IP: See .env.server line 7 (DROPLET_IP = 64.226.65.80)
 - Domain: kuwaitpos.duckdns.org
 
 ---
@@ -41,8 +45,8 @@ This guide provides complete instructions for deploying the Kuwait Petrol Pump P
 ### 1. Initial Server Configuration
 
 ```bash
-# SSH into server
-ssh root@72.255.51.78
+# SSH into server (use DROPLET_IP from .env.server)
+ssh root@64.226.65.80
 
 # Update system
 apt update && apt upgrade -y
@@ -322,7 +326,7 @@ Add the following secrets:
 ssh-keygen -t ed25519 -C "github-actions@kuwaitpos" -f ~/.ssh/kuwaitpos-deploy
 
 # Copy public key to server
-ssh-copy-id -i ~/.ssh/kuwaitpos-deploy.pub deployuser@72.255.51.78
+ssh-copy-id -i ~/.ssh/kuwaitpos-deploy.pub deployuser@64.226.65.80
 
 # Copy private key content and add to GitHub Secrets as SSH_PRIVATE_KEY
 cat ~/.ssh/kuwaitpos-deploy
@@ -343,7 +347,7 @@ echo $GITHUB_TOKEN | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-std
 
 ```bash
 # SSH to server
-ssh deployuser@72.255.51.78
+ssh deployuser@64.226.65.80
 
 # Navigate to app directory
 cd /opt/kuwaitpos
@@ -385,7 +389,7 @@ curl https://kuwaitpos.duckdns.org/api/health
 
 ```bash
 # SSH to server
-ssh deployuser@72.255.51.78
+ssh deployuser@64.226.65.80
 
 # Run deployment script
 cd /opt/kuwaitpos
@@ -472,7 +476,7 @@ sudo cat > /etc/logrotate.d/kuwaitpos << 'EOF'
     create 0640 deployuser deployuser
     sharedscripts
     postrotate
-        docker compose -f /opt/kuwaitpos/docker-compose.yml exec nginx nginx -s reload > /dev/null 2>&1 || true
+        docker compose -f /opt/kuwaitpos/docker-compose.prod.yml exec nginx nginx -s reload > /dev/null 2>&1 || true
     endscript
 }
 EOF

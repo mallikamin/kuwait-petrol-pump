@@ -310,7 +310,7 @@ export const Products: React.FC = () => {
                 />
 
                 <Input
-                  label="Unit Price (KWD) *"
+                  label="Unit Price (PKR) *"
                   type="number"
                   step="0.001"
                   value={formData.unitPrice}
@@ -322,7 +322,7 @@ export const Products: React.FC = () => {
                 />
 
                 <Input
-                  label="Cost Price (KWD)"
+                  label="Cost Price (PKR)"
                   type="number"
                   step="0.001"
                   value={formData.costPrice}

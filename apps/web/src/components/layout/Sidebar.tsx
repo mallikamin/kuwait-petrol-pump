@@ -12,6 +12,8 @@ import {
   FileText,
   Settings,
   ChevronLeft,
+  CreditCard,
+  Link2,
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { useAuthStore } from '@/store/auth';
@@ -26,6 +28,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { title: 'Dashboard', href: '/', icon: <LayoutDashboard className="h-5 w-5" /> },
+  { title: 'POS', href: '/pos', icon: <CreditCard className="h-5 w-5" /> },
   { title: 'Branches', href: '/branches', icon: <Building2 className="h-5 w-5" />, roles: ['admin', 'manager'] },
   { title: 'Fuel Prices', href: '/fuel-prices', icon: <Fuel className="h-5 w-5" />, roles: ['admin', 'manager'] },
   { title: 'Shifts', href: '/shifts', icon: <Clock className="h-5 w-5" /> },
@@ -35,6 +38,7 @@ const navItems: NavItem[] = [
   { title: 'Products', href: '/products', icon: <Package className="h-5 w-5" /> },
   { title: 'Bifurcation', href: '/bifurcation', icon: <Calculator className="h-5 w-5" /> },
   { title: 'Reports', href: '/reports', icon: <FileText className="h-5 w-5" /> },
+  { title: 'QuickBooks', href: '/quickbooks', icon: <Link2 className="h-5 w-5" />, roles: ['admin', 'manager'] },
   { title: 'Users', href: '/users', icon: <Settings className="h-5 w-5" />, roles: ['admin'] },
 ];
 

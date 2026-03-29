@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import { useAuthStore } from './store/authStore';
 import { useAppStore } from './store/appStore';
+import type { Branch } from '@shared/types';
 import { Layout } from './components/Layout';
 import { Login } from './screens/Login';
 import { Dashboard } from './screens/Dashboard';
@@ -39,7 +40,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 // Branch Selector Component
 const BranchSelector: React.FC = () => {
   const { currentBranch, setCurrentBranch } = useAppStore();
-  const [branches, setBranches] = React.useState([]);
+  const [branches, setBranches] = React.useState<Branch[]>([]);
 
   React.useEffect(() => {
     // Fetch branches on mount

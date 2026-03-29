@@ -3,8 +3,8 @@ import { Product, Category, Stock, PaginatedResponse } from '@/types';
 
 export const productsApi = {
   getAll: async (params?: { page?: number; size?: number; search?: string; category_id?: string }): Promise<PaginatedResponse<Product>> => {
-    const response = await apiClient.get<PaginatedResponse<Product>>('/api/products', { params });
-    return response.data;
+    const response = await apiClient.get<{ products: Product[]; pagination: { total: number; limit: number; offset: number; pages: number } }>('/api/products', { params });
+    return { items: response.data.products, total: response.data.pagination.total, page: params?.page || 1, size: response.data.pagination.limit, pages: response.data.pagination.pages };
   },
 
   getById: async (id: string): Promise<Product> => {

@@ -1,7 +1,7 @@
 # Kuwait Petrol Pump POS - Deployment Configuration Summary
 
 Date: 2026-03-26
-Target: kuwaitpos.duckdns.org (72.255.51.78)
+Target: kuwaitpos.duckdns.org (64.226.65.80 from .env.server:DROPLET_IP)
 
 ## Overview
 
@@ -335,7 +335,7 @@ Internet
 
 ### Manual Deployment
 ```bash
-ssh deployuser@72.255.51.78
+ssh deployuser@64.226.65.80
 cd /opt/kuwaitpos
 sudo bash scripts/deploy.sh
 ```
@@ -386,7 +386,7 @@ sudo bash scripts/deploy.sh rollback
 ## Pre-Deployment Checklist
 
 ### Server Setup
-- [ ] Ubuntu 22.04+ server accessible at 72.255.51.78
+- [ ] Ubuntu 22.04+ server accessible at 64.226.65.80 (see .env.server:DROPLET_IP)
 - [ ] Domain kuwaitpos.duckdns.org configured and pointing to server
 - [ ] SSH access configured
 - [ ] Run `scripts/setup-server.sh`

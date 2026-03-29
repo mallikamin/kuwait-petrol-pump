@@ -17,7 +17,7 @@ NC='\033[0m' # No Color
 # Configuration
 DEPLOY_DIR="/opt/kuwaitpos"
 BACKUP_DIR="${DEPLOY_DIR}/backups"
-COMPOSE_FILE="${DEPLOY_DIR}/docker-compose.yml"
+COMPOSE_FILE="${DEPLOY_DIR}/docker-compose.prod.yml"
 ENV_FILE="${DEPLOY_DIR}/.env"
 LOG_FILE="${DEPLOY_DIR}/deploy.log"
 

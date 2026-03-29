@@ -3,8 +3,8 @@ import { Branch, DispensingUnit, Nozzle, PaginatedResponse } from '@/types';
 
 export const branchesApi = {
   getAll: async (params?: { page?: number; size?: number; search?: string }): Promise<PaginatedResponse<Branch>> => {
-    const response = await apiClient.get<PaginatedResponse<Branch>>('/api/branches', { params });
-    return response.data;
+    const response = await apiClient.get<{ branches: Branch[] }>('/api/branches', { params });
+    return { items: response.data.branches, total: response.data.branches.length, page: 1, size: 50, pages: 1 };
   },
 
   getById: async (id: string): Promise<Branch> => {

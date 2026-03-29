@@ -105,7 +105,7 @@ docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}"
 # Check logs for errors
 echo ""
 echo -e "${BLUE}Recent Errors (last 10):${NC}"
-docker compose -f "$DEPLOY_DIR/docker-compose.yml" logs --tail=100 backend 2>/dev/null | grep -i error | tail -n 10 || echo "No recent errors found"
+docker compose -f "$DEPLOY_DIR/docker-compose.prod.yml" logs --tail=100 backend 2>/dev/null | grep -i error | tail -n 10 || echo "No recent errors found"
 
 echo ""
 echo -e "${BLUE}================================================${NC}"

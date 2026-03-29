@@ -67,7 +67,7 @@ echo -e "${GREEN}Safety backup created: $SAFETY_BACKUP${NC}"
 
 # Stop backend to prevent connections
 echo -e "${BLUE}Stopping backend service...${NC}"
-docker compose -f "${DEPLOY_DIR}/docker-compose.yml" stop backend
+docker compose -f "${DEPLOY_DIR}/docker-compose.prod.yml" stop backend
 
 # Restore database
 echo -e "${BLUE}Restoring database...${NC}"
@@ -76,13 +76,13 @@ if gunzip -c "$BACKUP_FILE" | docker exec -i kuwaitpos-postgres psql -U "$POSTGR
 
     # Start backend
     echo -e "${BLUE}Starting backend service...${NC}"
-    docker compose -f "${DEPLOY_DIR}/docker-compose.yml" start backend
+    docker compose -f "${DEPLOY_DIR}/docker-compose.prod.yml" start backend
 
     echo -e "${GREEN}Restore completed successfully!${NC}"
 else
     echo -e "${RED}Error: Restore failed${NC}"
     echo -e "${YELLOW}Restoring from safety backup...${NC}"
     gunzip -c "$SAFETY_BACKUP" | docker exec -i kuwaitpos-postgres psql -U "$POSTGRES_USER" "$POSTGRES_DB"
-    docker compose -f "${DEPLOY_DIR}/docker-compose.yml" start backend
+    docker compose -f "${DEPLOY_DIR}/docker-compose.prod.yml" start backend
     exit 1
 fi

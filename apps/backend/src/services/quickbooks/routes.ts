@@ -23,10 +23,248 @@ import { RateLimiter } from './rate-limiter';
 import { CompanyLock } from './company-lock';
 import { AuditLogger } from './audit-logger';
 import { PrismaClient } from '@prisma/client';
+import { encryptToken, decryptToken } from './encryption';
+import { generateState, validateState } from './oauth-state';
+import { authenticate, authorize } from '../../middleware/auth.middleware';
+import OAuthClient from 'intuit-oauth';
 
 const prisma = new PrismaClient();
 
 const router = Router();
+
+// Initialize OAuth client
+function getOAuthClient() {
+  return new OAuthClient({
+    clientId: process.env.QUICKBOOKS_CLIENT_ID || '',
+    clientSecret: process.env.QUICKBOOKS_CLIENT_SECRET || '',
+    environment: (process.env.QUICKBOOKS_ENVIRONMENT || 'sandbox') as 'sandbox' | 'production',
+    redirectUri: process.env.QUICKBOOKS_REDIRECT_URI || '',
+  });
+}
+
+/**
+ * GET /api/quickbooks/oauth/authorize
+ * Generate OAuth authorization URL (authenticated)
+ */
+router.get('/oauth/authorize', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { organizationId, userId } = req.user;
+
+    // Generate signed state token with nonce
+    const stateToken = await generateState(organizationId, userId);
+
+    const oauthClient = getOAuthClient();
+    const authUri = oauthClient.authorizeUri({
+      scope: [OAuthClient.scopes.Accounting, OAuthClient.scopes.OpenId],
+      state: stateToken,
+    });
+
+    res.json({ authorizationUrl: authUri });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/**
+ * GET /api/quickbooks/oauth/callback
+ * Handle OAuth callback and store tokens (validates signed state)
+ */
+router.get('/oauth/callback', async (req: Request, res: Response) => {
+  try {
+    const { code, state, realmId } = req.query;
+
+    if (!code || !state || !realmId) {
+      return res.status(400).json({ error: 'Missing required OAuth parameters' });
+    }
+
+    // Validate signed state token (throws if invalid/expired/used)
+    const statePayload = await validateState(state as string);
+    const { organizationId, userId } = statePayload;
+
+    const oauthClient = getOAuthClient();
+
+    // Exchange code for tokens
+    await oauthClient.createToken(req.url);
+    const token = oauthClient.getToken();
+
+    // Encrypt tokens
+    const accessTokenEncrypted = encryptToken(token.access_token);
+    const refreshTokenEncrypted = encryptToken(token.refresh_token);
+
+    // Get company info
+    const companyInfo = await oauthClient.makeApiCall({
+      url: `${oauthClient.environment === 'sandbox' ? 'https://sandbox-quickbooks.api.intuit.com' : 'https://quickbooks.api.intuit.com'}/v3/company/${realmId}/companyinfo/${realmId}`,
+    });
+    const companyName = companyInfo.json?.CompanyInfo?.CompanyName || 'Unknown';
+
+    // Upsert connection
+    const existingConn = await prisma.qBConnection.findUnique({
+      where: { uq_qb_conn_org_realm: { organizationId, realmId: realmId as string } },
+    });
+
+    if (existingConn) {
+      await prisma.qBConnection.update({
+        where: { id: existingConn.id },
+        data: {
+          companyName,
+          accessTokenEncrypted,
+          refreshTokenEncrypted,
+          accessTokenExpiresAt: new Date(Date.now() + token.expires_in * 1000),
+          refreshTokenExpiresAt: new Date(Date.now() + token.x_refresh_token_expires_in * 1000),
+          isActive: true,
+          lastSyncAt: new Date(),
+        },
+      });
+    } else {
+      await prisma.qBConnection.create({
+        data: {
+          organizationId,
+          realmId: realmId as string,
+          companyName,
+          accessTokenEncrypted,
+          refreshTokenEncrypted,
+          accessTokenExpiresAt: new Date(Date.now() + token.expires_in * 1000),
+          refreshTokenExpiresAt: new Date(Date.now() + token.x_refresh_token_expires_in * 1000),
+          isActive: true,
+          syncMode: 'READ_ONLY',
+          connectedBy: userId, // From validated state
+        },
+      });
+    }
+
+    await AuditLogger.log({
+      operation: 'OAUTH_CONNECTED',
+      entity_type: 'connection',
+      direction: 'APP_TO_QB',
+      status: 'SUCCESS',
+      metadata: { organizationId, userId, realmId, companyName },
+    });
+
+    // Redirect to frontend with success
+    res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/quickbooks?success=true`);
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+
+    await AuditLogger.log({
+      operation: 'OAUTH_CALLBACK_FAILED',
+      entity_type: 'connection',
+      direction: 'APP_TO_QB',
+      status: 'FAILURE',
+      metadata: { error: errorMsg },
+    });
+
+    res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/quickbooks?error=${encodeURIComponent(errorMsg)}`);
+  }
+});
+
+/**
+ * POST /api/quickbooks/oauth/disconnect
+ * Disconnect and revoke QuickBooks connection (authenticated admin/manager)
+ */
+router.post('/oauth/disconnect', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { organizationId, userId } = req.user;
+
+    // Find active connection
+    const connection = await prisma.qBConnection.findFirst({
+      where: { organizationId, isActive: true },
+    });
+
+    if (!connection) {
+      return res.status(404).json({ error: 'No active connection found' });
+    }
+
+    // Revoke tokens at Intuit
+    try {
+      if (connection.refreshTokenEncrypted) {
+        const refreshToken = decryptToken(connection.refreshTokenEncrypted);
+        const oauthClient = getOAuthClient();
+        oauthClient.token.setToken({ refresh_token: refreshToken } as any);
+        await oauthClient.revoke();
+      }
+    } catch (revokeError) {
+      // Log but don't fail (tokens might already be expired)
+      console.error('Intuit revoke failed:', revokeError);
+    }
+
+    // Mark connection as inactive
+    await prisma.qBConnection.update({
+      where: { id: connection.id },
+      data: { isActive: false, lastSyncAt: new Date() },
+    });
+
+    await AuditLogger.log({
+      operation: 'OAUTH_DISCONNECTED',
+      entity_type: 'connection',
+      entity_id: connection.id,
+      direction: 'APP_TO_QB',
+      status: 'SUCCESS',
+      metadata: { organizationId, userId, companyName: connection.companyName },
+    });
+
+    res.json({ success: true, message: 'QuickBooks connection disconnected' });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/**
+ * GET /api/quickbooks/oauth/status
+ * Get current OAuth connection status (authenticated)
+ */
+router.get('/oauth/status', authenticate, async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { organizationId } = req.user;
+
+    const connection = await prisma.qBConnection.findFirst({
+      where: { organizationId, isActive: true },
+      select: {
+        id: true,
+        companyName: true,
+        realmId: true,
+        isActive: true,
+        syncMode: true,
+        lastSyncAt: true,
+        accessTokenExpiresAt: true,
+      },
+    });
+
+    if (!connection) {
+      return res.json({ connected: false });
+    }
+
+    res.json({
+      connected: true,
+      connection: {
+        companyName: connection.companyName,
+        realmId: connection.realmId,
+        syncMode: connection.syncMode,
+        lastSyncAt: connection.lastSyncAt,
+        tokenExpiresAt: connection.accessTokenExpiresAt,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
 
 /**
  * GET /api/quickbooks/health
@@ -54,15 +292,15 @@ router.get('/health', async (req: Request, res: Response) => {
 
 /**
  * GET /api/quickbooks/safety-gates
- * Get current safety gate status
+ * Get current safety gate status (authenticated)
  */
-router.get('/safety-gates', async (req: Request, res: Response) => {
+router.get('/safety-gates', authenticate, async (req: Request, res: Response) => {
   try {
-    const { organizationId } = req.query;
-
-    if (!organizationId || typeof organizationId !== 'string') {
-      return res.status(400).json({ error: 'organizationId required' });
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
     }
+
+    const { organizationId } = req.user;
 
     // Import getSafetyStatus for gate status endpoint
     const { getSafetyStatus } = await import('./safety-gates');
@@ -78,14 +316,19 @@ router.get('/safety-gates', async (req: Request, res: Response) => {
 
 /**
  * POST /api/quickbooks/safety-gates/sync-mode
- * Set sync mode (READ_ONLY or WRITE_ENABLED)
+ * Set sync mode (READ_ONLY or WRITE_ENABLED) - admin/manager only
  */
-router.post('/safety-gates/sync-mode', async (req: Request, res: Response) => {
+router.post('/safety-gates/sync-mode', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
   try {
-    const { organizationId, mode } = req.body;
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
 
-    if (!organizationId || !mode) {
-      return res.status(400).json({ error: 'organizationId and mode required' });
+    const { organizationId, userId } = req.user;
+    const { mode } = req.body;
+
+    if (!mode) {
+      return res.status(400).json({ error: 'mode required' });
     }
 
     if (mode !== 'READ_ONLY' && mode !== 'WRITE_ENABLED') {
@@ -103,7 +346,7 @@ router.post('/safety-gates/sync-mode', async (req: Request, res: Response) => {
       entity_type: 'connection',
       direction: 'APP_TO_QB',
       status: 'SUCCESS',
-      metadata: { organizationId, mode },
+      metadata: { organizationId, userId, mode },
     });
 
     res.json({ success: true, mode });
@@ -116,14 +359,19 @@ router.post('/safety-gates/sync-mode', async (req: Request, res: Response) => {
 
 /**
  * POST /api/quickbooks/safety-gates/kill-switch
- * Toggle global kill switch
+ * Toggle global kill switch - admin only
  */
-router.post('/safety-gates/kill-switch', async (req: Request, res: Response) => {
+router.post('/safety-gates/kill-switch', authenticate, authorize('admin'), async (req: Request, res: Response) => {
   try {
-    const { organizationId, enabled } = req.body;
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
 
-    if (!organizationId || typeof enabled !== 'boolean') {
-      return res.status(400).json({ error: 'organizationId and enabled (boolean) required' });
+    const { organizationId, userId } = req.user;
+    const { enabled } = req.body;
+
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ error: 'enabled (boolean) required' });
     }
 
     if (enabled) {
@@ -137,7 +385,7 @@ router.post('/safety-gates/kill-switch', async (req: Request, res: Response) => 
       entity_type: 'connection',
       direction: 'APP_TO_QB',
       status: 'SUCCESS',
-      metadata: { organizationId, enabled },
+      metadata: { organizationId, userId, enabled },
     });
 
     res.json({ success: true, killSwitch: enabled });
@@ -150,17 +398,22 @@ router.post('/safety-gates/kill-switch', async (req: Request, res: Response) => 
 
 /**
  * POST /api/quickbooks/safety-gates/approve-batch
- * Approve a pending batch for sync
+ * Approve a pending batch for sync - admin/manager only
  */
-router.post('/safety-gates/approve-batch', async (req: Request, res: Response) => {
+router.post('/safety-gates/approve-batch', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
   try {
-    const { batchId, approvedBy, organizationId } = req.body;
-
-    if (!batchId || !approvedBy || !organizationId) {
-      return res.status(400).json({ error: 'batchId, approvedBy, and organizationId required' });
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
     }
 
-    const approvedCount = await approveSyncBatch(batchId, approvedBy, organizationId);
+    const { organizationId, userId } = req.user;
+    const { batchId } = req.body;
+
+    if (!batchId) {
+      return res.status(400).json({ error: 'batchId required' });
+    }
+
+    const approvedCount = await approveSyncBatch(batchId, userId, organizationId);
 
     await AuditLogger.log({
       operation: 'BATCH_APPROVED',
@@ -168,7 +421,7 @@ router.post('/safety-gates/approve-batch', async (req: Request, res: Response) =
       entity_id: batchId,
       direction: 'APP_TO_QB',
       status: 'SUCCESS',
-      metadata: { approvedBy, organizationId, approvedCount },
+      metadata: { approvedBy: userId, organizationId, approvedCount },
     });
 
     res.json({ success: true, approvedCount });
@@ -181,15 +434,15 @@ router.post('/safety-gates/approve-batch', async (req: Request, res: Response) =
 
 /**
  * GET /api/quickbooks/batches/pending
- * List pending batches requiring approval
+ * List pending batches requiring approval (authenticated admin/manager)
  */
-router.get('/batches/pending', async (req: Request, res: Response) => {
+router.get('/batches/pending', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
   try {
-    const { organizationId } = req.query;
-
-    if (!organizationId || typeof organizationId !== 'string') {
-      return res.status(400).json({ error: 'organizationId required' });
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
     }
+
+    const { organizationId } = req.user;
 
     // List pending batches requiring approval
     const batches = await prisma.qBSyncQueue.groupBy({
@@ -225,9 +478,9 @@ router.get('/batches/pending', async (req: Request, res: Response) => {
 
 /**
  * GET /api/quickbooks/replay/replayable
- * List batches eligible for replay
+ * List batches eligible for replay (authenticated admin/manager)
  */
-router.get('/replay/replayable', async (req: Request, res: Response) => {
+router.get('/replay/replayable', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
   try {
     const batches = await ReplayService.getReplayableBatches();
 
@@ -241,9 +494,9 @@ router.get('/replay/replayable', async (req: Request, res: Response) => {
 
 /**
  * POST /api/quickbooks/replay/batch
- * Replay a failed batch
+ * Replay a failed batch (authenticated admin/manager)
  */
-router.post('/replay/batch', async (req: Request, res: Response) => {
+router.post('/replay/batch', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
   try {
     const { batchId, dryRun, maxRetries } = req.body;
 
@@ -266,9 +519,9 @@ router.post('/replay/batch', async (req: Request, res: Response) => {
 
 /**
  * POST /api/quickbooks/replay/restore-and-replay
- * Restore checkpoint and replay batch
+ * Restore checkpoint and replay batch (authenticated admin/manager)
  */
-router.post('/replay/restore-and-replay', async (req: Request, res: Response) => {
+router.post('/replay/restore-and-replay', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
   try {
     const { batchId, checkpointId, dryRun, maxRetries } = req.body;
 
@@ -291,9 +544,9 @@ router.post('/replay/restore-and-replay', async (req: Request, res: Response) =>
 
 /**
  * GET /api/quickbooks/replay/history/:batchId
- * Get replay history for a batch
+ * Get replay history for a batch (authenticated admin/manager)
  */
-router.get('/replay/history/:batchId', async (req: Request, res: Response) => {
+router.get('/replay/history/:batchId', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
   try {
     const { batchId } = req.params;
 
@@ -309,9 +562,9 @@ router.get('/replay/history/:batchId', async (req: Request, res: Response) => {
 
 /**
  * POST /api/quickbooks/replay/cancel
- * Cancel a batch
+ * Cancel a batch (authenticated admin/manager)
  */
-router.post('/replay/cancel', async (req: Request, res: Response) => {
+router.post('/replay/cancel', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
   try {
     const { batchId, reason } = req.body;
 
@@ -331,9 +584,9 @@ router.post('/replay/cancel', async (req: Request, res: Response) => {
 
 /**
  * GET /api/quickbooks/circuit-breaker/:connectionId
- * Get circuit breaker status
+ * Get circuit breaker status (authenticated admin/manager)
  */
-router.get('/circuit-breaker/:connectionId', async (req: Request, res: Response) => {
+router.get('/circuit-breaker/:connectionId', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
   try {
     const { connectionId } = req.params;
 
@@ -349,9 +602,9 @@ router.get('/circuit-breaker/:connectionId', async (req: Request, res: Response)
 
 /**
  * POST /api/quickbooks/circuit-breaker/reset
- * Reset circuit breaker
+ * Reset circuit breaker (authenticated admin/manager)
  */
-router.post('/circuit-breaker/reset', async (req: Request, res: Response) => {
+router.post('/circuit-breaker/reset', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
   try {
     const { connectionId } = req.body;
 
@@ -379,9 +632,9 @@ router.post('/circuit-breaker/reset', async (req: Request, res: Response) => {
 
 /**
  * GET /api/quickbooks/company-lock/:connectionId
- * Get company lock status
+ * Get company lock status (authenticated admin/manager)
  */
-router.get('/company-lock/:connectionId', async (req: Request, res: Response) => {
+router.get('/company-lock/:connectionId', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
   try {
     const { connectionId } = req.params;
 
@@ -397,9 +650,9 @@ router.get('/company-lock/:connectionId', async (req: Request, res: Response) =>
 
 /**
  * GET /api/quickbooks/audit/stats
- * Get audit statistics
+ * Get audit statistics (authenticated admin/manager)
  */
-router.get('/audit/stats', async (req: Request, res: Response) => {
+router.get('/audit/stats', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
   try {
     const { entity_type, hours } = req.query;
 
@@ -418,9 +671,9 @@ router.get('/audit/stats', async (req: Request, res: Response) => {
 
 /**
  * GET /api/quickbooks/audit/failures
- * Get recent failures
+ * Get recent failures (authenticated admin/manager)
  */
-router.get('/audit/failures', async (req: Request, res: Response) => {
+router.get('/audit/failures', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
   try {
     const { entity_type, hours } = req.query;
 

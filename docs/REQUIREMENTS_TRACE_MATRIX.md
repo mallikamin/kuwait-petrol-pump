@@ -4,8 +4,8 @@
 1. BPO Response - Kuwait Petrol Pump POS System - Discovery Questionnaire.pdf (18 pages)
 2. Petrol Pumps.docx (pending extraction)
 
-**Last Updated**: 2026-03-28 (Re-baselined after drift analysis)
-**Status**: ✅ Schema 100% complete, ❌ Operational workflows missing
+**Last Updated**: 2026-03-28 (API sync validated, UI-level offline pending)
+**Status**: ✅ Schema 100% complete, 🟡 API sync working (UI offline persistence pending), ❌ Operational workflows missing
 
 ---
 
@@ -29,16 +29,17 @@
 
 | Requirement | Source | Status | Target Module | Risk | Acceptance Test |
 |-------------|--------|--------|---------------|------|-----------------|
-| **Mobile app captures meter photos offline** | BPO PDF p.3 "Mobile App (OCR Scanning)" | ❌ Missing | `apps/mobile` | HIGH - Core automation requirement | App works with no internet |
-| **Tesseract.js OCR extracts meter readings** | BPO PDF p.3 "Mobile App Scanning - POS" | 🟡 Partial | `apps/mobile/src/services/ocr` | HIGH - Accuracy critical (zero tolerance) | OCR accuracy >98% on meter photos |
-| **Queue offline readings in local storage** | BPO PDF p.11 "Offline Capability" + "MUST work offline" | ❌ Missing | `apps/mobile/src/store/offline` | HIGH - Offline requirement mandatory | 100 readings queued offline, synced when online |
-| **Sync queued readings when online** | BPO PDF p.11 "System MUST work offline" | ❌ Missing | `apps/mobile/src/services/sync` | MEDIUM - Conflict handling needed | No data loss during sync |
-| **Operator verifies OCR result before submit** | BPO PDF p.6 "Step 2: app scan and show result to verify" | ❌ Missing | `apps/mobile/src/screens/MeterVerify` | LOW | Operator can edit OCR result |
-| **Submitted readings go to POS for calculations** | BPO PDF p.6 "Step 4: Once submitted goes to POS page" | ❌ Missing | `apps/backend/src/services/meter-reading` | MEDIUM | POS receives all meter readings |
-| **Process time: 5-10 minutes from photo to POS** | BPO PDF p.6 "5 to 10 minutes from Picture to POS" | ❌ Missing | Full flow | MEDIUM - Performance SLA | Measured end-to-end < 10 min |
+| **Mobile app captures meter photos offline** | BPO PDF p.3 "Mobile App (OCR Scanning)" | 🟡 Partial | `apps/mobile` | HIGH - Core automation requirement | ⏳ Mobile app scaffold exists, UI offline testing pending |
+| **Tesseract.js OCR extracts meter readings** | BPO PDF p.3 "Mobile App Scanning - POS" | 🟡 Partial | `apps/mobile/src/services/ocr` | HIGH - Accuracy critical (zero tolerance) | ⏳ OCR library integrated, accuracy testing pending |
+| **Queue offline readings in local storage** | BPO PDF p.11 "Offline Capability" + "MUST work offline" | 🟡 Partial | `apps/mobile/src/services/offline` | HIGH - Offline requirement mandatory | ⏳ Backend API ready, UI persistence (AsyncStorage) pending validation |
+| **Sync queued readings when online** | BPO PDF p.11 "System MUST work offline" | 🟡 Partial | `apps/backend/src/modules/sync` | MEDIUM - Conflict handling needed | 🟡 Backend API validated, mobile app UI integration pending |
+| **Operator verifies OCR result before submit** | BPO PDF p.6 "Step 2: app scan and show result to verify" | 🟡 Partial | `apps/mobile/src/screens/MeterVerify` | LOW | ⏳ Verification screen UI exists, workflow testing pending |
+| **Submitted readings go to POS for calculations** | BPO PDF p.6 "Step 4: Once submitted goes to POS page" | 🟡 Partial | `apps/backend/src/services/meter-reading` | MEDIUM | ⏳ Backend service ready, end-to-end integration pending |
+| **Process time: 5-10 minutes from photo to POS** | BPO PDF p.6 "5 to 10 minutes from Picture to POS" | 🟡 Partial | Full flow | MEDIUM - Performance SLA | ⏳ Backend sync < 2s, end-to-end mobile testing pending |
 
-**Schema Status**: ✅ `MeterReading` table EXISTS (packages/database/prisma/schema.prisma:222-244)
-**Code Status**: ❌ Mobile OCR implementation missing, ❌ Offline queue missing
+**Schema Status**: ✅ `MeterReading` table complete with `sync_status`, `offline_queue_id`
+**Code Status**: 🟡 Backend sync API `/api/sync/queue` validated at API level (curl tests), ❌ UI-level offline persistence NOT validated
+**API Validation**: `scripts/acceptance-tests.sh` proves backend accepts `meterReadings[]` and enforces JWT identity
 
 ---
 
@@ -46,15 +47,22 @@
 
 | Requirement | Source | Status | Target Module | Risk | Acceptance Test |
 |-------------|--------|--------|---------------|------|-----------------|
-| **POS records sales offline (no internet)** | BPO PDF p.11 "YES - System MUST work offline" | ❌ Missing | `apps/web/src/store/offline` | HIGH - Mandatory for petrol pumps | 50 sales queued offline |
-| **Offline queue persists in IndexedDB** | Implicit | ❌ Missing | `apps/web/src/db/indexeddb` | HIGH - Data loss risk | Browser restart preserves queue |
-| **Deterministic sync when online** | BPO PDF p.11 (offline requirement) | ❌ Missing | `apps/backend/src/services/sync` | HIGH - Conflict resolution needed | No duplicate sales after sync |
-| **Conflict handling (2 POS same customer)** | Implied by multi-branch | ❌ Missing | `apps/backend/src/services/conflict` | MEDIUM - Edge case | Last-write-wins with audit trail |
-| **Show sync status in POS UI** | Implicit | ❌ Missing | `apps/web/src/components/SyncStatus` | LOW | Green = synced, Yellow = pending, Red = error |
+| **POS records sales offline (no internet)** | BPO PDF p.11 "YES - System MUST work offline" | 🟡 Partial | `apps/web/src/store/offline` | HIGH - Mandatory for petrol pumps | 🟡 Backend API validated, UI offline persistence (browser restart) pending |
+| **Offline queue persists in IndexedDB** | Implicit | 🟡 Partial | `apps/web/src/db/indexeddb` | HIGH - Data loss risk | ⏳ IndexedDB code exists, browser restart survival NOT validated |
+| **Deterministic sync when online** | BPO PDF p.11 (offline requirement) | 🟡 Partial | `apps/backend/src/services/sync` | HIGH - Conflict resolution needed | 🟡 Backend duplicate detection working (API-level proof only) |
+| **Conflict handling (2 POS same customer)** | Implied by multi-branch | 🟡 Partial | `apps/backend/src/services/conflict` | MEDIUM - Edge case | ⏳ Last-write-wins implemented, multi-user conflict UI pending |
+| **Show sync status in POS UI** | Implicit | 🟡 Partial | `apps/web/src/components/SyncStatus` | LOW | ⏳ SyncStatus component exists, UI integration pending validation |
 
-**Schema Status**: ✅ `Sale` table exists (packages/database/prisma/schema.prisma:277-312)
-**Missing Fields**: ❌ `sync_status`, ❌ `offline_queue_id`, ❌ `is_walk_in`
-**Code Status**: ❌ IndexedDB offline queue missing, ❌ Sync endpoint missing
+**Schema Status**: ✅ `Sale` table complete with `sync_status`, `offline_queue_id`, `is_walk_in`
+**Code Status**: 🟡 Backend API validated at curl level, ❌ UI-level offline persistence NOT validated
+**API Validation** (scripts/acceptance-tests.sh):
+- Backend `/api/sync/queue` accepts sales and enforces JWT `cashier_id` ✅
+- Duplicate detection working (duplicates>0 on replay) ✅
+- DB writes confirmed ✅
+**UI Validation Pending**:
+- ❌ Browser offline mode → create sale → refresh → pending count persists
+- ❌ Desktop app network disconnect → create sale → restart app → pending persists
+- See [MANUAL_OFFLINE_TEST_CHECKLIST.md](../MANUAL_OFFLINE_TEST_CHECKLIST.md) for validation steps
 
 ---
 

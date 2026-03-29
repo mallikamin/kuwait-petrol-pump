@@ -234,7 +234,7 @@ User Verifies/Corrects → Submit → Backend Validates → Saved
 
 ## 💰 HOSTING COSTS
 
-### Recommended: Your VPS (72.255.51.78)
+### Recommended: Your Droplet (64.226.65.80)
 
 **Monthly Cost Breakdown:**
 - VPS Hosting: **$0** (you own it!)
@@ -266,7 +266,7 @@ User Verifies/Corrects → Submit → Backend Validates → Saved
 
 ```bash
 # 1. Connect to server
-ssh root@72.255.51.78
+ssh root@64.226.65.80
 
 # 2. Clone & setup
 git clone <your-repo>
@@ -461,7 +461,7 @@ Operator:   operator@petrolpump.com   / password123
 
 ### 1. Deploy Backend (15 minutes)
 ```bash
-ssh root@72.255.51.78
+ssh root@64.226.65.80
 git clone <your-repo>
 cd kuwait-petrol-pump
 bash scripts/deploy.sh

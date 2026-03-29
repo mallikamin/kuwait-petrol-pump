@@ -52,7 +52,7 @@ export function Branches() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data?.items.map((branch) => (
+                {data?.items?.map((branch) => (
                   <TableRow key={branch.id}>
                     <TableCell className="font-medium">
                       <div className="flex items-center">

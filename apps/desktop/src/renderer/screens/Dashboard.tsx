@@ -56,21 +56,21 @@ export const Dashboard: React.FC = () => {
   const stats = [
     {
       title: 'Total Sales',
-      value: summary ? formatCurrency(summary.totalAmount) : 'KWD 0.000',
+      value: summary ? formatCurrency(summary.totalAmount) : 'PKR 0.00',
       subtitle: `${summary?.totalSales || 0} transactions`,
       icon: DollarSign,
       color: 'blue',
     },
     {
       title: 'Fuel Sales',
-      value: summary ? formatCurrency(summary.fuelSales.totalAmount) : 'KWD 0.000',
+      value: summary ? formatCurrency(summary.fuelSales.totalAmount) : 'PKR 0.00',
       subtitle: `${summary ? formatNumber(summary.fuelSales.totalLiters) : 0} liters`,
       icon: Fuel,
       color: 'green',
     },
     {
       title: 'Non-Fuel Sales',
-      value: summary ? formatCurrency(summary.nonFuelSales.totalAmount) : 'KWD 0.000',
+      value: summary ? formatCurrency(summary.nonFuelSales.totalAmount) : 'PKR 0.00',
       subtitle: `${summary?.nonFuelSales.totalItems || 0} items`,
       icon: ShoppingCart,
       color: 'purple',

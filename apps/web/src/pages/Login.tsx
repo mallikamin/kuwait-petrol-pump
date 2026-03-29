@@ -48,7 +48,7 @@ export function Login() {
           <div className="flex items-center justify-center mb-4">
             <Fuel className="h-12 w-12 text-primary" />
           </div>
-          <CardTitle className="text-2xl text-center">Kuwait Petrol Pump</CardTitle>
+          <CardTitle className="text-2xl text-center">Petrol Pump POS</CardTitle>
           <CardDescription className="text-center">Admin Dashboard - Sign in to continue</CardDescription>
         </CardHeader>
         <CardContent>

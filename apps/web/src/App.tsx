@@ -14,6 +14,8 @@ import { Products } from '@/pages/Products';
 import { Bifurcation } from '@/pages/Bifurcation';
 import { Reports } from '@/pages/Reports';
 import { Users } from '@/pages/Users';
+import { POS } from '@/pages/POS';
+import QuickBooks from '@/pages/QuickBooks';
 import { useAuthStore } from '@/store/auth';
 import { useThemeStore } from '@/store/theme';
 import { useEffect } from 'react';
@@ -57,6 +59,7 @@ function App() {
             }
           >
             <Route index element={<Dashboard />} />
+            <Route path="pos" element={<POS />} />
             <Route path="branches" element={<Branches />} />
             <Route path="fuel-prices" element={<FuelPrices />} />
             <Route path="shifts" element={<Shifts />} />
@@ -66,6 +69,7 @@ function App() {
             <Route path="products" element={<Products />} />
             <Route path="bifurcation" element={<Bifurcation />} />
             <Route path="reports" element={<Reports />} />
+            <Route path="quickbooks" element={<QuickBooks />} />
             <Route path="users" element={<Users />} />
           </Route>
         </Routes>
