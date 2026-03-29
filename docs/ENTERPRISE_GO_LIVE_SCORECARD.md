@@ -1,6 +1,6 @@
 # Kuwait Petrol Pump - Enterprise Go-Live Scorecard
 
-Last Updated: 2026-03-29 23:24:00 +05:00
+Last Updated: 2026-03-29 23:40:00 +05:00
 Author: Codex
 Scope: Whole application (Backend API, Web Dashboard, Desktop POS, Mobile App, Data/Infra/Ops)
 Purpose: Single source of truth for production-readiness decisions with measurable, auditable criteria.
@@ -198,12 +198,22 @@ Current status snapshot:
 - Production build verified in unrestricted runner/CI:
   - ✅ Host-runner build passes (2026-03-29): TypeScript + Vite, 0 errors, 954.91 kB bundle.
 - Auth-protected flows working end-to-end against live backend:
-  - ⏳ Pending E2E validation against deployed backend.
+  - ⏸️ Code-level verification complete (2026-03-29 23:40):
+    - ✅ ProtectedRoute wraps /quickbooks route (App.tsx:32-35, :72)
+    - ✅ JWT interceptor configured (api/client.ts:14-25)
+    - ✅ 401 logout+redirect logic present (api/client.ts:28-36)
+    - ✅ Auth store with persistence (store/auth.ts)
+    - ✅ Live backend accessible (kuwaitpos.duckdns.org returns 200)
+  - ⏸️ Manual E2E validation required (no test credentials per security policy).
 - QuickBooks admin operational UI complete:
   - ✅ Kill switch toggle: implemented in ControlsPanel with confirmation dialogs.
   - ✅ Sync mode selector: implemented with READ_ONLY/DRY_RUN/FULL_SYNC guardrails.
   - ✅ Mappings UI: ControlsPanel + MappingsPanel + QuickBooks page scaffold with tabs.
-  - ⏳ Preflight trigger/results: PreflightPanel imported, implementation validation pending.
+  - ✅ Preflight trigger/results (2026-03-29 23:40):
+    - ✅ PreflightPanel fully implemented (169 lines, not stub).
+    - ✅ API integration: quickbooksApi.getPreflight() connected.
+    - ✅ UI complete: status badges, checks table, CTA guidance, error handling.
+    - ✅ Integrated in QuickBooks page Preflight tab.
 
 #### P1 gates
 - Bundle optimization plan if > target budgets.
@@ -214,9 +224,11 @@ Current status snapshot:
 - Route-level code splitting and performance tuning.
 
 Current status snapshot:
-- P0: Yellow (E2E auth flows + preflight implementation validation pending)
+- P0: Yellow (manual E2E validation pending; all code-level gates complete)
 - P1: Yellow
 - P2: Yellow
+
+Evidence: docs/reports/WEB_P0_CLOSEOUT_2026-03-29.md
 
 ---
 
