@@ -15,7 +15,7 @@
 **Symptom:**
 White screen displayed on `/pos/dashboard` and `/pos/quickbooks` after successful login. Only Sonner notification container renders in `#root`, no application content visible.
 
-**Root Cause:** **Route path mismatch + missing 404 handling**
+**Probable Cause:** **Route path mismatch + missing 404 handling** (requires production re-validation after deploy)
 
 **Impact:**
 - Web P0 status: 🟡 Yellow → 🔴 **Red**
@@ -155,7 +155,7 @@ Dashboard has loading states and conditional rendering, should gracefully handle
 
 ---
 
-## Root Cause: Confirmed
+## Root Cause: Probable (Requires Production Re-Validation)
 
 ### Primary Cause: **Route Path Mismatch**
 
@@ -467,7 +467,7 @@ grep -n "navigate('/')" apps/web/src/pages/Login.tsx
 
 | Aspect | Status | Notes |
 |--------|--------|-------|
-| **Root Cause** | ✅ Confirmed | Route path mismatch + missing 404 handler |
+| **Root Cause** | ⏳ Probable | Route mismatch + missing 404 (needs prod re-validation) |
 | **Fix Complexity** | ✅ Low | Add catch-all route + 404 page (< 50 lines) |
 | **Fix Risk** | ✅ Low | Additive change, no breaking modifications |
 | **Testing** | ⏳ Pending | Requires fix deployment + re-validation |
