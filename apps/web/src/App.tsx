@@ -16,6 +16,7 @@ import { Reports } from '@/pages/Reports';
 import { Users } from '@/pages/Users';
 import { POS } from '@/pages/POS';
 import QuickBooks from '@/pages/QuickBooks';
+import { NotFound } from '@/pages/NotFound';
 import { useAuthStore } from '@/store/auth';
 import { useThemeStore } from '@/store/theme';
 import { useEffect } from 'react';
@@ -71,6 +72,7 @@ function App() {
             <Route path="reports" element={<Reports />} />
             <Route path="quickbooks" element={<QuickBooks />} />
             <Route path="users" element={<Users />} />
+            <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>
       </BrowserRouter>
