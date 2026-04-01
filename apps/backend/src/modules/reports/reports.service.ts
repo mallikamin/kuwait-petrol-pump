@@ -204,11 +204,27 @@ export class ReportsService {
       }
     }
 
-    // Calculate variances
+    // Get actual sales for each nozzle during this shift
+    const salesByNozzle: Record<string, number> = {};
+    for (const sale of sales) {
+      if (sale.saleType === 'fuel') {
+        for (const fuelSale of sale.fuelSales) {
+          const nozzleKey = fuelSale.nozzleId || '';
+          if (!salesByNozzle[nozzleKey]) {
+            salesByNozzle[nozzleKey] = 0;
+          }
+          salesByNozzle[nozzleKey] += fuelSale.quantityLiters.toNumber();
+        }
+      }
+    }
+
+    // Calculate variances: (closing - opening) - actual_sales
     const meterVariances = Object.values(nozzleReadings).map((data) => {
       const opening = data.opening ? parseFloat(data.opening.meterValue.toString()) : null;
       const closing = data.closing ? parseFloat(data.closing.meterValue.toString()) : null;
-      const variance = opening !== null && closing !== null ? closing - opening : null;
+      const meterDifference = opening !== null && closing !== null ? closing - opening : null;
+      const actualSales = salesByNozzle[data.nozzle.id] || 0;
+      const variance = meterDifference !== null ? meterDifference - actualSales : null;
 
       return {
         nozzle: {
@@ -227,6 +243,8 @@ export class ReportsService {
           recordedBy: data.closing.recordedByUser,
           recordedAt: data.closing.recordedAt,
         } : null,
+        meterDifference,
+        actualSales,
         variance,
       };
     });
@@ -418,15 +436,50 @@ export class ReportsService {
       }
     }
 
-    // Calculate variances
+    // Get actual sales per shift per nozzle
+    const salesByShiftNozzle: Record<string, Record<string, number>> = {};
+    const shiftsWithSales = await prisma.sale.findMany({
+      where: {
+        shiftInstanceId: { in: Object.keys(shiftVariances) },
+        saleType: 'fuel',
+      },
+      include: {
+        fuelSales: true,
+      },
+    });
+
+    for (const sale of shiftsWithSales) {
+      if (!salesByShiftNozzle[sale.shiftInstanceId]) {
+        salesByShiftNozzle[sale.shiftInstanceId] = {};
+      }
+      for (const fuelSale of sale.fuelSales) {
+        const nozzleId = fuelSale.nozzleId || '';
+        if (!salesByShiftNozzle[sale.shiftInstanceId][nozzleId]) {
+          salesByShiftNozzle[sale.shiftInstanceId][nozzleId] = 0;
+        }
+        salesByShiftNozzle[sale.shiftInstanceId][nozzleId] += fuelSale.quantityLiters.toNumber();
+      }
+    }
+
+    // Calculate variances: (closing - opening) - actual_sales
     const report = Object.values(shiftVariances).map((shift) => {
-      const nozzleVariances = Object.values(shift.nozzles).map((nozzle) => ({
-        ...nozzle,
-        variance:
+      const shiftSales = salesByShiftNozzle[shift.shiftInstance.id] || {};
+
+      const nozzleVariances = Object.values(shift.nozzles).map((nozzle) => {
+        const meterDifference =
           nozzle.opening !== null && nozzle.closing !== null
             ? nozzle.closing - nozzle.opening
-            : null,
-      }));
+            : null;
+        const actualSales = shiftSales[nozzle.nozzle.id] || 0;
+        const variance = meterDifference !== null ? meterDifference - actualSales : null;
+
+        return {
+          ...nozzle,
+          meterDifference,
+          actualSales,
+          variance,
+        };
+      });
 
       const totalVariance = nozzleVariances.reduce((sum, n) => {
         return sum + ((n.variance as number) || 0);

@@ -22,11 +22,11 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { FileText, Download, Printer, Loader2, Calendar } from 'lucide-react';
-import { reportsApi } from '@/api';
+import { reportsApi, apiClient } from '@/api';
 import { useAuthStore } from '@/store/auth';
 import { formatCurrency } from '@/utils/format';
 
-type ReportType = 'daily-sales' | 'inventory' | 'customer-ledger' | 'variance';
+type ReportType = 'daily-sales' | 'shift' | 'inventory' | 'customer-ledger' | 'variance';
 
 function formatDate(date: string | Date): string {
   const d = new Date(date);
@@ -37,8 +37,13 @@ function formatDate(date: string | Date): string {
   });
 }
 
-function toCSV(headers: string[], rows: string[][]): string {
-  const escape = (v: string) => `"${String(v || '').replace(/"/g, '""')}"`;
+function toCSV(headers: string[], rows: (string | number)[][]): string {
+  const escape = (v: string | number) => {
+    // Keep numbers as-is for Excel compatibility
+    if (typeof v === 'number') return String(v);
+    // Escape strings
+    return `"${String(v || '').replace(/"/g, '""')}"`;
+  };
   return [
     headers.map(escape).join(','),
     ...rows.map(r => r.map(escape).join(',')),
@@ -94,6 +99,8 @@ export function Reports() {
     new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
   );
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedShiftId, setSelectedShiftId] = useState<string>('');
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [fetchEnabled, setFetchEnabled] = useState(false);
 
   // Daily Sales
@@ -103,11 +110,25 @@ export function Reports() {
     enabled: fetchEnabled && selectedReport === 'daily-sales' && !!branchId,
   });
 
+  // Shift Report
+  const { data: shiftReport, isLoading: loadingShift, isError: errorShift } = useQuery({
+    queryKey: ['report-shift', selectedShiftId],
+    queryFn: () => reportsApi.getShiftReport(selectedShiftId),
+    enabled: fetchEnabled && selectedReport === 'shift' && !!selectedShiftId,
+  });
+
   // Inventory
   const { data: inventory, isLoading: loadingInventory, isError: errorInventory } = useQuery({
     queryKey: ['report-inventory', branchId],
     queryFn: () => reportsApi.getInventoryReport(branchId),
     enabled: fetchEnabled && selectedReport === 'inventory' && !!branchId,
+  });
+
+  // Customer Ledger
+  const { data: customerLedger, isLoading: loadingLedger, isError: errorLedger } = useQuery({
+    queryKey: ['report-customer-ledger', selectedCustomerId, startDate, endDate],
+    queryFn: () => reportsApi.getCustomerLedger(selectedCustomerId, new Date(startDate).toISOString(), new Date(endDate).toISOString()),
+    enabled: fetchEnabled && selectedReport === 'customer-ledger' && !!selectedCustomerId,
   });
 
   // Variance
@@ -117,8 +138,15 @@ export function Reports() {
     enabled: fetchEnabled && selectedReport === 'variance' && !!branchId,
   });
 
-  const isLoading = loadingDaily || loadingInventory || loadingVariance;
-  const isError = errorDaily || errorInventory || errorVariance;
+  // Get customers list for dropdown
+  const { data: customersData } = useQuery({
+    queryKey: ['customers-list'],
+    queryFn: () => apiClient.get('/api/customers', { params: { page: 1, size: 100 } }).then(r => r.data.customers || []),
+    enabled: selectedReport === 'customer-ledger',
+  });
+
+  const isLoading = loadingDaily || loadingShift || loadingInventory || loadingLedger || loadingVariance;
+  const isError = errorDaily || errorShift || errorInventory || errorLedger || errorVariance;
 
   const handleGenerate = () => {
     setFetchEnabled(true);
@@ -132,16 +160,16 @@ export function Reports() {
     const shifts = dailySales.shiftBreakdown || [];
 
     const headers = ['Category', 'Count', 'Amount'];
-    const rows: string[][] = [
-      ['Total Sales', String(summary.totalTransactions || 0), formatCurrency(Number(summary.totalAmount || 0))],
-      ['Fuel Sales', String(summary.fuel?.count || 0), formatCurrency(Number(summary.fuel?.amount || 0))],
-      ['Non-Fuel Sales', String(summary.nonFuel?.count || 0), formatCurrency(Number(summary.nonFuel?.amount || 0))],
+    const rows: (string | number)[][] = [
+      ['Total Sales', summary.totalTransactions || 0, Number(summary.totalAmount || 0)],
+      ['Fuel Sales', summary.fuel?.count || 0, Number(summary.fuel?.amount || 0)],
+      ['Non-Fuel Sales', summary.nonFuel?.count || 0, Number(summary.nonFuel?.amount || 0)],
       ['', '', ''],
       ['Payment Method', 'Count', 'Amount'],
-      ...payments.map((p: any) => [p.paymentMethod || p.method, String(p.count || p._count || 0), formatCurrency(Number(p.totalAmount || p.amount || 0))]),
+      ...payments.map((p: any) => [p.paymentMethod || p.method, p.count || p._count || 0, Number(p.totalAmount || p.amount || 0)]),
       ['', '', ''],
       ['Shift', 'Cashier', 'Amount'],
-      ...shifts.map((s: any) => [s.shiftNumber || s.name || '-', s.cashier?.fullName || s.cashier || '-', formatCurrency(Number(s.totalAmount || s.amount || 0))]),
+      ...shifts.map((s: any) => [s.shiftNumber || s.name || '-', s.cashier?.fullName || s.cashier || '-', Number(s.totalAmount || s.amount || 0)]),
     ];
 
     downloadCSV(`daily-sales-${reportDate}.csv`, toCSV(headers, rows));
@@ -180,10 +208,10 @@ export function Reports() {
     const products = inventory.nonFuelProducts || [];
     const headers = ['Product', 'SKU', 'Category', 'Quantity', 'Unit Price', 'Status'];
     const allProducts = [...(products.normal || []), ...(products.lowStock || [])];
-    const rows: string[][] = allProducts.map((p: any) => [
+    const rows: (string | number)[][] = allProducts.map((p: any) => [
       p.name || '-', p.sku || '-', p.category || '-',
-      String(p.quantity ?? p.stockLevel ?? 0),
-      formatCurrency(Number(p.unitPrice || 0)),
+      p.quantity ?? p.stockLevel ?? 0,
+      Number(p.unitPrice || 0),
       (p.quantity ?? p.stockLevel ?? 999) <= (p.lowStockThreshold || 10) ? 'LOW STOCK' : 'OK',
     ]);
     downloadCSV(`inventory-${reportDate}.csv`, toCSV(headers, rows));
@@ -210,19 +238,19 @@ export function Reports() {
   const exportVarianceCSV = () => {
     if (!variance) return;
     const shifts = variance.shifts || [];
-    const headers = ['Shift', 'Nozzle', 'Fuel Type', 'Opening', 'Closing', 'Calculated', 'Actual Sales', 'Variance'];
-    const rows: string[][] = [];
+    const headers = ['Shift', 'Nozzle', 'Fuel Type', 'Opening', 'Closing', 'Meter Difference', 'Actual Sales', 'Variance'];
+    const rows: (string | number)[][] = [];
     shifts.forEach((s: any) => {
       (s.nozzles || s.meterReadings || []).forEach((n: any) => {
         rows.push([
-          s.shiftNumber || s.name || '-',
-          String(n.nozzleNumber || n.nozzle?.nozzleNumber || '-'),
-          n.fuelType || n.nozzle?.fuelType?.name || '-',
-          String(n.opening ?? n.openingReading ?? '-'),
-          String(n.closing ?? n.closingReading ?? '-'),
-          String(n.calculated ?? n.expectedSales ?? '-'),
-          String(n.actual ?? n.actualSales ?? '-'),
-          String(n.variance ?? '-'),
+          s.shiftNumber || s.name || s.shift?.shiftName || formatDate(s.shift?.date || new Date()),
+          n.nozzleNumber || n.nozzle?.nozzleNumber || '-',
+          n.fuelType || n.nozzle?.fuelType?.name || n.nozzle?.fuelType || '-',
+          n.opening ?? n.openingReading?.value ?? 0,
+          n.closing ?? n.closingReading?.value ?? 0,
+          n.meterDifference ?? n.calculated ?? 0,
+          n.actualSales ?? n.actual ?? 0,
+          n.variance ?? 0,
         ]);
       });
     });
@@ -254,7 +282,9 @@ export function Reports() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="daily-sales">Daily Sales Summary</SelectItem>
+                  <SelectItem value="shift">Shift Report</SelectItem>
                   <SelectItem value="inventory">Inventory Report</SelectItem>
+                  <SelectItem value="customer-ledger">Customer Ledger</SelectItem>
                   <SelectItem value="variance">Variance Report</SelectItem>
                 </SelectContent>
               </Select>
@@ -265,6 +295,44 @@ export function Reports() {
                 <Label>Date</Label>
                 <Input type="date" value={reportDate} onChange={(e) => { setReportDate(e.target.value); setFetchEnabled(false); }} />
               </div>
+            )}
+
+            {selectedReport === 'shift' && (
+              <div className="space-y-2">
+                <Label>Shift Instance ID</Label>
+                <Input
+                  type="text"
+                  placeholder="Enter shift instance ID"
+                  value={selectedShiftId}
+                  onChange={(e) => { setSelectedShiftId(e.target.value); setFetchEnabled(false); }}
+                />
+              </div>
+            )}
+
+            {selectedReport === 'customer-ledger' && (
+              <>
+                <div className="space-y-2">
+                  <Label>Customer</Label>
+                  <Select value={selectedCustomerId} onValueChange={(v) => { setSelectedCustomerId(v); setFetchEnabled(false); }}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select customer" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(customersData || []).map((c: any) => (
+                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Start Date</Label>
+                  <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setFetchEnabled(false); }} />
+                </div>
+                <div className="space-y-2">
+                  <Label>End Date</Label>
+                  <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setFetchEnabled(false); }} />
+                </div>
+              </>
             )}
 
             {(selectedReport === 'variance') && (
@@ -409,6 +477,218 @@ export function Reports() {
         </div>
       )}
 
+      {/* SHIFT REPORT */}
+      {selectedReport === 'shift' && shiftReport && !isLoading && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-semibold">Shift Report</h2>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => {
+                if (!shiftReport) return;
+                const headers = ['Metric', 'Value'];
+                const rows: (string | number)[][] = [
+                  ['Shift', shiftReport.shiftInstance?.shiftName || '-'],
+                  ['Date', formatDate(shiftReport.shiftInstance?.date || new Date())],
+                  ['Status', shiftReport.shiftInstance?.status || '-'],
+                  ['Opened By', shiftReport.shiftInstance?.openedBy?.fullName || '-'],
+                  ['Closed By', shiftReport.shiftInstance?.closedBy?.fullName || '-'],
+                  ['', ''],
+                  ['Total Sales', shiftReport.sales?.totalAmount || 0],
+                  ['Fuel Sales', shiftReport.sales?.fuel?.amount || 0],
+                  ['Non-Fuel Sales', shiftReport.sales?.nonFuel?.amount || 0],
+                ];
+                downloadCSV(`shift-report-${shiftReport.shiftInstance?.id || 'unknown'}.csv`, toCSV(headers, rows));
+              }}>
+                <Download className="mr-2 h-4 w-4" /> CSV
+              </Button>
+            </div>
+          </div>
+
+          <Card>
+            <CardHeader><CardTitle className="text-base">Shift Information</CardTitle></CardHeader>
+            <CardContent>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <p className="text-sm text-muted-foreground">Shift Name</p>
+                  <p className="font-medium">{shiftReport.shiftInstance?.shiftName || '-'}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Date</p>
+                  <p className="font-medium">{formatDate(shiftReport.shiftInstance?.date || new Date())}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Opened By</p>
+                  <p className="font-medium">{shiftReport.shiftInstance?.openedBy?.fullName || '-'}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Closed By</p>
+                  <p className="font-medium">{shiftReport.shiftInstance?.closedBy?.fullName || '-'}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground">Total Sales</p>
+                <p className="text-2xl font-bold">{formatCurrency(Number(shiftReport.sales?.totalAmount || 0))}</p>
+                <p className="text-xs text-muted-foreground">{shiftReport.sales?.totalCount || 0} transactions</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground">Fuel Sales</p>
+                <p className="text-2xl font-bold">{formatCurrency(Number(shiftReport.sales?.fuel?.amount || 0))}</p>
+                <p className="text-xs text-muted-foreground">{shiftReport.sales?.fuel?.count || 0} transactions</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground">Non-Fuel Sales</p>
+                <p className="text-2xl font-bold">{formatCurrency(Number(shiftReport.sales?.nonFuel?.amount || 0))}</p>
+                <p className="text-xs text-muted-foreground">{shiftReport.sales?.nonFuel?.count || 0} transactions</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {shiftReport.meterReadings?.variance?.length > 0 && (
+            <Card>
+              <CardHeader><CardTitle className="text-base">Meter Readings & Variance</CardTitle></CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Nozzle</TableHead>
+                      <TableHead>Fuel Type</TableHead>
+                      <TableHead className="text-right">Opening</TableHead>
+                      <TableHead className="text-right">Closing</TableHead>
+                      <TableHead className="text-right">Difference</TableHead>
+                      <TableHead className="text-right">Actual Sales</TableHead>
+                      <TableHead className="text-right">Variance</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {shiftReport.meterReadings.variance.map((v: any, i: number) => (
+                      <TableRow key={i}>
+                        <TableCell>Unit {v.nozzle?.unitNumber} - Nozzle {v.nozzle?.nozzleNumber}</TableCell>
+                        <TableCell>{v.nozzle?.fuelType}</TableCell>
+                        <TableCell className="text-right">{v.openingReading?.value?.toFixed(2) || '-'}</TableCell>
+                        <TableCell className="text-right">{v.closingReading?.value?.toFixed(2) || '-'}</TableCell>
+                        <TableCell className="text-right">{v.meterDifference?.toFixed(2) || '-'}</TableCell>
+                        <TableCell className="text-right">{v.actualSales?.toFixed(2) || '0.00'}</TableCell>
+                        <TableCell className="text-right">
+                          <Badge variant={Number(v.variance || 0) === 0 ? 'default' : 'destructive'}>
+                            {v.variance?.toFixed(2) || '-'}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* CUSTOMER LEDGER REPORT */}
+      {selectedReport === 'customer-ledger' && customerLedger && !isLoading && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-semibold">Customer Ledger - {customerLedger.customer?.name}</h2>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => {
+                if (!customerLedger) return;
+                const headers = ['Date', 'Type', 'Details', 'Amount', 'Payment Method'];
+                const rows: (string | number)[][] = (customerLedger.transactions || []).map((t: any) => [
+                  formatDate(t.date || new Date()),
+                  t.type || '-',
+                  t.type === 'fuel' ? (t.details?.fuelSales || []).map((fs: any) => `${fs.fuelType}: ${fs.liters}L`).join(', ') : '-',
+                  t.amount || 0,
+                  t.paymentMethod || '-',
+                ]);
+                downloadCSV(`customer-ledger-${customerLedger.customer?.name || 'unknown'}-${startDate}-to-${endDate}.csv`, toCSV(headers, rows));
+              }}>
+                <Download className="mr-2 h-4 w-4" /> CSV
+              </Button>
+            </div>
+          </div>
+
+          <Card>
+            <CardHeader><CardTitle className="text-base">Customer Information</CardTitle></CardHeader>
+            <CardContent>
+              <div className="grid gap-4 md:grid-cols-3">
+                <div>
+                  <p className="text-sm text-muted-foreground">Name</p>
+                  <p className="font-medium">{customerLedger.customer?.name || '-'}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Phone</p>
+                  <p className="font-medium">{customerLedger.customer?.phone || '-'}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Email</p>
+                  <p className="font-medium">{customerLedger.customer?.email || '-'}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground">Total Transactions</p>
+                <p className="text-2xl font-bold">{customerLedger.summary?.totalTransactions || 0}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground">Total Amount</p>
+                <p className="text-2xl font-bold">{formatCurrency(Number(customerLedger.summary?.totalAmount || 0))}</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {customerLedger.transactions?.length > 0 && (
+            <Card>
+              <CardHeader><CardTitle className="text-base">Transaction History</CardTitle></CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Details</TableHead>
+                      <TableHead>Payment</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {customerLedger.transactions.map((t: any) => (
+                      <TableRow key={t.id}>
+                        <TableCell>{formatDate(t.date || new Date())}</TableCell>
+                        <TableCell><Badge variant="outline">{t.type}</Badge></TableCell>
+                        <TableCell className="max-w-xs truncate">
+                          {t.type === 'fuel' && t.details?.fuelSales?.map((fs: any) => (
+                            <span key={fs.fuelType}>{fs.fuelType}: {fs.liters}L </span>
+                          ))}
+                          {t.type === 'non_fuel' && t.details?.items?.map((item: any, i: number) => (
+                            <span key={i}>{item.productName} (x{item.quantity}) </span>
+                          ))}
+                        </TableCell>
+                        <TableCell><Badge>{t.paymentMethod}</Badge></TableCell>
+                        <TableCell className="text-right font-medium">{formatCurrency(Number(t.amount || 0))}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
       {/* INVENTORY REPORT */}
       {selectedReport === 'inventory' && inventory && !isLoading && (
         <div className="space-y-4">
@@ -520,10 +800,10 @@ export function Reports() {
               <Button variant="outline" size="sm" onClick={() => {
                 if (!variance) return;
                 const shifts = variance.shifts || [];
-                let html = '<h2>Meter Reading Variance</h2><table><tr><th>Shift</th><th>Nozzle</th><th>Fuel</th><th class="right">Opening</th><th class="right">Closing</th><th class="right">Calculated</th><th class="right">Actual</th><th class="right">Variance</th></tr>';
+                let html = '<h2>Meter Reading Variance</h2><table><tr><th>Shift</th><th>Nozzle</th><th>Fuel</th><th class="right">Opening</th><th class="right">Closing</th><th class="right">Meter Diff</th><th class="right">Actual Sales</th><th class="right">Variance</th></tr>';
                 shifts.forEach((s: any) => {
-                  (s.nozzles || s.meterReadings || []).forEach((n: any) => {
-                    html += `<tr><td>${s.shiftNumber || s.name || '-'}</td><td>${n.nozzleNumber || n.nozzle?.nozzleNumber || '-'}</td><td>${n.fuelType || n.nozzle?.fuelType?.name || '-'}</td><td class="right">${n.opening ?? n.openingReading ?? '-'}</td><td class="right">${n.closing ?? n.closingReading ?? '-'}</td><td class="right">${n.calculated ?? n.expectedSales ?? '-'}</td><td class="right">${n.actual ?? n.actualSales ?? '-'}</td><td class="right">${n.variance ?? '-'}</td></tr>`;
+                  (s.nozzles || []).forEach((n: any) => {
+                    html += `<tr><td>${formatDate(s.shift?.date || new Date())}</td><td>Unit ${n.nozzle?.unitNumber} - #${n.nozzle?.nozzleNumber}</td><td>${n.nozzle?.fuelType || '-'}</td><td class="right">${Number(n.opening || 0).toFixed(2)}</td><td class="right">${Number(n.closing || 0).toFixed(2)}</td><td class="right">${Number(n.meterDifference || 0).toFixed(2)}</td><td class="right">${Number(n.actualSales || 0).toFixed(2)}</td><td class="right">${Number(n.variance || 0).toFixed(2)}</td></tr>`;
                   });
                 });
                 html += '</table>';
@@ -545,8 +825,8 @@ export function Reports() {
                       <TableHead>Fuel Type</TableHead>
                       <TableHead className="text-right">Opening</TableHead>
                       <TableHead className="text-right">Closing</TableHead>
-                      <TableHead className="text-right">Expected</TableHead>
-                      <TableHead className="text-right">Actual</TableHead>
+                      <TableHead className="text-right">Meter Diff</TableHead>
+                      <TableHead className="text-right">Actual Sales</TableHead>
                       <TableHead className="text-right">Variance</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -554,16 +834,16 @@ export function Reports() {
                     {variance.shifts.map((s: any, si: number) =>
                       (s.nozzles || s.meterReadings || []).map((n: any, ni: number) => (
                         <TableRow key={`${si}-${ni}`}>
-                          <TableCell>{s.shiftNumber || s.name || '-'}</TableCell>
-                          <TableCell>{n.nozzleNumber || n.nozzle?.nozzleNumber || '-'}</TableCell>
-                          <TableCell>{n.fuelType || n.nozzle?.fuelType?.name || '-'}</TableCell>
-                          <TableCell className="text-right">{n.opening ?? n.openingReading ?? '-'}</TableCell>
-                          <TableCell className="text-right">{n.closing ?? n.closingReading ?? '-'}</TableCell>
-                          <TableCell className="text-right">{n.calculated ?? n.expectedSales ?? '-'}</TableCell>
-                          <TableCell className="text-right">{n.actual ?? n.actualSales ?? '-'}</TableCell>
+                          <TableCell>{formatDate(s.shift?.date || new Date())}</TableCell>
+                          <TableCell>Unit {n.nozzle?.unitNumber} - #{n.nozzle?.nozzleNumber}</TableCell>
+                          <TableCell>{n.nozzle?.fuelType || '-'}</TableCell>
+                          <TableCell className="text-right">{Number(n.opening || 0).toFixed(2)}</TableCell>
+                          <TableCell className="text-right">{Number(n.closing || 0).toFixed(2)}</TableCell>
+                          <TableCell className="text-right">{Number(n.meterDifference || 0).toFixed(2)}</TableCell>
+                          <TableCell className="text-right">{Number(n.actualSales || 0).toFixed(2)}</TableCell>
                           <TableCell className="text-right">
-                            <Badge variant={Number(n.variance || 0) === 0 ? 'default' : 'destructive'}>
-                              {n.variance ?? '-'}
+                            <Badge variant={Math.abs(Number(n.variance || 0)) < 0.5 ? 'default' : 'destructive'}>
+                              {Number(n.variance || 0).toFixed(2)} L
                             </Badge>
                           </TableCell>
                         </TableRow>

@@ -6,7 +6,7 @@ import { ReportsService } from './reports.service';
 const dateString = z.string().transform(val => new Date(val)).refine(d => !isNaN(d.getTime()), { message: 'Invalid date' });
 
 const dailySalesQuerySchema = z.object({
-  branchId: z.string().uuid(),
+  branchId: z.string().uuid().optional(),
   date: dateString,
 });
 
@@ -15,7 +15,7 @@ const shiftReportQuerySchema = z.object({
 });
 
 const varianceReportQuerySchema = z.object({
-  branchId: z.string().uuid(),
+  branchId: z.string().uuid().optional(),
   startDate: dateString,
   endDate: dateString,
 });
@@ -27,7 +27,7 @@ const customerLedgerQuerySchema = z.object({
 });
 
 const inventoryReportQuerySchema = z.object({
-  branchId: z.string().uuid(),
+  branchId: z.string().uuid().optional(),
 });
 
 export class ReportsController {
@@ -55,8 +55,16 @@ export class ReportsController {
 
       const query = dailySalesQuerySchema.parse(req.query);
 
+      // Use user's branch if not specified (for cashiers/operators)
+      // Managers/accountants can specify any branch
+      const branchId = query.branchId || req.user.branchId;
+
+      if (!branchId) {
+        return res.status(400).json({ error: 'branchId required (user has no assigned branch)' });
+      }
+
       const report = await this.reportsService.getDailySalesReport(
-        query.branchId,
+        branchId,
         query.date,
         req.user.organizationId
       );
@@ -129,8 +137,15 @@ export class ReportsController {
         return res.status(400).json({ error: 'Start date must be before end date' });
       }
 
+      // Use user's branch if not specified
+      const branchId = query.branchId || req.user.branchId;
+
+      if (!branchId) {
+        return res.status(400).json({ error: 'branchId required (user has no assigned branch)' });
+      }
+
       const report = await this.reportsService.getVarianceReport(
-        query.branchId,
+        branchId,
         query.startDate,
         query.endDate,
         req.user.organizationId
@@ -200,8 +215,15 @@ export class ReportsController {
 
       const query = inventoryReportQuerySchema.parse(req.query);
 
+      // Use user's branch if not specified
+      const branchId = query.branchId || req.user.branchId;
+
+      if (!branchId) {
+        return res.status(400).json({ error: 'branchId required (user has no assigned branch)' });
+      }
+
       const report = await this.reportsService.getInventoryReport(
-        query.branchId,
+        branchId,
         req.user.organizationId
       );
 

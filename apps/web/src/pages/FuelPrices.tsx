@@ -13,9 +13,22 @@ export function FuelPrices() {
     queryFn: () => fuelPricesApi.getFuelTypes(),
   });
 
+  const { data: currentPrices, isLoading: loadingCurrentPrices } = useQuery({
+    queryKey: ['currentPrices'],
+    queryFn: () => fuelPricesApi.getCurrentPrices(),
+  });
+
   const { data: priceHistory, isLoading: loadingHistory } = useQuery({
     queryKey: ['priceHistory', 1],
     queryFn: () => fuelPricesApi.getPriceHistory(undefined, { page: 1, size: 20 }),
+  });
+
+  // Build price lookup: fuelTypeId -> current price
+  const priceLookup = new Map<string, number>();
+  currentPrices?.forEach((p: any) => {
+    if (p.fuelTypeId && p.pricePerLiter) {
+      priceLookup.set(p.fuelTypeId, Number(p.pricePerLiter));
+    }
   });
 
   return (
@@ -36,7 +49,7 @@ export function FuelPrices() {
           <CardTitle>Current Prices</CardTitle>
         </CardHeader>
         <CardContent>
-          {loadingTypes ? (
+          {loadingTypes || loadingCurrentPrices ? (
             <div className="space-y-2">
               {[...Array(3)].map((_, i) => (
                 <Skeleton key={i} className="h-16" />
@@ -54,24 +67,29 @@ export function FuelPrices() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {fuelTypes?.map((fuelType) => (
-                  <TableRow key={fuelType.id}>
-                    <TableCell className="font-medium">
-                      <div className="flex items-center">
-                        <Fuel className="mr-2 h-4 w-4 text-muted-foreground" />
-                        {fuelType.name}
-                      </div>
-                    </TableCell>
-                    <TableCell>{fuelType.code}</TableCell>
-                    <TableCell>-</TableCell>
-                    <TableCell>{fuelType.unit}</TableCell>
-                    <TableCell>
-                      <Button variant="ghost" size="sm">
-                        Update
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {fuelTypes?.map((fuelType) => {
+                  const currentPrice = priceLookup.get(fuelType.id);
+                  return (
+                    <TableRow key={fuelType.id}>
+                      <TableCell className="font-medium">
+                        <div className="flex items-center">
+                          <Fuel className="mr-2 h-4 w-4 text-muted-foreground" />
+                          {fuelType.name}
+                        </div>
+                      </TableCell>
+                      <TableCell>{fuelType.code}</TableCell>
+                      <TableCell>
+                        {currentPrice ? formatCurrency(currentPrice) : <span className="text-muted-foreground">Not set</span>}
+                      </TableCell>
+                      <TableCell>{fuelType.unit}</TableCell>
+                      <TableCell>
+                        <Button variant="ghost" size="sm">
+                          Update
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}
