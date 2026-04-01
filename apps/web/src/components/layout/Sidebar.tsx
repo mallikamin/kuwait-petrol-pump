@@ -31,6 +31,7 @@ const navItems: NavItem[] = [
   { title: 'POS', href: '/pos', icon: <CreditCard className="h-5 w-5" /> },
   { title: 'Branches', href: '/branches', icon: <Building2 className="h-5 w-5" />, roles: ['admin', 'manager'] },
   { title: 'Fuel Prices', href: '/fuel-prices', icon: <Fuel className="h-5 w-5" />, roles: ['admin', 'manager'] },
+  { title: 'Nozzles', href: '/nozzles', icon: <Gauge className="h-5 w-5" />, roles: ['admin', 'manager'] },
   { title: 'Shifts', href: '/shifts', icon: <Clock className="h-5 w-5" /> },
   { title: 'Meter Readings', href: '/meter-readings', icon: <Gauge className="h-5 w-5" /> },
   { title: 'Sales', href: '/sales', icon: <ShoppingCart className="h-5 w-5" /> },

@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>All Themes Interactive Showcase</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+
+        .theme-selector {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            position: sticky;
+            top: 20px;
+            z-index: 100;
+        }
+
+        .theme-selector h2 {
+            margin-bottom: 15px;
+            color: #333;
+        }
+
+        .theme-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .theme-btn {
+            padding: 10px 20px;
+            border: 2px solid #ddd;
+            background: white;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: bold;
+        }
+
+        .theme-btn:hover {
+            border-color: #2196F3;
+        }
+
+        .theme-btn.active {
+            background: #2196F3;
+            color: white;
+            border-color: #2196F3;
+        }
+
+        .mockup-container {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            overflow: hidden;
+            margin-bottom: 40px;
+        }
+
+        .mockup-header {
+            padding: 15px 20px;
+            background: #f5f5f5;
+            border-bottom: 2px solid #ddd;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .mockup-preview {
+            height: 600px;
+            overflow-y: auto;
+            padding: 20px;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .theme-info {
+            background: #f9f9f9;
+            padding: 15px 20px;
+            border-top: 1px solid #ddd;
+            font-size: 0.9em;
+            color: #666;
+        }
+
+        .color-samples {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+
+        .color-sample {
+            width: 30px;
+            height: 30px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+        }
+    </style>
+</head>
+<body>
+    <div class="theme-selector">
+        <h2>🎨 Theme Showcase - Select a Theme</h2>
+        <div class="theme-buttons">
+            <!-- MODERN THEMES -->
+            <button class="theme-btn active" onclick="showTheme('modern-blue')">Modern Blue</button>
+            <button class="theme-btn" onclick="showTheme('modern-light')">Modern Light</button>
+            <button class="theme-btn" onclick="showTheme('modern-dark')">Modern Dark</button>
+
+            <!-- MIDDLE EASTERN -->
+            <button class="theme-btn" onclick="showTheme('mideast-gold')">Middle East Gold</button>
+            <button class="theme-btn" onclick="showTheme('mideast-dark')">Middle East Dark</button>
+
+            <!-- PAKISTANI -->
+            <button class="theme-btn" onclick="showTheme('pakistan-vibrant')">Pakistani Vibrant</button>
+            <button class="theme-btn" onclick="showTheme('pakistan-warm')">Pakistani Warm</button>
+
+            <!-- SWISS BANK -->
+            <button class="theme-btn" onclick="showTheme('swiss-bank')">Swiss Bank</button>
+            <button class="theme-btn" onclick="showTheme('swiss-dark')">Swiss Dark</button>
+
+            <!-- MIXED -->
+            <button class="theme-btn" onclick="showTheme('mixed-fusion')">Mixed Fusion</button>
+            <button class="theme-btn" onclick="showTheme('mixed-sunset')">Mixed Sunset</button>
+        </div>
+    </div>
+
+    <!-- MODERN BLUE -->
+    <div id="modern-blue" class="mockup-container">
+        <div class="mockup-header">🔵 Modern Blue - Current Style</div>
+        <div class="mockup-preview" style="background: linear-gradient(135deg, #f5f7fa 0%, #e9ecef 100%);">
+            <div style="background: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 8px rgba(33,150,243,0.1); margin-bottom: 15px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h3 style="color: #2196F3; font-size: 1.2em;">💳 POS Dashboard</h3>
+                    <span style="background: #e3f2fd; color: #2196F3; padding: 6px 12px; border-radius: 20px; font-size: 0.85em;">Dashboard</span>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                    <div style="background: #f5f5f5; padding: 12px; border-radius: 6px; text-align: center;">
+                        <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">FUEL SALES</div>
+                        <div style="font-size: 1.5em; color: #2196F3; font-weight: bold;">18,500 KD</div>
+                    </div>
+                    <div style="background: #f5f5f5; padding: 12px; border-radius: 6px; text-align: center;">
+                        <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">NON-FUEL</div>
+                        <div style="font-size: 1.5em; color: #2196F3; font-weight: bold;">3,250 KD</div>
+                    </div>
+                </div>
+                <button style="background: #2196F3; color: white; border: none; padding: 12px; border-radius: 6px; width: 100%; font-weight: bold; cursor: pointer;">New Sale</button>
+            </div>
+            <div style="background: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 8px rgba(33,150,243,0.1);">
+                <h4 style="color: #333; margin-bottom: 12px;">Recent Transactions</h4>
+                <div style="font-size: 0.9em;">
+                    <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #e0e0e0;">
+                        <span>14:32 - Fuel Sale</span>
+                        <span style="color: #2196F3; font-weight: bold;">125.50 KD</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; padding: 8px 0; color: #666;">
+                        <span>14:28 - Product</span>
+                        <span>45.00 KD</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="theme-info">
+            <strong>Best for:</strong> International teams, tech-forward image, modern aesthetics<br>
+            <div class="color-samples">
+                <div class="color-sample" style="background: #2196F3;" title="Primary Blue"></div>
+                <div class="color-sample" style="background: #1565c0;" title="Dark Blue"></div>
+                <div class="color-sample" style="background: #e3f2fd;" title="Light Blue"></div>
+                <div class="color-sample" style="background: #4CAF50;" title="Success Green"></div>
+                <div class="color-sample" style="background: #f44336;" title="Error Red"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODERN LIGHT -->
+    <div id="modern-light" class="mockup-container hidden">
+        <div class="mockup-header">☀️ Modern Light - Minimalist Clean</div>
+        <div class="mockup-preview" style="background: #f9f9f9;">
+            <div style="background: white; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-bottom: 15px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h3 style="color: #333; font-size: 1.2em; font-weight: 300;">💳 POS</h3>
+                    <span style="background: #f0f0f0; color: #333; padding: 6px 12px; border-radius: 20px; font-size: 0.85em;">Today</span>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                    <div style="background: #fafafa; padding: 12px; border-radius: 8px; text-align: center; border: 1px solid #f0f0f0;">
+                        <div style="font-size: 0.8em; color: #999; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px;">Fuel</div>
+                        <div style="font-size: 1.5em; color: #333; font-weight: 400;">18.5K</div>
+                    </div>
+                    <div style="background: #fafafa; padding: 12px; border-radius: 8px; text-align: center; border: 1px solid #f0f0f0;">
+                        <div style="font-size: 0.8em; color: #999; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px;">Other</div>
+                        <div style="font-size: 1.5em; color: #333; font-weight: 400;">3.2K</div>
+                    </div>
+                </div>
+                <button style="background: #333; color: white; border: none; padding: 12px; border-radius: 8px; width: 100%; font-weight: 500; cursor: pointer;">New Transaction</button>
+            </div>
+        </div>
+        <div class="theme-info">
+            <strong>Best for:</strong> Premium brands, clean interfaces, focus on content<br>
+            <div class="color-samples">
+                <div class="color-sample" style="background: #ffffff; border: 2px solid #ccc;"></div>
+                <div class="color-sample" style="background: #f5f5f5;"></div>
+                <div class="color-sample" style="background: #333333;"></div>
+                <div class="color-sample" style="background: #999999;"></div>
+                <div class="color-sample" style="background: #27ae60;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODERN DARK -->
+    <div id="modern-dark" class="mockup-container hidden">
+        <div class="mockup-header">🌙 Modern Dark - Night Mode Pro</div>
+        <div class="mockup-preview" style="background: #1a1a1a;">
+            <div style="background: #242424; border-radius: 8px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); margin-bottom: 15px; border: 1px solid #333;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h3 style="color: #ffffff; font-size: 1.2em;">💳 POS</h3>
+                    <span style="background: #333; color: #2196F3; padding: 6px 12px; border-radius: 20px; font-size: 0.85em;">Active</span>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                    <div style="background: #1a1a1a; padding: 12px; border-radius: 6px; text-align: center; border: 1px solid #333;">
+                        <div style="font-size: 0.85em; color: #999; margin-bottom: 5px;">FUEL</div>
+                        <div style="font-size: 1.5em; color: #64b5f6; font-weight: bold;">18,500</div>
+                    </div>
+                    <div style="background: #1a1a1a; padding: 12px; border-radius: 6px; text-align: center; border: 1px solid #333;">
+                        <div style="font-size: 0.85em; color: #999; margin-bottom: 5px;">OTHER</div>
+                        <div style="font-size: 1.5em; color: #64b5f6; font-weight: bold;">3,250</div>
+                    </div>
+                </div>
+                <button style="background: #2196F3; color: white; border: none; padding: 12px; border-radius: 6px; width: 100%; font-weight: bold; cursor: pointer;">New Sale</button>
+            </div>
+        </div>
+        <div class="theme-info">
+            <strong>Best for:</strong> Reduced eye strain, night shift workers, premium feeling<br>
+            <div class="color-samples">
+                <div class="color-sample" style="background: #1a1a1a;"></div>
+                <div class="color-sample" style="background: #242424;"></div>
+                <div class="color-sample" style="background: #2196F3;"></div>
+                <div class="color-sample" style="background: #64b5f6;"></div>
+                <div class="color-sample" style="background: #ffffff;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MIDDLE EASTERN GOLD -->
+    <div id="mideast-gold" class="mockup-container hidden">
+        <div class="mockup-header">✨ Middle Eastern Gold - Luxury Feel</div>
+        <div class="mockup-preview" style="background: #f4f1de;">
+            <div style="background: white; border-radius: 8px; padding: 20px; box-shadow: 0 4px 12px rgba(26, 95, 95, 0.1); margin-bottom: 15px; border-left: 4px solid #D4AF37;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h3 style="color: #1a5f5f; font-size: 1.2em;">💳 Cashier</h3>
+                    <span style="background: #f0e68c; color: #8b6914; padding: 6px 12px; border-radius: 20px; font-size: 0.85em;">Today</span>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                    <div style="background: #f4f1de; padding: 12px; border-radius: 6px; text-align: center; border: 1px solid #e8e5d5;">
+                        <div style="font-size: 0.85em; color: #8b6914; margin-bottom: 5px;">مبیعات الوقود</div>
+                        <div style="font-size: 1.5em; color: #1a5f5f; font-weight: bold;">18,500</div>
+                    </div>
+                    <div style="background: #f4f1de; padding: 12px; border-radius: 6px; text-align: center; border: 1px solid #e8e5d5;">
+                        <div style="font-size: 0.85em; color: #8b6914; margin-bottom: 5px;">مبيعات أخرى</div>
+                        <div style="font-size: 1.5em; color: #1a5f5f; font-weight: bold;">3,250</div>
+                    </div>
+                </div>
+                <button style="background: linear-gradient(135deg, #1a5f5f 0%, #2d9999 100%); color: #f4f1de; border: none; padding: 12px; border-radius: 6px; width: 100%; font-weight: bold; cursor: pointer;">معاملة جديدة</button>
+            </div>
+        </div>
+        <div class="theme-info">
+            <strong>Best for:</strong> Gulf markets, premium positioning, executive dashboards<br>
+            <div class="color-samples">
+                <div class="color-sample" style="background: #D4AF37;"></div>
+                <div class="color-sample" style="background: #1a5f5f;"></div>
+                <div class="color-sample" style="background: #2d9999;"></div>
+                <div class="color-sample" style="background: #f4f1de;"></div>
+                <div class="color-sample" style="background: #8b0000;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SWISS BANK -->
+    <div id="swiss-bank" class="mockup-container hidden">
+        <div class="mockup-header">🇨🇭 Swiss Bank - Premium Trust</div>
+        <div class="mockup-preview" style="background: #ffffff;">
+            <div style="background: white; border-radius: 2px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); margin-bottom: 15px; border: 1px solid #e5e5e5;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid #f5f5f5; padding-bottom: 12px;">
+                    <h3 style="color: #1a1a2e; font-size: 1.1em; font-weight: 600;">POS TERMINAL</h3>
+                    <span style="background: #f5f5f5; color: #1a1a2e; padding: 4px 10px; border-radius: 2px; font-size: 0.8em; font-weight: 600;">ACTIVE</span>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                    <div style="background: #fafafa; padding: 12px; border: 1px solid #e5e5e5; text-align: center;">
+                        <div style="font-size: 0.75em; color: #666; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Fuel Revenue</div>
+                        <div style="font-size: 1.4em; color: #1a1a2e; font-weight: 700;">CHF 18,500</div>
+                        <div style="font-size: 0.7em; color: #999; margin-top: 4px;">Today</div>
+                    </div>
+                    <div style="background: #fafafa; padding: 12px; border: 1px solid #e5e5e5; text-align: center;">
+                        <div style="font-size: 0.75em; color: #666; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Other Sales</div>
+                        <div style="font-size: 1.4em; color: #1a1a2e; font-weight: 700;">CHF 3,250</div>
+                        <div style="font-size: 0.7em; color: #999; margin-top: 4px;">Today</div>
+                    </div>
+                </div>
+                <button style="background: #1a1a2e; color: white; border: none; padding: 11px; border-radius: 2px; width: 100%; font-weight: 600; cursor: pointer; text-transform: uppercase; font-size: 0.9em; letter-spacing: 0.5px;">NEW TRANSACTION</button>
+            </div>
+        </div>
+        <div class="theme-info">
+            <strong>Best for:</strong> Bank systems, high trust/security positioning, Swiss markets<br>
+            <div class="color-samples">
+                <div class="color-sample" style="background: #ffffff; border: 2px solid #ccc;"></div>
+                <div class="color-sample" style="background: #1a1a2e;"></div>
+                <div class="color-sample" style="background: #e5e5e5;"></div>
+                <div class="color-sample" style="background: #d4af37;"></div>
+                <div class="color-sample" style="background: #2e5090;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SWISS DARK -->
+    <div id="swiss-dark" class="mockup-container hidden">
+        <div class="mockup-header">🏦 Swiss Dark - Professional Night</div>
+        <div class="mockup-preview" style="background: #f5f5f5;">
+            <div style="background: #1a1a2e; border-radius: 2px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.2); margin-bottom: 15px; border: 1px solid #2a2a3e;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid #2a2a3e; padding-bottom: 12px;">
+                    <h3 style="color: #d4af37; font-size: 1.1em; font-weight: 600;">POS TERMINAL</h3>
+                    <span style="background: #2a2a3e; color: #d4af37; padding: 4px 10px; border-radius: 2px; font-size: 0.8em; font-weight: 600;">ACTIVE</span>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                    <div style="background: #2a2a3e; padding: 12px; border: 1px solid #3a3a4e; text-align: center;">
+                        <div style="font-size: 0.75em; color: #aaa; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Fuel Revenue</div>
+                        <div style="font-size: 1.4em; color: #d4af37; font-weight: 700;">18,500</div>
+                    </div>
+                    <div style="background: #2a2a3e; padding: 12px; border: 1px solid #3a3a4e; text-align: center;">
+                        <div style="font-size: 0.75em; color: #aaa; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Other Sales</div>
+                        <div style="font-size: 1.4em; color: #d4af37; font-weight: 700;">3,250</div>
+                    </div>
+                </div>
+                <button style="background: #d4af37; color: #1a1a2e; border: none; padding: 11px; border-radius: 2px; width: 100%; font-weight: 600; cursor: pointer; text-transform: uppercase; font-size: 0.9em; letter-spacing: 0.5px;">NEW TRANSACTION</button>
+            </div>
+        </div>
+        <div class="theme-info">
+            <strong>Best for:</strong> Professional night operations, secure/premium feeling, reduced glare<br>
+        </div>
+    </div>
+
+    <!-- PAKISTANI VIBRANT -->
+    <div id="pakistan-vibrant" class="mockup-container hidden">
+        <div class="mockup-header">🇵🇰 Pakistani Vibrant - Energetic</div>
+        <div class="mockup-preview" style="background: #fff3e0;">
+            <div style="background: white; border-radius: 8px; padding: 20px; box-shadow: 0 4px 12px rgba(30, 125, 50, 0.1); margin-bottom: 15px; border-left: 4px solid #FFA500;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h3 style="color: #1B5E20; font-size: 1.2em;">💳 کیشیئر</h3>
+                    <span style="background: #ffe0b2; color: #FF7500; padding: 6px 12px; border-radius: 20px; font-size: 0.85em;">آج</span>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                    <div style="background: #fff3e0; padding: 12px; border-radius: 6px; text-align: center; border: 2px solid #FFA500;">
+                        <div style="font-size: 0.85em; color: #FF7500; margin-bottom: 5px; font-weight: bold;">ایندھن</div>
+                        <div style="font-size: 1.5em; color: #1B5E20; font-weight: bold;">18,500</div>
+                    </div>
+                    <div style="background: #fff3e0; padding: 12px; border-radius: 6px; text-align: center; border: 2px solid #FFA500;">
+                        <div style="font-size: 0.85em; color: #FF7500; margin-bottom: 5px; font-weight: bold;">دوسری</div>
+                        <div style="font-size: 1.5em; color: #1B5E20; font-weight: bold;">3,250</div>
+                    </div>
+                </div>
+                <button style="background: linear-gradient(135deg, #1B5E20 0%, #2E7D32 100%); color: #fff3e0; border: none; padding: 12px; border-radius: 6px; width: 100%; font-weight: bold; cursor: pointer;">نیا فروخت</button>
+            </div>
+        </div>
+        <div class="theme-info">
+            <strong>Best for:</strong> Pakistani markets, energetic brands, local community trust<br>
+            <div class="color-samples">
+                <div class="color-sample" style="background: #1B5E20;"></div>
+                <div class="color-sample" style="background: #2E7D32;"></div>
+                <div class="color-sample" style="background: #FFA500;"></div>
+                <div class="color-sample" style="background: #fff3e0;"></div>
+                <div class="color-sample" style="background: #d32f2f;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MIXED FUSION -->
+    <div id="mixed-fusion" class="mockup-container hidden">
+        <div class="mockup-header">🔀 Mixed Fusion - Best of All Worlds</div>
+        <div class="mockup-preview" style="background: linear-gradient(135deg, #f5f1e8 0%, #f9f9f9 100%);">
+            <div style="background: white; border-radius: 10px; padding: 20px; box-shadow: 0 4px 12px rgba(26, 71, 42, 0.1); margin-bottom: 15px; border-left: 4px solid #d4a574; border-top: 4px solid #2196F3;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h3 style="color: #1a472a; font-size: 1.2em;">💳 POS System</h3>
+                    <span style="background: linear-gradient(135deg, #d4a574 0%, #2196F3 100%); color: white; padding: 6px 12px; border-radius: 20px; font-size: 0.85em;">Today</span>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                    <div style="background: linear-gradient(135deg, #e8f5e9 0%, #e3f2fd 100%); padding: 12px; border-radius: 6px; text-align: center; border: 1px solid #c8e6c9;">
+                        <div style="font-size: 0.85em; color: #1a472a; margin-bottom: 5px; font-weight: bold;">FUEL</div>
+                        <div style="font-size: 1.5em; background: linear-gradient(135deg, #1a472a 0%, #2196F3 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: bold;">18,500</div>
+                    </div>
+                    <div style="background: linear-gradient(135deg, #fff3e0 0%, #e3f2fd 100%); padding: 12px; border-radius: 6px; text-align: center; border: 1px solid #ffe0b2;">
+                        <div style="font-size: 0.85em; color: #FF7500; margin-bottom: 5px; font-weight: bold;">OTHER</div>
+                        <div style="font-size: 1.5em; color: #2196F3; font-weight: bold;">3,250</div>
+                    </div>
+                </div>
+                <button style="background: linear-gradient(135deg, #1a472a 0%, #2196F3 100%); color: white; border: none; padding: 12px; border-radius: 6px; width: 100%; font-weight: bold; cursor: pointer;">New Transaction</button>
+            </div>
+        </div>
+        <div class="theme-info">
+            <strong>Best for:</strong> Multi-cultural teams, inclusive design, universal appeal<br>
+            <div class="color-samples">
+                <div class="color-sample" style="background: #2196F3;"></div>
+                <div class="color-sample" style="background: #d4a574;"></div>
+                <div class="color-sample" style="background: #1a472a;"></div>
+                <div class="color-sample" style="background: #FFA500;"></div>
+                <div class="color-sample" style="background: #27ae60;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MIXED SUNSET -->
+    <div id="mixed-sunset" class="mockup-container hidden">
+        <div class="mockup-header">🌅 Mixed Sunset - Warm & Inviting</div>
+        <div class="mockup-preview" style="background: linear-gradient(135deg, #fff3e0 0%, #ffccbc 100%);">
+            <div style="background: white; border-radius: 10px; padding: 20px; box-shadow: 0 4px 12px rgba(255, 152, 0, 0.15); margin-bottom: 15px; border-left: 4px solid #FF9800; border-top: 4px solid #FF6F00;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h3 style="color: #E65100; font-size: 1.2em;">💳 Dashboard</h3>
+                    <span style="background: #FFE0B2; color: #E65100; padding: 6px 12px; border-radius: 20px; font-size: 0.85em;">Live</span>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                    <div style="background: #fff3e0; padding: 12px; border-radius: 6px; text-align: center; border: 2px solid #FFB74D;">
+                        <div style="font-size: 0.85em; color: #FF6F00; margin-bottom: 5px; font-weight: bold;">☀️ FUEL</div>
+                        <div style="font-size: 1.5em; color: #E65100; font-weight: bold;">18,500</div>
+                    </div>
+                    <div style="background: #fff3e0; padding: 12px; border-radius: 6px; text-align: center; border: 2px solid #FFB74D;">
+                        <div style="font-size: 0.85em; color: #FF6F00; margin-bottom: 5px; font-weight: bold;">🛍️ RETAIL</div>
+                        <div style="font-size: 1.5em; color: #E65100; font-weight: bold;">3,250</div>
+                    </div>
+                </div>
+                <button style="background: linear-gradient(135deg, #FF6F00 0%, #FF9800 100%); color: white; border: none; padding: 12px; border-radius: 6px; width: 100%; font-weight: bold; cursor: pointer;">Quick Sale</button>
+            </div>
+        </div>
+        <div class="theme-info">
+            <strong>Best for:</strong> Warm markets, friendly approachable interfaces, retail focus<br>
+            <div class="color-samples">
+                <div class="color-sample" style="background: #FF9800;"></div>
+                <div class="color-sample" style="background: #FF6F00;"></div>
+                <div class="color-sample" style="background: #FFB74D;"></div>
+                <div class="color-sample" style="background: #fff3e0;"></div>
+                <div class="color-sample" style="background: #E65100;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function showTheme(themeId) {
+            // Hide all themes
+            document.querySelectorAll('.mockup-container').forEach(el => {
+                el.classList.add('hidden');
+            });
+
+            // Show selected theme
+            document.getElementById(themeId).classList.remove('hidden');
+
+            // Update button states
+            document.querySelectorAll('.theme-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+
+            // Scroll to theme
+            document.getElementById(themeId).scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    </script>
+</body>
+</html>

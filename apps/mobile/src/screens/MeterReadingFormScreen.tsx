@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Platform,
 } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -18,6 +19,8 @@ import { RootStackParamList, Nozzle, Shift, MeterReadingCreate } from '../types'
 import apiClient from '../api/client';
 import { convertImageToBase64 } from '../utils/imageProcessing';
 import { Picker } from '@react-native-picker/picker';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { format } from 'date-fns';
 
 type MeterReadingFormRouteProp = RouteProp<
   RootStackParamList,
@@ -41,22 +44,36 @@ const MeterReadingFormScreen: React.FC = () => {
   const [meterValue, setMeterValue] = useState(
     ocrValue ? ocrValue.toString() : ''
   );
+  const [isBackdated, setIsBackdated] = useState(false);
+  const [customDate, setCustomDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
 
   // Fetch nozzles
-  const { data: nozzles, isLoading: nozzlesLoading } = useQuery({
+  const { data: nozzles, isLoading: nozzlesLoading, error: nozzlesError } = useQuery({
     queryKey: ['nozzles'],
     queryFn: async () => {
-      const response = await apiClient.get<Nozzle[]>('/nozzles');
-      return response.data.filter((n) => n.is_active);
+      console.log('Fetching nozzles...');
+      const response = await apiClient.get<{ nozzles: Nozzle[] }>('/nozzles');
+      console.log('Nozzles response:', response.data);
+      return response.data.nozzles.filter((n) => n.isActive);
+    },
+    onError: (error) => {
+      console.error('Nozzles fetch error:', error);
     },
   });
 
   // Fetch shifts
-  const { data: shifts, isLoading: shiftsLoading } = useQuery({
+  const { data: shifts, isLoading: shiftsLoading, error: shiftsError } = useQuery({
     queryKey: ['shifts'],
     queryFn: async () => {
-      const response = await apiClient.get<Shift[]>('/shifts');
-      return response.data.filter((s) => s.is_active);
+      console.log('Fetching shifts...');
+      const response = await apiClient.get<{ shifts: Shift[] }>('/shifts');
+      console.log('Shifts response:', response.data);
+      return response.data.shifts.filter((s) => s.isActive);
+    },
+    onError: (error) => {
+      console.error('Shifts fetch error:', error);
     },
   });
 
@@ -114,8 +131,18 @@ const MeterReadingFormScreen: React.FC = () => {
       return;
     }
 
-    if (!meterValue || parseFloat(meterValue) <= 0) {
+    const meterValueNum = parseFloat(meterValue);
+    if (!meterValue || meterValueNum <= 0) {
       Alert.alert('Validation Error', 'Please enter a valid meter value');
+      return;
+    }
+
+    // 7-digit minimum validation (e.g., 1234567.00)
+    if (meterValueNum < 1000000) {
+      Alert.alert(
+        'Validation Error',
+        'Meter reading must be at least 7 digits (1,000,000 or higher). Please check the reading.'
+      );
       return;
     }
 
@@ -126,14 +153,15 @@ const MeterReadingFormScreen: React.FC = () => {
         imageBase64 = await convertImageToBase64(imageUri);
       }
 
-      const data: MeterReadingCreate = {
-        nozzle_id: nozzleId,
-        shift_id: shiftId,
-        reading_type: readingType,
-        meter_value: parseFloat(meterValue),
-        image_base64: imageBase64,
-        is_ocr: !!ocrValue,
-        ocr_confidence: ocrConfidence,
+      const data: MeterReadingCreate & { customTimestamp?: string } = {
+        nozzleId: nozzleId,
+        shiftId: shiftId,
+        readingType: readingType,
+        meterValue: parseFloat(meterValue),
+        imageBase64: imageBase64,
+        isOcr: !!ocrValue,
+        ocrConfidence: ocrConfidence,
+        ...(isBackdated && { customTimestamp: customDate.toISOString() }),
       };
 
       submitMutation.mutate(data);
@@ -180,7 +208,7 @@ const MeterReadingFormScreen: React.FC = () => {
                 {nozzles?.map((nozzle) => (
                   <Picker.Item
                     key={nozzle.id}
-                    label={`${nozzle.nozzle_number} - ${nozzle.fuel_type}`}
+                    label={`Nozzle ${nozzle.nozzleNumber} - ${nozzle.fuelType.name}`}
                     value={nozzle.id}
                   />
                 ))}
@@ -202,7 +230,7 @@ const MeterReadingFormScreen: React.FC = () => {
                 {shifts?.map((shift) => (
                   <Picker.Item
                     key={shift.id}
-                    label={`${shift.name} (${shift.start_time} - ${shift.end_time})`}
+                    label={shift.name}
                     value={shift.id}
                   />
                 ))}
@@ -253,10 +281,10 @@ const MeterReadingFormScreen: React.FC = () => {
 
           {/* Meter Value */}
           <View style={styles.formGroup}>
-            <Text style={styles.label}>Meter Value *</Text>
+            <Text style={styles.label}>Meter Value * (min 7 digits)</Text>
             <TextInput
               style={styles.input}
-              placeholder="Enter meter reading"
+              placeholder="Enter meter reading (e.g., 1234567.00)"
               placeholderTextColor="#999"
               value={meterValue}
               onChangeText={setMeterValue}
@@ -269,6 +297,99 @@ const MeterReadingFormScreen: React.FC = () => {
               </Text>
             )}
           </View>
+
+          {/* Back-dated Entry Toggle */}
+          <View style={styles.formGroup}>
+            <View style={styles.toggleRow}>
+              <View style={styles.toggleLabelContainer}>
+                <Text style={styles.label}>Back-dated Entry</Text>
+                <Text style={styles.helperText}>
+                  For entering historical meter readings
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={[
+                  styles.toggle,
+                  isBackdated && styles.toggleActive,
+                ]}
+                onPress={() => setIsBackdated(!isBackdated)}
+                disabled={isLoading}
+              >
+                <View
+                  style={[
+                    styles.toggleThumb,
+                    isBackdated && styles.toggleThumbActive,
+                  ]}
+                />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Date/Time Pickers (if back-dated) */}
+          {isBackdated && (
+            <>
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>Reading Date *</Text>
+                <TouchableOpacity
+                  style={styles.dateButton}
+                  onPress={() => setShowDatePicker(true)}
+                  disabled={isLoading}
+                >
+                  <Text style={styles.dateButtonText}>
+                    {format(customDate, 'dd MMM yyyy')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>Reading Time *</Text>
+                <TouchableOpacity
+                  style={styles.dateButton}
+                  onPress={() => setShowTimePicker(true)}
+                  disabled={isLoading}
+                >
+                  <Text style={styles.dateButtonText}>
+                    {format(customDate, 'HH:mm')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {showDatePicker && (
+                <DateTimePicker
+                  value={customDate}
+                  mode="date"
+                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                  onChange={(event, selectedDate) => {
+                    setShowDatePicker(false);
+                    if (selectedDate) {
+                      setCustomDate(selectedDate);
+                    }
+                  }}
+                  maximumDate={new Date()} // Can't select future dates
+                />
+              )}
+
+              {showTimePicker && (
+                <DateTimePicker
+                  value={customDate}
+                  mode="time"
+                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                  onChange={(event, selectedDate) => {
+                    setShowTimePicker(false);
+                    if (selectedDate) {
+                      setCustomDate(selectedDate);
+                    }
+                  }}
+                />
+              )}
+
+              <View style={styles.warningBox}>
+                <Text style={styles.warningText}>
+                  ⚠️ Note: OCR rate limits (50/day) still apply to back-dated entries
+                </Text>
+              </View>
+            </>
+          )}
 
           {/* Submit Button */}
           <TouchableOpacity
@@ -287,6 +408,15 @@ const MeterReadingFormScreen: React.FC = () => {
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="small" color="#1a73e8" />
               <Text style={styles.loadingText}>Loading form data...</Text>
+            </View>
+          )}
+
+          {(nozzlesError || shiftsError) && (
+            <View style={styles.loadingContainer}>
+              <Text style={{color: 'red', fontSize: 12}}>
+                {nozzlesError && `Nozzles error: ${nozzlesError}\n`}
+                {shiftsError && `Shifts error: ${shiftsError}`}
+              </Text>
             </View>
           )}
         </View>
@@ -360,9 +490,9 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   pickerContainer: {
-    backgroundColor: '#f9f9f9',
-    borderWidth: 1,
-    borderColor: '#ddd',
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    borderColor: '#1a73e8',
     borderRadius: 8,
     overflow: 'hidden',
   },
@@ -371,7 +501,9 @@ const styles = StyleSheet.create({
   },
   segmentedControl: {
     flexDirection: 'row',
-    backgroundColor: '#f9f9f9',
+    backgroundColor: '#f0f0f0',
+    borderWidth: 1,
+    borderColor: '#ddd',
     borderRadius: 8,
     padding: 4,
   },
@@ -393,12 +525,13 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   input: {
-    backgroundColor: '#f9f9f9',
-    borderWidth: 1,
-    borderColor: '#ddd',
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    borderColor: '#1a73e8',
     borderRadius: 8,
     padding: 12,
-    fontSize: 16,
+    fontSize: 18,
+    fontWeight: '600',
     color: '#333',
   },
   helperText: {
@@ -431,6 +564,64 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     color: '#666',
     fontSize: 14,
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  toggleLabelContainer: {
+    flex: 1,
+  },
+  toggle: {
+    width: 60,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#ddd',
+    padding: 3,
+    justifyContent: 'center',
+  },
+  toggleActive: {
+    backgroundColor: '#1a73e8',
+  },
+  toggleThumb: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  toggleThumbActive: {
+    transform: [{ translateX: 28 }],
+  },
+  dateButton: {
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    borderColor: '#1a73e8',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+  },
+  dateButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  warningBox: {
+    backgroundColor: '#fff3cd',
+    padding: 12,
+    borderRadius: 8,
+    borderLeftWidth: 4,
+    borderLeftColor: '#ff9800',
+    marginTop: 8,
+  },
+  warningText: {
+    color: '#856404',
+    fontSize: 13,
   },
 });
 

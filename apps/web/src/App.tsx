@@ -8,6 +8,7 @@ import { Branches } from '@/pages/Branches';
 import { FuelPrices } from '@/pages/FuelPrices';
 import { Shifts } from '@/pages/Shifts';
 import { MeterReadings } from '@/pages/MeterReadings';
+import { Nozzles } from '@/pages/Nozzles';
 import { Sales } from '@/pages/Sales';
 import { Customers } from '@/pages/Customers';
 import { Products } from '@/pages/Products';
@@ -63,6 +64,7 @@ function App() {
             <Route path="pos" element={<POS />} />
             <Route path="branches" element={<Branches />} />
             <Route path="fuel-prices" element={<FuelPrices />} />
+            <Route path="nozzles" element={<Nozzles />} />
             <Route path="shifts" element={<Shifts />} />
             <Route path="meter-readings" element={<MeterReadings />} />
             <Route path="sales" element={<Sales />} />

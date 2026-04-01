@@ -150,4 +150,72 @@ export class BranchesService {
 
     return nozzles;
   }
+
+  /**
+   * Create a new dispensing unit
+   */
+  async createDispensingUnit(branchId: string, organizationId: string, data: { name: string; unitNumber: number }) {
+    // Verify branch belongs to organization
+    const branch = await prisma.branch.findFirst({
+      where: {
+        id: branchId,
+        organizationId,
+      },
+    });
+
+    if (!branch) {
+      throw new AppError(404, 'Branch not found');
+    }
+
+    const unit = await prisma.dispensingUnit.create({
+      data: {
+        branchId,
+        name: data.name,
+        unitNumber: data.unitNumber,
+      },
+      include: {
+        nozzles: {
+          include: {
+            fuelType: true,
+          },
+        },
+      },
+    });
+
+    return unit;
+  }
+
+  /**
+   * Create a new nozzle
+   */
+  async createNozzle(unitId: string, organizationId: string, data: { nozzleNumber: number; fuelTypeId: string; meterType?: string }) {
+    // Verify unit belongs to organization
+    const unit = await prisma.dispensingUnit.findFirst({
+      where: {
+        id: unitId,
+        branch: {
+          organizationId,
+        },
+      },
+    });
+
+    if (!unit) {
+      throw new AppError(404, 'Dispensing unit not found');
+    }
+
+    const nozzle = await prisma.nozzle.create({
+      data: {
+        dispensingUnitId: unitId,
+        nozzleNumber: data.nozzleNumber,
+        fuelTypeId: data.fuelTypeId,
+        meterType: data.meterType || 'digital',
+      },
+      include: {
+        fuelType: true,
+        dispensingUnit: true,
+      },
+    });
+
+    return nozzle;
+  }
 }

@@ -31,6 +31,34 @@ export const branchesApi = {
     return response.data;
   },
 
+  createDispensingUnit: async (branchId: string, data: { name: string; unitNumber: number }): Promise<DispensingUnit> => {
+    const response = await apiClient.post<DispensingUnit>(`/api/branches/${branchId}/dispensing-units`, {
+      name: data.name,
+      unit_number: data.unitNumber,
+    });
+    return response.data;
+  },
+
+  createNozzle: async (unitId: string, data: { nozzleNumber: number; fuelTypeId: string; meterType?: string }): Promise<Nozzle> => {
+    const response = await apiClient.post<Nozzle>(`/api/dispensing-units/${unitId}/nozzles`, {
+      nozzle_number: data.nozzleNumber,
+      fuel_type_id: data.fuelTypeId,
+      meter_type: data.meterType || 'digital',
+    });
+    return response.data;
+  },
+
+  updateNozzle: async (nozzleId: string, data: Partial<{ nozzleNumber: number; fuelTypeId: string; meterType: string; isActive: boolean }>): Promise<Nozzle> => {
+    const payload: any = {};
+    if (data.nozzleNumber !== undefined) payload.nozzle_number = data.nozzleNumber;
+    if (data.fuelTypeId !== undefined) payload.fuel_type_id = data.fuelTypeId;
+    if (data.meterType !== undefined) payload.meter_type = data.meterType;
+    if (data.isActive !== undefined) payload.is_active = data.isActive;
+
+    const response = await apiClient.patch<Nozzle>(`/api/nozzles/${nozzleId}`, payload);
+    return response.data;
+  },
+
   updateNozzleStatus: async (nozzleId: string, isActive: boolean): Promise<Nozzle> => {
     const response = await apiClient.patch<Nozzle>(`/api/nozzles/${nozzleId}`, { is_active: isActive });
     return response.data;

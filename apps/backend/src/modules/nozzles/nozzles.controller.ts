@@ -17,6 +17,13 @@ const updateNozzleStatusSchema = z.object({
   isActive: z.boolean(),
 });
 
+const updateNozzleSchema = z.object({
+  nozzle_number: z.number().int().positive().optional(),
+  fuel_type_id: z.string().uuid().optional(),
+  meter_type: z.enum(['digital', 'analog']).optional(),
+  is_active: z.boolean().optional(),
+});
+
 export class NozzlesController {
   private nozzlesService: NozzlesService;
 
@@ -62,7 +69,7 @@ export class NozzlesController {
 
   /**
    * PATCH /api/nozzles/:id
-   * Update nozzle status (activate/deactivate)
+   * Update nozzle (status, number, fuel type, meter type)
    */
   updateNozzleStatus = async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -70,21 +77,36 @@ export class NozzlesController {
         return res.status(401).json({ error: 'Not authenticated' });
       }
 
-      // Only admin and manager can update nozzle status
+      // Only admin and manager can update nozzle
       if (!['ADMIN', 'MANAGER'].includes(req.user.role)) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
       const { id } = idParamSchema.parse(req.params);
-      const { isActive } = updateNozzleStatusSchema.parse(req.body);
 
-      const nozzle = await this.nozzlesService.updateNozzleStatus(
+      // Try new schema first (full update), fallback to old schema (status only)
+      let data: any;
+      try {
+        data = updateNozzleSchema.parse(req.body);
+      } catch {
+        const { isActive } = updateNozzleStatusSchema.parse(req.body);
+        data = { is_active: isActive };
+      }
+
+      // Convert snake_case to camelCase for service
+      const updateData: any = {};
+      if (data.nozzle_number !== undefined) updateData.nozzleNumber = data.nozzle_number;
+      if (data.fuel_type_id !== undefined) updateData.fuelTypeId = data.fuel_type_id;
+      if (data.meter_type !== undefined) updateData.meterType = data.meter_type;
+      if (data.is_active !== undefined) updateData.isActive = data.is_active;
+
+      const nozzle = await this.nozzlesService.updateNozzle(
         id,
         req.user.organizationId,
-        isActive
+        updateData
       );
 
-      res.json({ nozzle, message: `Nozzle ${isActive ? 'activated' : 'deactivated'} successfully` });
+      res.json(nozzle);
     } catch (error) {
       next(error);
     }

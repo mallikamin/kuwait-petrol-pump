@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cashier Dashboard - Middle Eastern</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f4f1de;
+            color: #2c2416;
+        }
+
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+
+        .sidebar {
+            width: 250px;
+            background: linear-gradient(135deg, #1a5f5f 0%, #2d9999 100%);
+            color: #f4f1de;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .logo {
+            font-size: 1.5em;
+            font-weight: bold;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #D4AF37;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .logo-accent {
+            color: #D4AF37;
+            font-size: 1.2em;
+        }
+
+        .nav-item {
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .nav-item:hover {
+            background: rgba(212, 175, 55, 0.2);
+        }
+
+        .nav-item.active {
+            background: rgba(212, 175, 55, 0.3);
+            border-left: 4px solid #D4AF37;
+            padding-left: 12px;
+        }
+
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .topbar {
+            background: white;
+            border-bottom: 3px solid #D4AF37;
+            padding: 15px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .topbar-left h2 {
+            color: #1a5f5f;
+            font-size: 1.5em;
+        }
+
+        .topbar-right {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .user-info {
+            text-align: right;
+        }
+
+        .user-name {
+            font-weight: bold;
+            color: #1a5f5f;
+        }
+
+        .user-role {
+            font-size: 0.85em;
+            color: #8b6914;
+        }
+
+        .logout-btn {
+            background: #8b0000;
+            color: #f4f1de;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .logout-btn:hover {
+            background: #600000;
+        }
+
+        .content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 30px;
+            background: #f4f1de;
+        }
+
+        .section-title {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #1a5f5f;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border-bottom: 3px solid #D4AF37;
+            padding-bottom: 10px;
+        }
+
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 4px 12px rgba(26, 95, 95, 0.1);
+            border-left: 4px solid #D4AF37;
+            transition: all 0.3s;
+        }
+
+        .card:hover {
+            box-shadow: 0 6px 20px rgba(26, 95, 95, 0.15);
+            transform: translateY(-3px);
+        }
+
+        .card-title {
+            font-size: 0.9em;
+            color: #8b6914;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .card-value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #1a5f5f;
+        }
+
+        .card-subtitle {
+            font-size: 0.8em;
+            color: #999;
+            margin-top: 10px;
+        }
+
+        .quick-actions {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 12px;
+            margin-bottom: 30px;
+        }
+
+        .action-btn {
+            background: linear-gradient(135deg, #1a5f5f 0%, #2d9999 100%);
+            color: #f4f1de;
+            border: none;
+            padding: 16px;
+            border-radius: 6px;
+            font-size: 0.95em;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-align: center;
+        }
+
+        .action-btn:hover {
+            box-shadow: 0 4px 12px rgba(26, 95, 95, 0.4);
+            transform: translateY(-2px);
+        }
+
+        .action-btn.secondary {
+            background: #f4f1de;
+            color: #1a5f5f;
+            border: 2px solid #1a5f5f;
+        }
+
+        .action-btn.secondary:hover {
+            background: #e8e5d5;
+        }
+
+        .recent-transactions {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 4px 12px rgba(26, 95, 95, 0.1);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            background: #f4f1de;
+            padding: 12px;
+            text-align: left;
+            font-weight: bold;
+            color: #1a5f5f;
+            border-bottom: 3px solid #D4AF37;
+        }
+
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #e8e5d5;
+            color: #2c2416;
+        }
+
+        tr:hover {
+            background: #f4f1de;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+
+        .badge-fuel {
+            background: #e8f5e9;
+            color: #1a5f5f;
+        }
+
+        .badge-nonfuel {
+            background: #fff3e0;
+            color: #8b6914;
+        }
+
+        .badge-cash {
+            background: #f0e68c;
+            color: #8b7500;
+        }
+
+        .badge-card {
+            background: #ffe4e1;
+            color: #8b0000;
+        }
+
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            background: #e8f5e9;
+            color: #1a5f5f;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: bold;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background: #27ae60;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <div class="logo">
+                <span>💳</span>
+                <span class="logo-accent">POS</span>
+            </div>
+            <div class="nav-item active">
+                <span>📊</span> Dashboard
+            </div>
+            <div class="nav-item">
+                <span>⛽</span> Fuel Sales
+            </div>
+            <div class="nav-item">
+                <span>🛍️</span> Non-Fuel POS
+            </div>
+            <div class="nav-item">
+                <span>🕐</span> Shift Mgmt
+            </div>
+            <div class="nav-item">
+                <span>📝</span> Readings
+            </div>
+            <div class="nav-item">
+                <span>👥</span> Customers
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="topbar">
+                <div class="topbar-left">
+                    <h2>💳 Cashier Dashboard</h2>
+                </div>
+                <div class="topbar-right">
+                    <div class="user-info">
+                        <div class="user-name">فيصل محمد</div>
+                        <div class="user-role">أمين الصندوق</div>
+                    </div>
+                    <button class="logout-btn">تسجيل الخروج</button>
+                </div>
+            </div>
+
+            <div class="content">
+                <div class="section-title">📈 أداء اليوم</div>
+                <div class="cards-grid">
+                    <div class="card">
+                        <div class="card-title">مبيعات الوقود</div>
+                        <div class="card-value">18,500 د.ك</div>
+                        <div class="card-subtitle">↑ 12% من أمس</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">مبيعات أخرى</div>
+                        <div class="card-value">3,250 د.ك</div>
+                        <div class="card-subtitle">↑ 5% من أمس</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">إجمالي المعاملات</div>
+                        <div class="card-value">145</div>
+                        <div class="card-subtitle">قيد المعالجة</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">الفترة النشطة</div>
+                        <div class="card-value">8س 24د</div>
+                        <div class="card-subtitle">بدأت في 7:00 صباحًا</div>
+                    </div>
+                </div>
+
+                <div class="section-title">⚡ إجراءات سريعة</div>
+                <div class="quick-actions">
+                    <button class="action-btn">مبيعات وقود جديدة</button>
+                    <button class="action-btn">بيع منتج جديد</button>
+                    <button class="action-btn secondary">عرض الفترة</button>
+                    <button class="action-btn secondary">إغلاق الفترة</button>
+                </div>
+
+                <div class="section-title">📋 آخر المعاملات</div>
+                <div class="recent-transactions">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>الوقت</th>
+                                <th>النوع</th>
+                                <th>المبلغ (د.ك)</th>
+                                <th>طريقة الدفع</th>
+                                <th>الحالة</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>14:32:15</td>
+                                <td><span class="badge badge-fuel">وقود</span></td>
+                                <td>125.50</td>
+                                <td><span class="badge badge-cash">نقد</span></td>
+                                <td><span class="status-indicator"><span class="status-dot"></span>متزامن</span></td>
+                            </tr>
+                            <tr>
+                                <td>14:28:42</td>
+                                <td><span class="badge badge-nonfuel">مبيعات أخرى</span></td>
+                                <td>45.00</td>
+                                <td><span class="badge badge-card">بطاقة</span></td>
+                                <td><span class="status-indicator"><span class="status-dot"></span>متزامن</span></td>
+                            </tr>
+                            <tr>
+                                <td>14:25:03</td>
+                                <td><span class="badge badge-fuel">وقود</span></td>
+                                <td>200.00</td>
+                                <td><span class="badge badge-cash">نقد</span></td>
+                                <td><span class="status-indicator"><span class="status-dot"></span>متزامن</span></td>
+                            </tr>
+                            <tr>
+                                <td>14:20:18</td>
+                                <td><span class="badge badge-nonfuel">مبيعات أخرى</span></td>
+                                <td>78.50</td>
+                                <td><span class="badge badge-card">بطاقة</span></td>
+                                <td><span class="status-indicator"><span class="status-dot"></span>متزامن</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

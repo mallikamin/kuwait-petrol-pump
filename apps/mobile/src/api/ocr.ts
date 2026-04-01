@@ -1,95 +1,96 @@
-import axios from 'axios';
+import apiClient from './client';
 import { OCRResult } from '../types';
 
-const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY || '';
-const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-3-5-sonnet-20241022';
-
+/**
+ * Extract meter reading from image using backend OCR endpoint
+ * Backend handles Claude API calls securely with rate limiting
+ */
 export const extractMeterReading = async (
   imageBase64: string
 ): Promise<OCRResult> => {
   try {
-    const response = await axios.post(
-      'https://api.anthropic.com/v1/messages',
-      {
-        model: CLAUDE_MODEL,
-        max_tokens: 1024,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'image',
-                source: {
-                  type: 'base64',
-                  media_type: 'image/jpeg',
-                  data: imageBase64,
-                },
-              },
-              {
-                type: 'text',
-                text: `Extract the numerical meter reading from this fuel dispenser meter.
+    console.log('[OCR] Calling backend OCR endpoint...');
 
-Rules:
-1. Return ONLY the number you see on the meter display
-2. Do not include units, decimal points unless clearly visible, or any text
-3. If you see multiple numbers, return the main/largest meter reading
-4. If the reading is unclear or you cannot find a meter, return "UNCLEAR"
-
-Examples:
-- If you see "12345.67" on the meter, return: 12345.67
-- If you see "98765" on the meter, return: 98765
-- If the image is blurry or no meter visible, return: UNCLEAR
-
-Your response:`,
-              },
-            ],
-          },
-        ],
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': CLAUDE_API_KEY,
-          'anthropic-version': '2023-06-01',
-        },
-        timeout: 30000,
-      }
+    const response = await apiClient.post<OCRResult & { quota?: { used: number; remaining: number; total: number; resetAt: string } }>(
+      '/meter-readings/ocr',
+      { imageBase64 }
     );
 
-    const rawText = response.data.content[0]?.text?.trim() || '';
+    const { extractedValue, confidence, rawText, error, quota } = response.data;
 
-    // Try to extract number from response
-    const numberMatch = rawText.match(/(\d+\.?\d*)/);
+    // Log quota info if available
+    if (quota) {
+      console.log(
+        `[OCR] Quota: ${quota.used}/${quota.total} used, ${quota.remaining} remaining`
+      );
+    }
 
-    if (rawText.toUpperCase().includes('UNCLEAR') || !numberMatch) {
+    if (error) {
+      console.warn(`[OCR] ⚠️ ${error}`);
       return {
         extractedValue: null,
         confidence: 0,
-        rawText,
-        error: 'Could not extract meter reading from image',
+        rawText: rawText || '',
+        error,
       };
     }
 
-    const extractedValue = parseFloat(numberMatch[1]);
-
-    // Calculate confidence based on response clarity
-    let confidence = 0.5; // Base confidence
-
-    // Higher confidence if response is just a number
-    if (/^\d+\.?\d*$/.test(rawText)) {
-      confidence = 0.95;
-    } else if (numberMatch) {
-      confidence = 0.75;
-    }
+    console.log(
+      `[OCR] ✅ Extracted value: ${extractedValue} (confidence: ${Math.round((confidence || 0) * 100)}%)`
+    );
 
     return {
       extractedValue,
-      confidence,
-      rawText,
+      confidence: confidence || 0,
+      rawText: rawText || '',
     };
-  } catch (error) {
-    console.error('OCR Error:', error);
+  } catch (error: any) {
+    console.error('[OCR] Error:', error);
 
+    // Handle specific error cases
+    if (error.response) {
+      const { status, data } = error.response;
+
+      // Rate limit error (429)
+      if (status === 429) {
+        return {
+          extractedValue: null,
+          confidence: 0,
+          rawText: '',
+          error: data.error || 'Daily OCR quota exceeded. Please try again tomorrow.',
+        };
+      }
+
+      // Auth error (401)
+      if (status === 401) {
+        return {
+          extractedValue: null,
+          confidence: 0,
+          rawText: '',
+          error: 'Authentication failed. Please log in again.',
+        };
+      }
+
+      // Other API errors
+      return {
+        extractedValue: null,
+        confidence: 0,
+        rawText: '',
+        error: data.error || `OCR service error (${status})`,
+      };
+    }
+
+    // Network error
+    if (error.message?.includes('Network')) {
+      return {
+        extractedValue: null,
+        confidence: 0,
+        rawText: '',
+        error: 'Network error. Please check your connection.',
+      };
+    }
+
+    // Generic error
     return {
       extractedValue: null,
       confidence: 0,

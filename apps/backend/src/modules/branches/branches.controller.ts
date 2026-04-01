@@ -6,6 +6,17 @@ const idParamSchema = z.object({
   id: z.string().uuid(),
 });
 
+const createDispensingUnitSchema = z.object({
+  name: z.string().min(1).max(100),
+  unit_number: z.number().int().positive(),
+});
+
+const createNozzleSchema = z.object({
+  nozzle_number: z.number().int().positive(),
+  fuel_type_id: z.string().uuid(),
+  meter_type: z.enum(['digital', 'analog']).optional(),
+});
+
 export class BranchesController {
   private branchesService: BranchesService;
 
@@ -97,6 +108,60 @@ export class BranchesController {
       const { id } = idParamSchema.parse(req.params);
       const nozzles = await this.branchesService.getNozzlesByUnit(id, req.user.organizationId);
       res.json({ nozzles });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * POST /api/branches/:id/dispensing-units
+   * Create a new dispensing unit for a branch
+   */
+  createDispensingUnit = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      const { id } = idParamSchema.parse(req.params);
+      const data = createDispensingUnitSchema.parse(req.body);
+
+      const unit = await this.branchesService.createDispensingUnit(
+        id,
+        req.user.organizationId,
+        { name: data.name, unitNumber: data.unit_number }
+      );
+
+      res.status(201).json(unit);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * POST /api/dispensing-units/:id/nozzles
+   * Create a new nozzle for a dispensing unit
+   */
+  createNozzle = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      const { id } = idParamSchema.parse(req.params);
+      const data = createNozzleSchema.parse(req.body);
+
+      const nozzle = await this.branchesService.createNozzle(
+        id,
+        req.user.organizationId,
+        {
+          nozzleNumber: data.nozzle_number,
+          fuelTypeId: data.fuel_type_id,
+          meterType: data.meter_type,
+        }
+      );
+
+      res.status(201).json(nozzle);
     } catch (error) {
       next(error);
     }

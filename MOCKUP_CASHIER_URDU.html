@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="ur" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>کیشیئر ڈیش بورڈ - اسلامی ورثہ</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', 'Urdu Typesetting', Tahoma, sans-serif;
+            background: #f5f1e8;
+            color: #2c2416;
+            direction: rtl;
+        }
+
+        .container {
+            display: flex;
+            height: 100vh;
+            direction: rtl;
+        }
+
+        .sidebar {
+            width: 250px;
+            background: linear-gradient(135deg, #1a472a 0%, #003d82 100%);
+            color: #f5f1e8;
+            padding: 20px;
+            overflow-y: auto;
+            order: 2;
+        }
+
+        .logo {
+            font-size: 1.5em;
+            font-weight: bold;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #d4a574;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            text-align: right;
+        }
+
+        .logo-accent {
+            color: #d4a574;
+        }
+
+        .nav-item {
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-align: right;
+        }
+
+        .nav-item:hover {
+            background: rgba(212, 165, 116, 0.2);
+        }
+
+        .nav-item.active {
+            background: rgba(212, 165, 116, 0.3);
+            border-right: 4px solid #d4a574;
+            padding-right: 12px;
+        }
+
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            order: 1;
+        }
+
+        .topbar {
+            background: white;
+            border-bottom: 3px solid #d4a574;
+            padding: 15px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            direction: rtl;
+        }
+
+        .topbar-left h2 {
+            color: #1a472a;
+            font-size: 1.5em;
+            font-weight: bold;
+        }
+
+        .topbar-right {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            flex-direction: row-reverse;
+        }
+
+        .user-info {
+            text-align: right;
+        }
+
+        .user-name {
+            font-weight: bold;
+            color: #1a472a;
+        }
+
+        .user-role {
+            font-size: 0.85em;
+            color: #8b7500;
+        }
+
+        .logout-btn {
+            background: #7c3810;
+            color: #f5f1e8;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .logout-btn:hover {
+            background: #5a2a0a;
+        }
+
+        .content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 30px;
+            background: #f5f1e8;
+            direction: rtl;
+        }
+
+        .section-title {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #1a472a;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border-bottom: 3px solid #d4a574;
+            padding-bottom: 10px;
+            text-align: right;
+            flex-direction: row-reverse;
+        }
+
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 4px 12px rgba(26, 71, 42, 0.1);
+            border-right: 4px solid #d4a574;
+            transition: all 0.3s;
+            text-align: right;
+        }
+
+        .card:hover {
+            box-shadow: 0 6px 20px rgba(26, 71, 42, 0.15);
+            transform: translateY(-3px);
+        }
+
+        .card-title {
+            font-size: 0.9em;
+            color: #8b7500;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .card-value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #1a472a;
+        }
+
+        .card-subtitle {
+            font-size: 0.8em;
+            color: #999;
+            margin-top: 10px;
+        }
+
+        .quick-actions {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 12px;
+            margin-bottom: 30px;
+        }
+
+        .action-btn {
+            background: linear-gradient(135deg, #1a472a 0%, #003d82 100%);
+            color: #f5f1e8;
+            border: none;
+            padding: 16px;
+            border-radius: 6px;
+            font-size: 0.95em;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-align: center;
+        }
+
+        .action-btn:hover {
+            box-shadow: 0 4px 12px rgba(26, 71, 42, 0.4);
+            transform: translateY(-2px);
+        }
+
+        .action-btn.secondary {
+            background: #f5f1e8;
+            color: #1a472a;
+            border: 2px solid #d4a574;
+        }
+
+        .action-btn.secondary:hover {
+            background: #ede8dd;
+        }
+
+        .recent-transactions {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 4px 12px rgba(26, 71, 42, 0.1);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            background: #f5f1e8;
+            padding: 12px;
+            text-align: right;
+            font-weight: bold;
+            color: #1a472a;
+            border-bottom: 3px solid #d4a574;
+        }
+
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #ede8dd;
+            color: #2c2416;
+            text-align: right;
+        }
+
+        tr:hover {
+            background: #f5f1e8;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+
+        .badge-fuel {
+            background: #e8f5e9;
+            color: #1a472a;
+        }
+
+        .badge-nonfuel {
+            background: #f0e68c;
+            color: #8b7500;
+        }
+
+        .badge-cash {
+            background: #e8f5e9;
+            color: #003d82;
+        }
+
+        .badge-card {
+            background: #ffe4e1;
+            color: #7c3810;
+        }
+
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            background: #e8f5e9;
+            color: #1a472a;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: bold;
+            flex-direction: row-reverse;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background: #27ae60;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <div class="logo">
+                <span class="logo-accent">کیش ریجسٹر</span>
+                <span>💳</span>
+            </div>
+            <div class="nav-item active">
+                <span>📊</span> ڈیش بورڈ
+            </div>
+            <div class="nav-item">
+                <span>⛽</span> ایندھن فروخت
+            </div>
+            <div class="nav-item">
+                <span>🛍️</span> مصنوعات
+            </div>
+            <div class="nav-item">
+                <span>🕐</span> شفٹس
+            </div>
+            <div class="nav-item">
+                <span>📝</span> ریڈنگز
+            </div>
+            <div class="nav-item">
+                <span>👥</span> صارفین
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="topbar">
+                <div class="topbar-left">
+                    <h2>کیشیئر ڈیش بورڈ 💳</h2>
+                </div>
+                <div class="topbar-right">
+                    <button class="logout-btn">نکل جائیں</button>
+                    <div class="user-info">
+                        <div class="user-name">فیصل محمد</div>
+                        <div class="user-role">کیشیئر</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="content">
+                <div class="section-title">آج کی کارکردگی 📈</div>
+                <div class="cards-grid">
+                    <div class="card">
+                        <div class="card-title">ایندھن کی فروخت</div>
+                        <div class="card-value">18,500 ر.پ</div>
+                        <div class="card-subtitle">کل 12% اضافہ</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">دوسری فروخت</div>
+                        <div class="card-value">3,250 ر.پ</div>
+                        <div class="card-subtitle">کل 5% اضافہ</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">کل لین دین</div>
+                        <div class="card-value">145</div>
+                        <div class="card-subtitle">جاری ہے</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">فعال شفٹ</div>
+                        <div class="card-value">8س 24م</div>
+                        <div class="card-subtitle">صبح 7:00 میں شروع</div>
+                    </div>
+                </div>
+
+                <div class="section-title">فوری اقدامات ⚡</div>
+                <div class="quick-actions">
+                    <button class="action-btn">نیا ایندھن فروخت</button>
+                    <button class="action-btn">نیا مصنوع فروخت</button>
+                    <button class="action-btn secondary">شفٹ دیکھیں</button>
+                    <button class="action-btn secondary">شفٹ بند کریں</button>
+                </div>
+
+                <div class="section-title">حالیہ لین دین 📋</div>
+                <div class="recent-transactions">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>حالت</th>
+                                <th>ادائیگی</th>
+                                <th>رقم (ر.پ)</th>
+                                <th>قسم</th>
+                                <th>وقت</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><span class="status-indicator"><span class="status-dot"></span>مطابقت</span></td>
+                                <td><span class="badge badge-cash">نقد</span></td>
+                                <td>125.50</td>
+                                <td><span class="badge badge-fuel">ایندھن</span></td>
+                                <td>14:32:15</td>
+                            </tr>
+                            <tr>
+                                <td><span class="status-indicator"><span class="status-dot"></span>مطابقت</span></td>
+                                <td><span class="badge badge-card">کارڈ</span></td>
+                                <td>45.00</td>
+                                <td><span class="badge badge-nonfuel">دوسری</span></td>
+                                <td>14:28:42</td>
+                            </tr>
+                            <tr>
+                                <td><span class="status-indicator"><span class="status-dot"></span>مطابقت</span></td>
+                                <td><span class="badge badge-cash">نقد</span></td>
+                                <td>200.00</td>
+                                <td><span class="badge badge-fuel">ایندھن</span></td>
+                                <td>14:25:03</td>
+                            </tr>
+                            <tr>
+                                <td><span class="status-indicator"><span class="status-dot"></span>مطابقت</span></td>
+                                <td><span class="badge badge-card">کارڈ</span></td>
+                                <td>78.50</td>
+                                <td><span class="badge badge-nonfuel">دوسری</span></td>
+                                <td>14:20:18</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

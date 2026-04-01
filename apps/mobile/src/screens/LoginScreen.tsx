@@ -26,7 +26,7 @@ const LoginScreen: React.FC = () => {
 
   const handleLogin = async () => {
     if (!email || !password) {
-      Alert.alert('Error', 'Please enter email and password');
+      Alert.alert('Error', 'Please enter username and password');
       return;
     }
 
@@ -98,12 +98,12 @@ const LoginScreen: React.FC = () => {
         <View style={styles.formContainer}>
           <TextInput
             style={styles.input}
-            placeholder="Email"
+            placeholder="Username"
             placeholderTextColor="#999"
             value={email}
             onChangeText={setEmail}
             autoCapitalize="none"
-            keyboardType="email-address"
+            keyboardType="default"
             editable={!isLoading}
           />
 

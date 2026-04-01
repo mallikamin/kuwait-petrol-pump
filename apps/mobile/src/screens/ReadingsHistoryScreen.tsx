@@ -55,7 +55,18 @@ const ReadingsHistoryScreen: React.FC = () => {
       <View style={styles.readingDetails}>
         <View style={styles.detailRow}>
           <Text style={styles.detailLabel}>Nozzle:</Text>
-          <Text style={styles.detailValue}>{item.nozzle_id}</Text>
+          <Text style={styles.detailValue}>
+            {item.nozzle
+              ? `Nozzle ${item.nozzle.nozzle_number} - ${item.nozzle.fuel_type?.name || 'Unknown'}`
+              : item.nozzle_id}
+          </Text>
+        </View>
+
+        <View style={styles.detailRow}>
+          <Text style={styles.detailLabel}>Operator:</Text>
+          <Text style={styles.detailValue}>
+            {item.created_by?.full_name || item.created_by?.username || 'Unknown'}
+          </Text>
         </View>
 
         <View style={styles.detailRow}>

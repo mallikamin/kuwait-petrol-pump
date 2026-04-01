@@ -3,6 +3,7 @@
     "name": "Kuwait Petrol Pump",
     "slug": "kuwait-petrol-pump",
     "version": "1.0.0",
+    "runtimeVersion": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -12,7 +13,7 @@
       "backgroundColor": "#1a73e8"
     },
     "assetBundlePatterns": [
-      "**/*"
+      "assets/**/*"
     ],
     "ios": {
       "supportsTablet": true,
@@ -29,9 +30,10 @@
       },
       "package": "com.kuwaitpetrolpump.app",
       "permissions": [
-        "CAMERA",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {
@@ -50,6 +52,12 @@
           "photosPermission": "Allow $(PRODUCT_NAME) to access your photos to select meter images."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "e5ce7982-b3d1-421f-ab56-a3d2307cb03a"
+      }
+    },
+    "owner": "malikamin"
   }
 }

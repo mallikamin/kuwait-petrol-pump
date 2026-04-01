@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Petrol Pump POS - Theme Explorer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+
+        .header {
+            background: white;
+            padding: 30px;
+            margin-bottom: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 1.1em;
+        }
+
+        .theme-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 30px;
+            margin-bottom: 50px;
+        }
+
+        .theme-card {
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            transition: transform 0.3s;
+        }
+
+        .theme-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+        }
+
+        .theme-preview {
+            height: 600px;
+            overflow: hidden;
+            border-bottom: 3px solid #ddd;
+        }
+
+        .theme-info {
+            padding: 20px;
+        }
+
+        .theme-info h3 {
+            font-size: 1.5em;
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .color-palette {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+
+        .color-box {
+            width: 40px;
+            height: 40px;
+            border-radius: 6px;
+            border: 2px solid #ddd;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .color-box:hover {
+            transform: scale(1.2);
+        }
+
+        .role-section {
+            margin-bottom: 40px;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+        }
+
+        .role-section h2 {
+            font-size: 2em;
+            margin-bottom: 20px;
+            color: #333;
+            border-bottom: 3px solid #2196F3;
+            padding-bottom: 10px;
+        }
+
+        .nav-link {
+            color: #2196F3;
+            text-decoration: none;
+            cursor: pointer;
+            margin-right: 20px;
+            padding: 10px 15px;
+            border-radius: 5px;
+            display: inline-block;
+            transition: all 0.3s;
+        }
+
+        .nav-link:hover {
+            background: #e3f2fd;
+            color: #1565c0;
+        }
+
+        .nav-link.active {
+            background: #2196F3;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎨 Petrol Pump POS - Theme Explorer</h1>
+        <p>Discover Modern, Middle Eastern, and Pakistani Design Themes</p>
+    </div>
+
+    <div class="role-section">
+        <h2>Navigation</h2>
+        <a class="nav-link active" onclick="scrollToRole('cashier')">Cashier Dashboard</a>
+        <a class="nav-link" onclick="scrollToRole('operator')">Operator Dashboard</a>
+        <a class="nav-link" onclick="scrollToRole('accountant')">Accountant Dashboard</a>
+        <a class="nav-link" onclick="scrollToRole('color-palettes')">Color Palettes</a>
+    </div>
+
+    <!-- CASHIER DASHBOARD -->
+    <div id="cashier" class="role-section">
+        <h2>💳 Cashier Dashboard - Quick Sales Focus</h2>
+        <p style="color: #666; margin-bottom: 20px;">Fast transaction entry, fuel + non-fuel sales, shift management</p>
+
+        <div class="theme-grid">
+            <!-- Theme 1: Modern Blue -->
+            <div class="theme-card">
+                <div class="theme-preview">
+                    <iframe src="MOCKUP_CASHIER_MODERN.html" style="width:100%; height:100%; border:none;"></iframe>
+                </div>
+                <div class="theme-info">
+                    <h3>🔵 Modern Blue</h3>
+                    <p>Clean, minimalist. Current style. Best for: First-time users, international teams.</p>
+                    <div class="color-palette">
+                        <div class="color-box" style="background: #2196F3;" title="Primary Blue"></div>
+                        <div class="color-box" style="background: #1565c0;" title="Dark Blue"></div>
+                        <div class="color-box" style="background: #e3f2fd;" title="Light Blue"></div>
+                        <div class="color-box" style="background: #f5f5f5;" title="Light Gray"></div>
+                        <div class="color-box" style="background: #333;" title="Dark Gray"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Theme 2: Middle Eastern Gold -->
+            <div class="theme-card">
+                <div class="theme-preview">
+                    <iframe src="MOCKUP_CASHIER_MIDDLE_EAST.html" style="width:100%; height:100%; border:none;"></iframe>
+                </div>
+                <div class="theme-info">
+                    <h3>✨ Middle Eastern Elegance</h3>
+                    <p>Gold accents, deep teals, luxury feel. Best for: Premium positioning, Gulf markets.</p>
+                    <div class="color-palette">
+                        <div class="color-box" style="background: #D4AF37;" title="Gold"></div>
+                        <div class="color-box" style="background: #1a5f5f;" title="Deep Teal"></div>
+                        <div class="color-box" style="background: #2d9999;" title="Teal"></div>
+                        <div class="color-box" style="background: #f4f1de;" title="Cream"></div>
+                        <div class="color-box" style="background: #8b0000;" title="Burgundy"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Theme 3: Pakistani Vibrant -->
+            <div class="theme-card">
+                <div class="theme-preview">
+                    <iframe src="MOCKUP_CASHIER_PAKISTANI.html" style="width:100%; height:100%; border:none;"></iframe>
+                </div>
+                <div class="theme-info">
+                    <h3>🇵🇰 Pakistani Vibrant</h3>
+                    <p>Energetic green, warm orange, cultural pride. Best for: Local markets, familiar feel.</p>
+                    <div class="color-palette">
+                        <div class="color-box" style="background: #1B5E20;" title="Dark Green"></div>
+                        <div class="color-box" style="background: #2E7D32;" title="Pakistan Green"></div>
+                        <div class="color-box" style="background: #FFA500;" title="Warm Orange"></div>
+                        <div class="color-box" style="background: #fff3e0;" title="Light Orange"></div>
+                        <div class="color-box" style="background: #f57f17;" title="Deep Orange"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Theme 4: Urdu + Middle Eastern -->
+            <div class="theme-card">
+                <div class="theme-preview">
+                    <iframe src="MOCKUP_CASHIER_URDU.html" style="width:100%; height:100%; border:none;"></iframe>
+                </div>
+                <div class="theme-info">
+                    <h3>🌙 اردو - Islamic Heritage</h3>
+                    <p>RTL layout, Islamic blues, Urdu text. Best for: Non-English users.</p>
+                    <div class="color-palette">
+                        <div class="color-box" style="background: #1a472a;" title="Islamic Green"></div>
+                        <div class="color-box" style="background: #003d82;" title="Islamic Blue"></div>
+                        <div class="color-box" style="background: #d4a574;" title="Islamic Gold"></div>
+                        <div class="color-box" style="background: #f5f1e8;" title="Parchment"></div>
+                        <div class="color-box" style="background: #7c3810;" title="Earth Brown"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- OPERATOR DASHBOARD -->
+    <div id="operator" class="role-section">
+        <h2>📱 Operator Dashboard - Meter Readings Focus</h2>
+        <p style="color: #666; margin-bottom: 20px;">Mobile-first, OCR, camera, field operations, offline-first</p>
+
+        <div class="theme-grid">
+            <!-- Theme 1: Modern Blue -->
+            <div class="theme-card">
+                <div class="theme-preview">
+                    <iframe src="MOCKUP_OPERATOR_MODERN.html" style="width:100%; height:100%; border:none;"></iframe>
+                </div>
+                <div class="theme-info">
+                    <h3>🔵 Modern Blue</h3>
+                    <p>Tech-forward, intuitive. Best for: Tech-savvy operators.</p>
+                    <div class="color-palette">
+                        <div class="color-box" style="background: #2196F3;"></div>
+                        <div class="color-box" style="background: #1565c0;"></div>
+                        <div class="color-box" style="background: #4CAF50;"></div>
+                        <div class="color-box" style="background: #FF9800;"></div>
+                        <div class="color-box" style="background: #f5f5f5;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Theme 2: Middle Eastern -->
+            <div class="theme-card">
+                <div class="theme-preview">
+                    <iframe src="MOCKUP_OPERATOR_MIDDLE_EAST.html" style="width:100%; height:100%; border:none;"></iframe>
+                </div>
+                <div class="theme-info">
+                    <h3>✨ Middle Eastern Elegance</h3>
+                    <p>Professional yet welcoming. Best for: Field teams in Gulf.</p>
+                    <div class="color-palette">
+                        <div class="color-box" style="background: #D4AF37;"></div>
+                        <div class="color-box" style="background: #1a5f5f;"></div>
+                        <div class="color-box" style="background: #27ae60;"></div>
+                        <div class="color-box" style="background: #e74c3c;"></div>
+                        <div class="color-box" style="background: #f4f1de;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Theme 3: Pakistani -->
+            <div class="theme-card">
+                <div class="theme-preview">
+                    <iframe src="MOCKUP_OPERATOR_PAKISTANI.html" style="width:100%; height:100%; border:none;"></iframe>
+                </div>
+                <div class="theme-info">
+                    <h3>🇵🇰 Pakistani Vibrant</h3>
+                    <p>Energetic and engaging. Best for: Local operators, village/rural areas.</p>
+                    <div class="color-palette">
+                        <div class="color-box" style="background: #1B5E20;"></div>
+                        <div class="color-box" style="background: #2E7D32;"></div>
+                        <div class="color-box" style="background: #FFA500;"></div>
+                        <div class="color-box" style="background: #d32f2f;"></div>
+                        <div class="color-box" style="background: #fff3e0;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Theme 4: Urdu -->
+            <div class="theme-card">
+                <div class="theme-preview">
+                    <iframe src="MOCKUP_OPERATOR_URDU.html" style="width:100%; height:100%; border:none;"></iframe>
+                </div>
+                <div class="theme-info">
+                    <h3>🌙 اردو - Islamic Heritage</h3>
+                    <p>Native Urdu interface, RTL-ready. Best for: Non-English speakers.</p>
+                    <div class="color-palette">
+                        <div class="color-box" style="background: #1a472a;"></div>
+                        <div class="color-box" style="background: #003d82;"></div>
+                        <div class="color-box" style="background: #d4a574;"></div>
+                        <div class="color-box" style="background: #27ae60;"></div>
+                        <div class="color-box" style="background: #f5f1e8;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ACCOUNTANT DASHBOARD -->
+    <div id="accountant" class="role-section">
+        <h2>📊 Accountant Dashboard - Analytics & Reports</h2>
+        <p style="color: #666; margin-bottom: 20px;">Deep insights, bifurcation, QuickBooks sync, financial data</p>
+
+        <div class="theme-grid">
+            <!-- Theme 1: Modern Blue -->
+            <div class="theme-card">
+                <div class="theme-preview">
+                    <iframe src="MOCKUP_ACCOUNTANT_MODERN.html" style="width:100%; height:100%; border:none;"></iframe>
+                </div>
+                <div class="theme-info">
+                    <h3>🔵 Modern Blue</h3>
+                    <p>Professional, data-driven. Best for: Finance teams worldwide.</p>
+                    <div class="color-palette">
+                        <div class="color-box" style="background: #2196F3;"></div>
+                        <div class="color-box" style="background: #1565c0;"></div>
+                        <div class="color-box" style="background: #4CAF50;"></div>
+                        <div class="color-box" style="background: #f44336;"></div>
+                        <div class="color-box" style="background: #f5f5f5;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Theme 2: Middle Eastern -->
+            <div class="theme-card">
+                <div class="theme-preview">
+                    <iframe src="MOCKUP_ACCOUNTANT_MIDDLE_EAST.html" style="width:100%; height:100%; border:none;"></iframe>
+                </div>
+                <div class="theme-info">
+                    <h3>✨ Middle Eastern Elegance</h3>
+                    <p>Sophisticated reports, Islamic aesthetics. Best for: Executive dashboards.</p>
+                    <div class="color-palette">
+                        <div class="color-box" style="background: #D4AF37;"></div>
+                        <div class="color-box" style="background: #1a5f5f;"></div>
+                        <div class="color-box" style="background: #27ae60;"></div>
+                        <div class="color-box" style="background: #c0392b;"></div>
+                        <div class="color-box" style="background: #f4f1de;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Theme 3: Pakistani -->
+            <div class="theme-card">
+                <div class="theme-preview">
+                    <iframe src="MOCKUP_ACCOUNTANT_PAKISTANI.html" style="width:100%; height:100%; border:none;"></iframe>
+                </div>
+                <div class="theme-info">
+                    <h3>🇵🇰 Pakistani Vibrant</h3>
+                    <p>Cultural pride, trust-building colors. Best for: Local CFOs, auditors.</p>
+                    <div class="color-palette">
+                        <div class="color-box" style="background: #1B5E20;"></div>
+                        <div class="color-box" style="background: #2E7D32;"></div>
+                        <div class="color-box" style="background: #FFA500;"></div>
+                        <div class="color-box" style="background: #d32f2f;"></div>
+                        <div class="color-box" style="background: #fff3e0;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Theme 4: Urdu -->
+            <div class="theme-card">
+                <div class="theme-preview">
+                    <iframe src="MOCKUP_ACCOUNTANT_URDU.html" style="width:100%; height:100%; border:none;"></iframe>
+                </div>
+                <div class="theme-info">
+                    <h3>🌙 اردو - Islamic Heritage</h3>
+                    <p>Bilingual reports, Islamic design. Best for: Urdu-speaking accountants.</p>
+                    <div class="color-palette">
+                        <div class="color-box" style="background: #1a472a;"></div>
+                        <div class="color-box" style="background: #003d82;"></div>
+                        <div class="color-box" style="background: #d4a574;"></div>
+                        <div class="color-box" style="background: #e74c3c;"></div>
+                        <div class="color-box" style="background: #f5f1e8;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- COLOR PALETTES REFERENCE -->
+    <div id="color-palettes" class="role-section">
+        <h2>🎨 Complete Color Palettes</h2>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px;">
+            <!-- Modern Blue -->
+            <div style="border-left: 5px solid #2196F3; padding: 20px; background: #f9f9f9; border-radius: 5px;">
+                <h3 style="margin-bottom: 15px;">🔵 Modern Blue (Current)</h3>
+                <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 15px;">
+                    <div style="background: #2196F3; height: 60px; border-radius: 5px; display: flex; align-items: center; justify-content: center; color: white; font-size: 11px; font-weight: bold;">Primary</div>
+                    <div style="background: #1565c0; height: 60px; border-radius: 5px; display: flex; align-items: center; justify-content: center; color: white; font-size: 11px;">Dark</div>
+                    <div style="background: #e3f2fd; height: 60px; border-radius: 5px; display: flex; align-items: center; justify-content: center; color: #333; font-size: 11px;">Light</div>
+                    <div style="background: #4CAF50; height: 60px; border-radius: 5px; display: flex; align-items: center; justify-content: center; color: white; font-size: 11px;">Success</div>
+                    <div style="background: #f44336; height: 60px; border-radius: 5px; display: flex; align-items: center; justify-content: center; color: white; font-size: 11px;">Error</div>
+                </div>
+                <p><strong>Best for:</strong> International teams, tech-forward image</p>
+            </div>
+
+            <!-- Middle Eastern -->
+            <div style="border-left: 5px solid #D4AF37; padding: 20px; background: #f9f9f9; border-radius: 5px;">
+                <h3 style="margin-bottom: 15px;">✨ Middle Eastern Elegance</h3>
+                <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 15px;">
+                    <div style="background: #D4AF37; height: 60px; border-radius: 5px; display: flex; align-items: center; justify-content: center; color: #333; font-size: 11px; font-weight: bold;">Gold</div>
+                    <div style="background: #1a5f5f; height: 60px; border-radius: 5px; display: flex; align-items: center; justify-content: center; color: white; font-size: 11px;">Teal</div>
+                    <div style="background: #f4f1de; height: 60px; border-radius: 5px; display: flex; align-items: center; justify-content: center; color: #333; font-size: 11px;">Cream</div>
+                    <div style="background: #27ae60; height: 60px; border-radius: 5px; display: flex; align-items: center; justify-content: center; color: white; font-size: 11px;">Success</div>
+                    <div style="background: #8b0000; height: 60px; border-radius: 5px; display: flex; align-items: center; justify-content: center; color: white; font-size: 11px;">Error</div>
+                </div>
+                <p><strong>Best for:</strong> Gulf market premium positioning, luxury feel</p>
+            </div>
+
+            <!-- Pakistani -->
+            <div style="border-left: 5px solid #2E7D32; padding: 20px; background: #f9f9f9; border-radius: 5px;">
+                <h3 style="margin-bottom: 15px;">🇵🇰 Pakistani Vibrant</h3>
+                <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 15px;">
+                    <div style="background: #1B5E20; height: 60px; border-radius: 5px; display: flex; align-items: center; justify-content: center; color: white; font-size: 11px; font-weight: bold;">Flag Green</div>
+                    <div style="background: #2E7D32; height: 60px; border-radius: 5px; display: flex; align-items: center; justify-content: center; color: white; font-size: 11px;">Primary</div>
+                    <div style="background: #FFA500; height: 60px; border-radius: 5px; display: flex; align-items: center; justify-content: center; color: white; font-size: 11px;">Energy</div>
+                    <div style="background: #fff3e0; height: 60px; border-radius: 5px; display: flex; align-items: center; justify-content: center; color: #333; font-size: 11px;">Warm</div>
+                    <div style="background: #d32f2f; height: 60px; border-radius: 5px; display: flex; align-items: center; justify-content: center; color: white; font-size: 11px;">Alert</div>
+                </div>
+                <p><strong>Best for:</strong> Local Pakistani market, energetic, patriotic feel</p>
+            </div>
+
+            <!-- Islamic/Urdu -->
+            <div style="border-left: 5px solid #1a472a; padding: 20px; background: #f9f9f9; border-radius: 5px;">
+                <h3 style="margin-bottom: 15px;">🌙 Islamic Heritage (Urdu)</h3>
+                <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 15px;">
+                    <div style="background: #1a472a; height: 60px; border-radius: 5px; display: flex; align-items: center; justify-content: center; color: white; font-size: 11px; font-weight: bold;">Dark Green</div>
+                    <div style="background: #003d82; height: 60px; border-radius: 5px; display: flex; align-items: center; justify-content: center; color: white; font-size: 11px;">Islamic Blue</div>
+                    <div style="background: #d4a574; height: 60px; border-radius: 5px; display: flex; align-items: center; justify-content: center; color: white; font-size: 11px;">Gold</div>
+                    <div style="background: #f5f1e8; height: 60px; border-radius: 5px; display: flex; align-items: center; justify-content: center; color: #333; font-size: 11px;">Parchment</div>
+                    <div style="background: #7c3810; height: 60px; border-radius: 5px; display: flex; align-items: center; justify-content: center; color: white; font-size: 11px;">Earth Brown</div>
+                </div>
+                <p><strong>Best for:</strong> Non-English speakers, Islamic/cultural context, RTL-ready</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function scrollToRole(roleId) {
+            const element = document.getElementById(roleId);
+            if (element) {
+                element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+    </script>
+</body>
+</html>

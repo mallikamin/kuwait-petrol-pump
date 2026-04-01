@@ -12,11 +12,13 @@ router.use(authenticate);
 router.get('/', branchesController.getAllBranches);
 router.get('/:id', branchesController.getBranchById);
 router.get('/:id/dispensing-units', branchesController.getDispensingUnits);
+router.post('/:id/dispensing-units', branchesController.createDispensingUnit);
 
 // Dispensing unit routes (prefix: /api/dispensing-units)
 export const dispensingUnitsRouter = Router();
 dispensingUnitsRouter.use(authenticate);
 dispensingUnitsRouter.get('/:id', branchesController.getDispensingUnitById);
 dispensingUnitsRouter.get('/:id/nozzles', branchesController.getNozzlesByUnit);
+dispensingUnitsRouter.post('/:id/nozzles', branchesController.createNozzle);
 
 export default router;

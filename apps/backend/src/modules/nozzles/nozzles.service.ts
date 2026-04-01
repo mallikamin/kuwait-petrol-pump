@@ -115,6 +115,42 @@ export class NozzlesService {
   }
 
   /**
+   * Update nozzle (all fields)
+   */
+  async updateNozzle(nozzleId: string, organizationId: string, data: Partial<{ nozzleNumber: number; fuelTypeId: string; meterType: string; isActive: boolean }>) {
+    // Verify nozzle belongs to organization
+    const nozzle = await prisma.nozzle.findFirst({
+      where: {
+        id: nozzleId,
+        dispensingUnit: {
+          branch: {
+            organizationId,
+          },
+        },
+      },
+    });
+
+    if (!nozzle) {
+      throw new AppError(404, 'Nozzle not found');
+    }
+
+    const updatedNozzle = await prisma.nozzle.update({
+      where: { id: nozzleId },
+      data,
+      include: {
+        fuelType: true,
+        dispensingUnit: {
+          include: {
+            branch: true,
+          },
+        },
+      },
+    });
+
+    return updatedNozzle;
+  }
+
+  /**
    * Get latest meter reading for a nozzle
    */
   async getLatestReading(nozzleId: string, organizationId: string) {

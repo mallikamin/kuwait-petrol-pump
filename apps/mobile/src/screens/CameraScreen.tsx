@@ -8,7 +8,7 @@ import {
   Alert,
   Dimensions,
 } from 'react-native';
-import { CameraView, CameraType, useCameraPermissions, FlashMode } from 'expo-camera';
+import { Camera, CameraType, FlashMode } from 'expo-camera';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import * as Haptics from 'expo-haptics';
@@ -23,24 +23,30 @@ const { width, height } = Dimensions.get('window');
 
 const CameraScreen: React.FC = () => {
   const navigation = useNavigation<CameraNavigationProp>();
-  const cameraRef = useRef<CameraView>(null);
+  const cameraRef = useRef<typeof Camera>(null);
 
-  const [permission, requestPermission] = useCameraPermissions();
+  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [facing, setFacing] = useState<CameraType>('back');
   const [flash, setFlash] = useState<FlashMode>('off');
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (permission && !permission.granted) {
-      requestPermission();
-    }
-  }, [permission]);
+    (async () => {
+      const { status } = await Camera.requestCameraPermissionsAsync();
+      setHasPermission(status === 'granted');
+    })();
+  }, []);
 
-  if (!permission) {
+  const requestPermission = async () => {
+    const { status } = await Camera.requestCameraPermissionsAsync();
+    setHasPermission(status === 'granted');
+  };
+
+  if (hasPermission === null) {
     return <View style={styles.container} />;
   }
 
-  if (!permission.granted) {
+  if (hasPermission === false) {
     return (
       <View style={styles.permissionContainer}>
         <Text style={styles.permissionText}>
@@ -131,11 +137,11 @@ const CameraScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      <CameraView
+      <Camera
         ref={cameraRef}
         style={styles.camera}
-        facing={facing}
-        flash={flash}
+        type={facing}
+        flashMode={flash}
       >
         {/* Guideline Overlay */}
         <View style={styles.overlay}>
@@ -175,7 +181,7 @@ const CameraScreen: React.FC = () => {
             <View style={styles.captureButtonInner} />
           </TouchableOpacity>
         </View>
-      </CameraView>
+      </Camera>
     </View>
   );
 };

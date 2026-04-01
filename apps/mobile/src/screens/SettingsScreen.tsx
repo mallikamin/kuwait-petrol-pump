@@ -18,7 +18,7 @@ const SettingsScreen: React.FC = () => {
   const { user, logout } = useAuthStore();
   const { pendingReadings, isOnline } = useOfflineStore();
 
-  const [apiUrl, setApiUrl] = useState(process.env.API_URL || '');
+  const [apiUrl, setApiUrl] = useState(process.env.EXPO_PUBLIC_API_URL || '');
   const [darkMode, setDarkMode] = useState(false);
 
   const handleLogout = () => {

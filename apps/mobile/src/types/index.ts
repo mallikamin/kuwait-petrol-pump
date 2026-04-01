@@ -20,23 +20,50 @@ export interface LoginCredentials {
 
 export interface Shift {
   id: string;
+  branchId: string;
+  shiftNumber: number;
   name: string;
-  start_time: string;
-  end_time: string;
-  is_active: boolean;
+  startTime: string;
+  endTime: string;
+  isActive: boolean;
+  createdAt: string;
 }
 
 export interface Nozzle {
   id: string;
-  nozzle_number: string;
-  fuel_type: string;
-  dispenser_id: string;
-  is_active: boolean;
+  dispensingUnitId: string;
+  nozzleNumber: number;
+  fuelTypeId: string;
+  meterType: string;
+  isActive: boolean;
+  createdAt: string;
+  fuelType: {
+    id: string;
+    code: string;
+    name: string;
+    unit: string;
+  };
+  dispensingUnit: {
+    id: string;
+    branchId: string;
+    unitNumber: number;
+    name: string;
+    isActive: boolean;
+  };
 }
 
 export interface MeterReading {
   id: string;
   nozzle_id: string;
+  nozzle?: {
+    id: string;
+    nozzle_number: number;
+    fuel_type?: {
+      id: string;
+      name: string;
+      code: string;
+    } | null;
+  } | null;
   shift_id: string;
   reading_type: 'opening' | 'closing';
   meter_value: number;
@@ -44,18 +71,23 @@ export interface MeterReading {
   is_ocr: boolean;
   ocr_confidence?: number;
   created_by_id: string;
+  created_by?: {
+    id: string;
+    full_name: string;
+    username: string;
+  } | null;
   created_at: string;
   variance?: number;
 }
 
 export interface MeterReadingCreate {
-  nozzle_id: string;
-  shift_id: string;
-  reading_type: 'opening' | 'closing';
-  meter_value: number;
-  image_base64?: string;
-  is_ocr: boolean;
-  ocr_confidence?: number;
+  nozzleId: string;
+  shiftId: string;
+  readingType: 'opening' | 'closing';
+  meterValue: number;
+  imageBase64?: string;
+  isOcr: boolean;
+  ocrConfidence?: number;
 }
 
 export interface OCRResult {

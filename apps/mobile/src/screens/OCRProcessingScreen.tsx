@@ -15,6 +15,7 @@ import * as Haptics from 'expo-haptics';
 import { RootStackParamList } from '../types';
 import { processImageForOCR, convertImageToBase64 } from '../utils/imageProcessing';
 import { extractMeterReading } from '../api/ocr';
+import { ocrRateLimiter } from '../utils/rateLimiter';
 
 type OCRProcessingRouteProp = RouteProp<RootStackParamList, 'OCRProcessing'>;
 type OCRProcessingNavigationProp = NativeStackNavigationProp<
@@ -43,6 +44,20 @@ const OCRProcessingScreen: React.FC = () => {
       setIsProcessing(true);
       setError(null);
 
+      // Step 0: Check rate limit (prevent API abuse)
+      const rateLimitCheck = await ocrRateLimiter.checkLimit();
+      if (!rateLimitCheck.allowed) {
+        setError(rateLimitCheck.message || 'OCR limit exceeded');
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        setIsProcessing(false);
+        Alert.alert(
+          'OCR Limit Reached',
+          `You've reached the daily limit of OCR requests. Remaining: ${rateLimitCheck.remaining}. Resets at ${rateLimitCheck.resetAt.toLocaleString()}.`,
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
       // Step 1: Process image for better OCR
       const processedUri = await processImageForOCR(imageUri, {
         enhanceContrast: true,
@@ -59,10 +74,18 @@ const OCRProcessingScreen: React.FC = () => {
       if (result.error || result.extractedValue === null) {
         setError(result.error || 'Failed to extract meter reading');
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        // Do NOT increment on failure
       } else {
         setExtractedValue(result.extractedValue);
         setConfidence(result.confidence);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+        // Increment rate limit counter on successful OCR
+        await ocrRateLimiter.incrementCount();
+
+        // Show remaining OCR requests
+        const usage = await ocrRateLimiter.getUsage();
+        console.log(`OCR Usage: ${usage.used}/${usage.limit} (${usage.remaining} remaining)`);
       }
     } catch (err) {
       console.error('Processing error:', err);
@@ -86,6 +109,8 @@ const OCRProcessingScreen: React.FC = () => {
   const handleEnterManually = () => {
     navigation.navigate('MeterReadingForm', {
       imageUri,
+      ocrValue: extractedValue || undefined,
+      ocrConfidence: confidence || undefined,
     });
   };
 
