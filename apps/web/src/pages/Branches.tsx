@@ -64,8 +64,8 @@ export function Branches() {
                     <TableCell>{branch.city}</TableCell>
                     <TableCell>{branch.phone}</TableCell>
                     <TableCell>
-                      <Badge variant={(branch.isActive ?? branch.is_active ?? true) ? 'success' : 'destructive'}>
-                        {(branch.isActive ?? branch.is_active ?? true) ? 'Active' : 'Inactive'}
+                      <Badge variant={(branch.is_active ?? true) ? 'success' : 'destructive'}>
+                        {(branch.is_active ?? true) ? 'Active' : 'Inactive'}
                       </Badge>
                     </TableCell>
                     <TableCell>
