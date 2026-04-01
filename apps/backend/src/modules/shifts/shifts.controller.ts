@@ -54,7 +54,7 @@ export class ShiftsController {
       }
 
       // Only admin and manager can create shifts
-      if (!['ADMIN', 'MANAGER'].includes(req.user.role)) {
+      if (!['admin', 'manager', 'ADMIN', 'MANAGER'].includes(req.user.role)) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
@@ -121,7 +121,7 @@ export class ShiftsController {
       }
 
       // Only manager, cashier, and operator can open shifts
-      if (!['ADMIN', 'MANAGER', 'CASHIER', 'OPERATOR'].includes(req.user.role)) {
+      if (!['admin', 'manager', 'cashier', 'operator', 'ADMIN', 'MANAGER', 'CASHIER', 'OPERATOR'].includes(req.user.role)) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
@@ -154,7 +154,7 @@ export class ShiftsController {
       }
 
       // Only manager, cashier, and operator can close shifts
-      if (!['ADMIN', 'MANAGER', 'CASHIER', 'OPERATOR'].includes(req.user.role)) {
+      if (!['admin', 'manager', 'cashier', 'operator', 'ADMIN', 'MANAGER', 'CASHIER', 'OPERATOR'].includes(req.user.role)) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
