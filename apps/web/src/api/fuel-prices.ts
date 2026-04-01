@@ -7,6 +7,11 @@ export const fuelPricesApi = {
     return response.data;
   },
 
+  getCurrentPrices: async (): Promise<any[]> => {
+    const response = await apiClient.get<any[]>('/api/fuel-prices/current');
+    return response.data;
+  },
+
   getPriceHistory: async (fuelTypeId?: string, params?: { page?: number; size?: number }): Promise<PaginatedResponse<FuelPrice>> => {
     const response = await apiClient.get<FuelPrice[]>('/api/fuel-prices', {
       params: { ...params, fuelTypeId },

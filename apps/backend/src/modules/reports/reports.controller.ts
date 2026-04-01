@@ -3,9 +3,11 @@ import { z } from 'zod';
 import { ReportsService } from './reports.service';
 
 // Validation schemas
+const dateString = z.string().transform(val => new Date(val)).refine(d => !isNaN(d.getTime()), { message: 'Invalid date' });
+
 const dailySalesQuerySchema = z.object({
   branchId: z.string().uuid(),
-  date: z.string().datetime().transform(val => new Date(val)),
+  date: dateString,
 });
 
 const shiftReportQuerySchema = z.object({
@@ -14,14 +16,14 @@ const shiftReportQuerySchema = z.object({
 
 const varianceReportQuerySchema = z.object({
   branchId: z.string().uuid(),
-  startDate: z.string().datetime().transform(val => new Date(val)),
-  endDate: z.string().datetime().transform(val => new Date(val)),
+  startDate: dateString,
+  endDate: dateString,
 });
 
 const customerLedgerQuerySchema = z.object({
   customerId: z.string().uuid(),
-  startDate: z.string().datetime().transform(val => new Date(val)),
-  endDate: z.string().datetime().transform(val => new Date(val)),
+  startDate: dateString,
+  endDate: dateString,
 });
 
 const inventoryReportQuerySchema = z.object({
@@ -47,7 +49,7 @@ export class ReportsController {
 
       // Only managers and accountants can access all branch reports
       // Cashiers/operators can only access their own shift reports
-      if (!['ADMIN', 'MANAGER', 'ACCOUNTANT'].includes(req.user.role)) {
+      if (!['ADMIN', 'MANAGER', 'ACCOUNTANT', 'admin', 'manager', 'accountant'].includes(req.user.role)) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
@@ -82,7 +84,7 @@ export class ReportsController {
 
       // Verify user has permission to view this shift report
       // For now, allow managers/accountants to view all, and cashiers/operators to view their own
-      const canViewAllReports = ['ADMIN', 'MANAGER', 'ACCOUNTANT'].includes(req.user.role);
+      const canViewAllReports = ['ADMIN', 'MANAGER', 'ACCOUNTANT', 'admin', 'manager', 'accountant'].includes(req.user.role);
 
       if (!canViewAllReports) {
         // Cashiers/operators can only view their own shift reports
@@ -116,7 +118,7 @@ export class ReportsController {
       }
 
       // Only managers and accountants can access variance reports
-      if (!['ADMIN', 'MANAGER', 'ACCOUNTANT'].includes(req.user.role)) {
+      if (!['ADMIN', 'MANAGER', 'ACCOUNTANT', 'admin', 'manager', 'accountant'].includes(req.user.role)) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
@@ -154,7 +156,7 @@ export class ReportsController {
       }
 
       // Only managers and accountants can access customer ledger reports
-      if (!['ADMIN', 'MANAGER', 'ACCOUNTANT'].includes(req.user.role)) {
+      if (!['ADMIN', 'MANAGER', 'ACCOUNTANT', 'admin', 'manager', 'accountant'].includes(req.user.role)) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
@@ -192,7 +194,7 @@ export class ReportsController {
       }
 
       // Only managers and accountants can access inventory reports
-      if (!['ADMIN', 'MANAGER', 'ACCOUNTANT'].includes(req.user.role)) {
+      if (!['ADMIN', 'MANAGER', 'ACCOUNTANT', 'admin', 'manager', 'accountant'].includes(req.user.role)) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 

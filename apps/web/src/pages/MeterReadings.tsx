@@ -168,12 +168,12 @@ export function MeterReadings() {
                       <TableCell className="font-medium">
                         <div className="flex items-center">
                           <Gauge className="mr-2 h-4 w-4 text-muted-foreground" />
-                          {reading.nozzle?.nozzle_number || '-'}
+                          {reading.nozzle?.nozzleNumber || (reading.nozzle as any)?.nozzle_number || '-'}
                         </div>
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline">
-                          {reading.nozzle?.fuel_type?.name || '-'}
+                          {reading.nozzle?.fuelType?.name || (reading.nozzle as any)?.fuel_type?.name || '-'}
                         </Badge>
                       </TableCell>
                       <TableCell>
@@ -319,7 +319,7 @@ export function MeterReadings() {
               <div className="rounded-lg border p-3 bg-muted/50">
                 <p className="text-sm font-medium">Selected Nozzle</p>
                 <p className="text-xs text-muted-foreground">
-                  {selectedNozzle.nozzle_number} - {selectedNozzle.fuel_type?.name}
+                  {selectedNozzle.nozzleNumber || (selectedNozzle as any).nozzle_number} - {selectedNozzle.fuelType?.name || (selectedNozzle as any).fuel_type?.name}
                 </p>
               </div>
             )}

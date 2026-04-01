@@ -14,8 +14,18 @@ export interface SalesFilters {
 
 export const salesApi = {
   getAll: async (params?: SalesFilters): Promise<PaginatedResponse<Sale>> => {
-    const response = await apiClient.get<PaginatedResponse<Sale>>('/api/sales', { params });
-    return response.data;
+    const response = await apiClient.get<any>('/api/sales', { params });
+    const data = response.data;
+    // Backend returns { sales: [...], pagination: { total, limit, offset, pages } }
+    const sales = data.sales || data.items || [];
+    const pagination = data.pagination || {};
+    return {
+      items: sales,
+      total: pagination.total || sales.length,
+      page: params?.page || 1,
+      size: params?.size || pagination.limit || 50,
+      pages: pagination.pages || 1,
+    };
   },
 
   getById: async (id: string): Promise<Sale> => {

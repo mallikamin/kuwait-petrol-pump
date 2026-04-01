@@ -27,8 +27,8 @@ export const branchesApi = {
   },
 
   getDispensingUnits: async (branchId: string): Promise<DispensingUnit[]> => {
-    const response = await apiClient.get<DispensingUnit[]>(`/api/branches/${branchId}/dispensing-units`);
-    return response.data;
+    const response = await apiClient.get<{ units: DispensingUnit[] }>(`/api/branches/${branchId}/dispensing-units`);
+    return response.data.units || response.data as any;
   },
 
   createDispensingUnit: async (branchId: string, data: { name: string; unitNumber: number }): Promise<DispensingUnit> => {

@@ -118,17 +118,26 @@ export function POS() {
       return dispensingUnits.flatMap(unit =>
         unit.nozzles.map(n => ({
           ...n,
-          displayName: `${n.nozzle_number} - ${n.fuel_type?.name || 'Unknown'}`,
+          displayName: `${n.nozzleNumber} - ${n.fuelType?.name || 'Unknown'}`,
         }))
       );
     },
     enabled: !!branchId,
   });
 
-  // Fetch fuel prices
-  const { data: fuelTypes } = useQuery({
-    queryKey: ['fuel-types'],
-    queryFn: () => fuelPricesApi.getFuelTypes(),
+  // Fetch current fuel prices (with pricePerLiter)
+  const { data: currentPrices } = useQuery({
+    queryKey: ['fuel-prices-current'],
+    queryFn: () => fuelPricesApi.getCurrentPrices(),
+  });
+
+  // Build price lookup: fuelTypeId -> pricePerLiter
+  const priceLookup = new Map<string, number>();
+  currentPrices?.forEach((p: any) => {
+    if (p.fuelTypeId && p.pricePerLiter) {
+      const existing = priceLookup.get(p.fuelTypeId);
+      if (!existing) priceLookup.set(p.fuelTypeId, Number(p.pricePerLiter));
+    }
   });
 
   // Fetch customers
@@ -205,30 +214,29 @@ export function POS() {
     }
 
     const nozzle = nozzlesData?.find(n => n.id === selectedNozzleId);
-    if (!nozzle || !nozzle.fuel_type) {
+    if (!nozzle || !nozzle.fuelType) {
       toast({ title: 'Error', description: 'Invalid nozzle or fuel type', variant: 'destructive' });
       return;
     }
 
-    const fuelType = fuelTypes?.find(ft => ft.id === nozzle.fuel_type_id);
-    const pricePerLiter = fuelType?.current_price || 0;
+    const pricePerLiter = priceLookup.get(nozzle.fuelTypeId) || 0;
 
     if (pricePerLiter <= 0) {
-      toast({ title: 'Price not set', description: `No price configured for ${nozzle.fuel_type.name}`, variant: 'destructive' });
+      toast({ title: 'Price not set', description: `No price configured for ${nozzle.fuelType.name}`, variant: 'destructive' });
       return;
     }
 
     setFuelCart({
       nozzleId: nozzle.id,
       nozzleName: nozzle.displayName,
-      fuelTypeId: nozzle.fuel_type_id,
-      fuelTypeName: nozzle.fuel_type.name,
+      fuelTypeId: nozzle.fuelTypeId,
+      fuelTypeName: nozzle.fuelType.name,
       quantityLiters: parseFloat(liters),
       pricePerLiter,
     });
 
-    toast({ title: 'Fuel added', description: `${liters}L ${nozzle.fuel_type.name}` });
-  }, [selectedNozzleId, liters, nozzlesData, fuelTypes, toast]);
+    toast({ title: 'Fuel added', description: `${liters}L ${nozzle.fuelType.name}` });
+  }, [selectedNozzleId, liters, nozzlesData, priceLookup, toast]);
 
   // Totals
   const subtotalNonFuel = cart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
@@ -460,16 +468,16 @@ export function POS() {
                   {/* Fuel Type & Price Display */}
                   {selectedNozzleId && (() => {
                     const nozzle = nozzlesData?.find(n => n.id === selectedNozzleId);
-                    const fuelType = fuelTypes?.find(ft => ft.id === nozzle?.fuel_type_id);
+                    const price = nozzle ? (priceLookup.get(nozzle.fuelTypeId) || 0) : 0;
                     return (
                       <div className="p-3 rounded-lg border bg-muted/50">
                         <div className="flex justify-between items-center">
                           <div>
-                            <p className="text-sm font-medium">{nozzle?.fuel_type?.name || 'Unknown'}</p>
+                            <p className="text-sm font-medium">{nozzle?.fuelType?.name || 'Unknown'}</p>
                             <p className="text-xs text-muted-foreground">Fuel Type</p>
                           </div>
                           <div className="text-right">
-                            <p className="text-lg font-bold">{formatCurrency(fuelType?.current_price || 0)}/L</p>
+                            <p className="text-lg font-bold">{formatCurrency(price)}/L</p>
                             <p className="text-xs text-muted-foreground">Current Price</p>
                           </div>
                         </div>
@@ -492,8 +500,7 @@ export function POS() {
                   {/* Total Calculation Display */}
                   {selectedNozzleId && liters && parseFloat(liters) > 0 && (() => {
                     const nozzle = nozzlesData?.find(n => n.id === selectedNozzleId);
-                    const fuelType = fuelTypes?.find(ft => ft.id === nozzle?.fuel_type_id);
-                    const price = fuelType?.current_price || 0;
+                    const price = nozzle ? (priceLookup.get(nozzle.fuelTypeId) || 0) : 0;
                     const total = parseFloat(liters) * price;
                     return (
                       <div className="p-4 rounded-lg border-2 border-primary bg-primary/5">

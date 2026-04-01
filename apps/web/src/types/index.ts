@@ -24,44 +24,52 @@ export interface Branch {
 
 export interface DispensingUnit {
   id: string;
-  branch_id: string;
-  unit_number: string;
-  manufacturer: string;
-  model: string;
-  is_active: boolean;
-  created_at: string;
+  branchId: string;
+  unitNumber: number;
+  name?: string;
+  isActive: boolean;
+  createdAt: string;
   nozzles: Nozzle[];
 }
 
 export interface Nozzle {
   id: string;
-  dispensing_unit_id: string;
-  nozzle_number: string;
-  fuel_type_id: string;
-  fuel_type?: FuelType;
-  is_active: boolean;
-  created_at: string;
+  dispensingUnitId: string;
+  nozzleNumber: number;
+  fuelTypeId: string;
+  fuelType?: FuelType;
+  meterType: string;
+  isActive: boolean;
+  createdAt: string;
 }
 
 export interface FuelType {
   id: string;
   name: string;
   code: string;
-  color_code: string;
-  current_price: number;
   unit: string;
-  is_active: boolean;
-  created_at: string;
+  createdAt: string;
+}
+
+export interface FuelPriceWithType {
+  id: string;
+  fuelTypeId: string;
+  pricePerLiter: number;
+  effectiveFrom: string;
+  effectiveTo?: string;
+  fuelType?: FuelType;
 }
 
 export interface FuelPrice {
   id: string;
-  fuel_type_id: string;
-  fuel_type?: FuelType;
-  price: number;
-  effective_from: string;
-  created_by: string;
-  created_at: string;
+  fuelTypeId: string;
+  fuelType?: FuelType;
+  pricePerLiter: number;
+  effectiveFrom: string;
+  effectiveTo?: string;
+  changedBy?: string;
+  notes?: string;
+  createdAt: string;
 }
 
 // Shift Template (from shifts table - defines shift schedules)

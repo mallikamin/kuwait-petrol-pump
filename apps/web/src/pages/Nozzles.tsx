@@ -71,7 +71,7 @@ export function Nozzles() {
 
   // Get current branch
   const currentBranch = branchesData?.find((b) => b.id === branchId);
-  const dispensingUnits = (currentBranch as any)?.dispensingUnits || [];
+  const dispensingUnits: DispensingUnit[] = (currentBranch as any)?.dispensingUnits || [];
   const fuelTypes = fuelTypesData || [];
 
   // Create dispensing unit mutation
@@ -177,17 +177,17 @@ export function Nozzles() {
   const handleEditNozzle = (nozzle: Nozzle, unitId: string) => {
     setEditingNozzle(nozzle);
     setSelectedUnitId(unitId);
-    setNozzleNumber(nozzle.nozzle_number?.toString() || '');
-    setFuelTypeId(nozzle.fuel_type_id);
-    setMeterType((nozzle as any).meter_type || 'digital');
+    setNozzleNumber(nozzle.nozzleNumber?.toString() || '');
+    setFuelTypeId(nozzle.fuelTypeId);
+    setMeterType(nozzle.meterType || 'digital');
     setNozzleDialogOpen(true);
   };
 
   const handleToggleNozzle = async (nozzle: Nozzle) => {
     try {
-      await branchesApi.updateNozzleStatus(nozzle.id, !nozzle.is_active);
+      await branchesApi.updateNozzleStatus(nozzle.id, !nozzle.isActive);
       queryClient.invalidateQueries({ queryKey: ['branches'] });
-      toast.success(`Nozzle ${nozzle.is_active ? 'deactivated' : 'activated'} successfully`);
+      toast.success(`Nozzle ${nozzle.isActive ? 'deactivated' : 'activated'} successfully`);
     } catch (error: any) {
       toast.error(error?.response?.data?.error || 'Failed to toggle nozzle status');
     }
@@ -246,7 +246,7 @@ export function Nozzles() {
             </Card>
           ) : (
             <div className="space-y-6">
-              {dispensingUnits.map((unit: DispensingUnit & { name?: string }) => {
+              {dispensingUnits.map((unit) => {
                 const nozzles = unit.nozzles || [];
 
                 return (
@@ -256,7 +256,7 @@ export function Nozzles() {
                         <div>
                           <CardTitle className="flex items-center gap-2">
                             <Gauge className="h-5 w-5" />
-                            {unit.name || `Unit ${unit.unit_number}`}
+                            {unit.name || `Unit ${unit.unitNumber}`}
                           </CardTitle>
                           <CardDescription>
                             {nozzles.length} nozzle{nozzles.length !== 1 ? 's' : ''}
@@ -294,25 +294,25 @@ export function Nozzles() {
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {nozzles.map((nozzle: Nozzle & { meter_type?: string }) => (
+                            {nozzles.map((nozzle) => (
                               <TableRow key={nozzle.id}>
                                 <TableCell className="font-medium">
                                   <div className="flex items-center">
                                     <Gauge className="mr-2 h-4 w-4 text-muted-foreground" />
-                                    Nozzle {nozzle.nozzle_number}
+                                    Nozzle {nozzle.nozzleNumber}
                                   </div>
                                 </TableCell>
                                 <TableCell>
                                   <Badge variant="outline">
-                                    {nozzle.fuel_type?.name || 'Unknown'}
+                                    {nozzle.fuelType?.name || 'Unknown'}
                                   </Badge>
                                 </TableCell>
                                 <TableCell className="capitalize">
-                                  {nozzle.meter_type || 'digital'}
+                                  {nozzle.meterType || 'digital'}
                                 </TableCell>
                                 <TableCell>
-                                  <Badge variant={nozzle.is_active ? 'default' : 'secondary'}>
-                                    {nozzle.is_active ? 'Active' : 'Inactive'}
+                                  <Badge variant={nozzle.isActive ? 'default' : 'secondary'}>
+                                    {nozzle.isActive ? 'Active' : 'Inactive'}
                                   </Badge>
                                 </TableCell>
                                 <TableCell className="text-right space-x-2">
@@ -324,11 +324,11 @@ export function Nozzles() {
                                     <Edit className="h-3 w-3" />
                                   </Button>
                                   <Button
-                                    variant={nozzle.is_active ? 'secondary' : 'default'}
+                                    variant={nozzle.isActive ? 'secondary' : 'default'}
                                     size="sm"
                                     onClick={() => handleToggleNozzle(nozzle)}
                                   >
-                                    {nozzle.is_active ? 'Deactivate' : 'Activate'}
+                                    {nozzle.isActive ? 'Deactivate' : 'Activate'}
                                   </Button>
                                 </TableCell>
                               </TableRow>
@@ -414,9 +414,9 @@ export function Nozzles() {
                     <SelectValue placeholder="Select dispensing unit" />
                   </SelectTrigger>
                   <SelectContent>
-                    {dispensingUnits.map((unit: DispensingUnit & { name?: string }) => (
+                    {dispensingUnits.map((unit) => (
                       <SelectItem key={unit.id} value={unit.id}>
-                        {unit.name || `Unit ${unit.unit_number}`}
+                        {unit.name || `Unit ${unit.unitNumber}`}
                       </SelectItem>
                     ))}
                   </SelectContent>

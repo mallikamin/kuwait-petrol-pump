@@ -70,34 +70,34 @@ export function Sales() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {sales.map((sale) => (
+                {sales.map((sale: any) => (
                   <TableRow key={sale.id}>
                     <TableCell className="text-sm">
-                      {formatDateTime(sale.created_at)}
+                      {formatDateTime(sale.saleDate || sale.createdAt || sale.created_at)}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={sale.sale_type === 'fuel' ? 'default' : 'secondary'}>
-                        {sale.sale_type}
+                      <Badge variant={(sale.saleType || sale.sale_type) === 'fuel' ? 'default' : 'secondary'}>
+                        {sale.saleType || sale.sale_type || '-'}
                       </Badge>
                     </TableCell>
-                    <TableCell>{sale.customer?.name || 'Walk-in'}</TableCell>
+                    <TableCell>{sale.customer?.name || sale.customer?.fullName || 'Walk-in'}</TableCell>
                     <TableCell>
-                      <Badge variant="outline">{sale.payment_method}</Badge>
+                      <Badge variant="outline">{sale.paymentMethod || sale.payment_method || '-'}</Badge>
                     </TableCell>
                     <TableCell className="font-medium">
-                      {formatCurrency(sale.net_amount)}
+                      {formatCurrency(Number(sale.totalAmount || sale.net_amount || 0))}
                     </TableCell>
                     <TableCell>
                       <Badge
                         variant={
                           sale.status === 'completed'
-                            ? 'success'
+                            ? 'default'
                             : sale.status === 'pending'
-                            ? 'warning'
+                            ? 'secondary'
                             : 'destructive'
                         }
                       >
-                        {sale.status}
+                        {sale.status || 'completed'}
                       </Badge>
                     </TableCell>
                     <TableCell>
