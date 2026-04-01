@@ -212,6 +212,23 @@ export class ReportsService {
       }
     }
 
+    // Get sales summary for the shift
+    const sales = await prisma.sale.findMany({
+      where: { shiftInstanceId },
+      include: {
+        fuelSales: {
+          include: {
+            fuelType: true,
+          },
+        },
+        nonFuelSales: {
+          include: {
+            product: true,
+          },
+        },
+      },
+    });
+
     // Get actual sales for each nozzle during this shift
     const salesByNozzle: Record<string, number> = {};
     for (const sale of sales) {
@@ -255,23 +272,6 @@ export class ReportsService {
         actualSales,
         variance,
       };
-    });
-
-    // Get sales summary for the shift
-    const sales = await prisma.sale.findMany({
-      where: { shiftInstanceId },
-      include: {
-        fuelSales: {
-          include: {
-            fuelType: true,
-          },
-        },
-        nonFuelSales: {
-          include: {
-            product: true,
-          },
-        },
-      },
     });
 
     let totalSalesAmount = 0;
