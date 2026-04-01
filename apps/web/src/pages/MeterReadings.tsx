@@ -254,10 +254,10 @@ export function MeterReadings() {
               ) : (
                 <div className="p-3 rounded-lg border bg-muted/50">
                   <p className="text-sm font-medium">
-                    Shift #{currentShift.shift_number}
+                    {(currentShift as any).shift?.name || `Shift #${(currentShift as any).shift?.shiftNumber}`}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {currentShift.user?.full_name || currentShift.user?.username || 'Unknown User'}
+                    Opened by {(currentShift as any).openedByUser?.fullName || (currentShift as any).openedByUser?.username || 'Unknown User'}
                   </p>
                 </div>
               )}
