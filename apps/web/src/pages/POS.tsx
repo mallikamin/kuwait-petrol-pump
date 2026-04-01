@@ -674,41 +674,46 @@ export function POS() {
             ) : (
               <div className="space-y-2 max-h-[300px] overflow-y-auto">
                 {cart.map(item => (
-                  <div key={item.productId} className="flex items-center gap-2 p-2 rounded-md bg-muted/50">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{item.name}</p>
-                      <p className="text-xs text-muted-foreground">{formatCurrency(item.unitPrice)} each</p>
+                  <div key={item.productId} className="p-2 rounded-md bg-muted/50 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium">{item.name}</p>
+                        <p className="text-xs text-muted-foreground">{formatCurrency(item.unitPrice)} each</p>
+                      </div>
+                      <p className="text-sm font-bold whitespace-nowrap">
+                        {formatCurrency(item.unitPrice * item.quantity)}
+                      </p>
                     </div>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        className="h-7 w-7"
-                        onClick={() => updateQuantity(item.productId, -1)}
-                      >
-                        <Minus className="h-3 w-3" />
-                      </Button>
-                      <span className="text-sm font-bold w-6 text-center">{item.quantity}</span>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        className="h-7 w-7"
-                        onClick={() => updateQuantity(item.productId, 1)}
-                      >
-                        <Plus className="h-3 w-3" />
-                      </Button>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-7 w-7 shrink-0"
+                          onClick={() => updateQuantity(item.productId, -1)}
+                        >
+                          <Minus className="h-3 w-3" />
+                        </Button>
+                        <span className="text-sm font-bold min-w-[2rem] text-center">{item.quantity}</span>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-7 w-7 shrink-0"
+                          onClick={() => updateQuantity(item.productId, 1)}
+                        >
+                          <Plus className="h-3 w-3" />
+                        </Button>
+                      </div>
                       <Button
                         variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-destructive"
+                        size="sm"
+                        className="h-7 text-destructive"
                         onClick={() => removeFromCart(item.productId)}
                       >
-                        <Trash2 className="h-3 w-3" />
+                        <Trash2 className="h-3 w-3 mr-1" />
+                        <span className="text-xs">Remove</span>
                       </Button>
                     </div>
-                    <p className="text-sm font-bold w-20 text-right">
-                      {formatCurrency(item.unitPrice * item.quantity)}
-                    </p>
                   </div>
                 ))}
               </div>

@@ -106,8 +106,10 @@ export class ReportsService {
       totalSales: sales.length,
       summary: {
         totalAmount: totalFuelAmount + totalNonFuelAmount,
+        totalTransactions: sales.length,
         fuel: {
           amount: totalFuelAmount,
+          count: sales.filter(s => s.saleType === 'fuel').length,
           byType: fuelByType,
         },
         nonFuel: {
@@ -115,8 +117,14 @@ export class ReportsService {
           count: sales.filter(s => s.saleType === 'non_fuel').length,
         },
       },
-      paymentMethodBreakdown: paymentBreakdown,
-      shiftBreakdown: Object.keys(shiftBreakdown).length > 0 ? shiftBreakdown : null,
+      paymentMethodBreakdown: Object.entries(paymentBreakdown).map(([method, data]) => ({
+        paymentMethod: method,
+        ...data,
+      })),
+      shiftBreakdown: Object.entries(shiftBreakdown).map(([name, data]) => ({
+        name,
+        ...data,
+      })),
     };
   }
 
