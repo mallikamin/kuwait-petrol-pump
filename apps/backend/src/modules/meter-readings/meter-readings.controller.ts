@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { MeterReadingsService } from './meter-readings.service';
+import { hasRole } from '../../middleware/auth.middleware';
 import {
   createMeterReadingSchema,
   verifyReadingSchema,
@@ -27,7 +28,7 @@ export class MeterReadingsController {
       }
 
       // Only operator, cashier, manager can record meter readings
-      if (!['ADMIN', 'MANAGER', 'OPERATOR', 'CASHIER'].includes(req.user.role)) {
+      if (!hasRole(req.user, ['admin', 'manager', 'operator', 'cashier'])) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
@@ -153,7 +154,7 @@ export class MeterReadingsController {
       }
 
       // Only manager can verify/correct readings
-      if (!['ADMIN', 'MANAGER'].includes(req.user.role)) {
+      if (!hasRole(req.user, ['admin', 'manager'])) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 

@@ -1,5 +1,5 @@
 import { apiClient } from './client';
-import { Shift, PaginatedResponse } from '@/types';
+import { Shift, ShiftTemplate, PaginatedResponse } from '@/types';
 
 export const shiftsApi = {
   create: async (data: {
@@ -20,8 +20,8 @@ export const shiftsApi = {
     status?: 'open' | 'closed';
     start_date?: string;
     end_date?: string;
-  }): Promise<PaginatedResponse<Shift>> => {
-    const response = await apiClient.get<PaginatedResponse<Shift>>('/api/shifts', { params });
+  }): Promise<PaginatedResponse<ShiftTemplate>> => {
+    const response = await apiClient.get<PaginatedResponse<ShiftTemplate>>('/api/shifts', { params });
     return response.data;
   },
 

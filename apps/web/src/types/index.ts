@@ -64,6 +64,20 @@ export interface FuelPrice {
   created_at: string;
 }
 
+// Shift Template (from shifts table - defines shift schedules)
+export interface ShiftTemplate {
+  id: string;
+  branchId: string;
+  shiftNumber: number;
+  name: string;
+  startTime: string; // ISO datetime string
+  endTime: string; // ISO datetime string
+  isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// Shift Instance (from shift_instances table - actual shift occurrences)
 export interface Shift {
   id: string;
   branch_id: string;

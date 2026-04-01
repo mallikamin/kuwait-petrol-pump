@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { SalesService } from './sales.service';
+import { hasRole } from '../../middleware/auth.middleware';
 import {
   createFuelSaleSchema,
   createNonFuelSaleSchema,
@@ -28,7 +29,7 @@ export class SalesController {
       }
 
       // Only cashier, operator, manager can create sales
-      if (!['ADMIN', 'MANAGER', 'CASHIER', 'OPERATOR'].includes(req.user.role)) {
+      if (!hasRole(req.user, ['admin', 'manager', 'cashier', 'operator'])) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
@@ -56,7 +57,7 @@ export class SalesController {
       }
 
       // Only cashier, operator, manager can create sales
-      if (!['ADMIN', 'MANAGER', 'CASHIER', 'OPERATOR'].includes(req.user.role)) {
+      if (!hasRole(req.user, ['admin', 'manager', 'cashier', 'operator'])) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 

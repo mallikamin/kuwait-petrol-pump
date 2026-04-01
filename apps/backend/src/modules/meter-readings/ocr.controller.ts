@@ -8,6 +8,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { OCRService } from './ocr.service';
+import { hasRole } from '../../middleware/auth.middleware';
 import { OCRRateLimiter, OCRRateLimitError } from './ocr-rate-limiter';
 
 // Validation schema
@@ -35,9 +36,7 @@ export class OCRController {
       }
 
       // 2. Authorization check (only operators, cashiers, managers)
-      if (
-        !['ADMIN', 'MANAGER', 'OPERATOR', 'CASHIER'].includes(req.user.role)
-      ) {
+      if (!hasRole(req.user, ['admin', 'manager', 'operator', 'cashier'])) {
         return res.status(403).json({
           error: 'Insufficient permissions. Only operators can use OCR.',
         });

@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { ShiftsService } from './shifts.service';
+import { hasRole } from '../../middleware/auth.middleware';
 
 const createShiftSchema = z.object({
   branchId: z.string().uuid(),
@@ -54,7 +55,7 @@ export class ShiftsController {
       }
 
       // Only admin and manager can create shifts
-      if (!['admin', 'manager', 'ADMIN', 'MANAGER'].includes(req.user.role)) {
+      if (!hasRole(req.user, ['admin', 'manager'])) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
@@ -121,7 +122,7 @@ export class ShiftsController {
       }
 
       // Only manager, cashier, and operator can open shifts
-      if (!['admin', 'manager', 'cashier', 'operator', 'ADMIN', 'MANAGER', 'CASHIER', 'OPERATOR'].includes(req.user.role)) {
+      if (!hasRole(req.user, ['admin', 'manager', 'cashier', 'operator'])) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
@@ -154,7 +155,7 @@ export class ShiftsController {
       }
 
       // Only manager, cashier, and operator can close shifts
-      if (!['admin', 'manager', 'cashier', 'operator', 'ADMIN', 'MANAGER', 'CASHIER', 'OPERATOR'].includes(req.user.role)) {
+      if (!hasRole(req.user, ['admin', 'manager', 'cashier', 'operator'])) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 

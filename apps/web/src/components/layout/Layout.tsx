@@ -23,8 +23,8 @@ export function Layout() {
           <Breadcrumbs />
           <Outlet />
         </div>
-        <footer className="fixed bottom-0 right-0 p-2 text-xs text-muted-foreground bg-background/50">
-          BUILD: 63b15a4-{new Date().toISOString().slice(0,16).replace('T','-')}
+        <footer className="fixed bottom-0 right-0 p-2 text-xs text-muted-foreground bg-background/50 backdrop-blur-sm">
+          Build: {__BUILD_ID__}
         </footer>
       </main>
     </div>
