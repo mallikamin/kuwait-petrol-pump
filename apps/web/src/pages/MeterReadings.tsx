@@ -100,10 +100,10 @@ export function MeterReadings() {
     }
 
     createMutation.mutate({
-      nozzle_id: selectedNozzleId,
-      shift_instance_id: currentShift.id,
-      reading_type: readingType,
-      meter_value: parseFloat(meterValue),
+      nozzleId: selectedNozzleId,
+      shiftInstanceId: currentShift.id,
+      readingType: readingType,
+      meterValue: parseFloat(meterValue),
     });
   };
 

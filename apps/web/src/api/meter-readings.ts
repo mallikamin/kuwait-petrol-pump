@@ -26,19 +26,13 @@ export const meterReadingsApi = {
   },
 
   create: async (data: {
-    nozzle_id: string;
-    shift_instance_id: string;
-    reading_type: 'opening' | 'closing';
-    meter_value: number;
-    image_url?: string;
+    nozzleId: string;
+    shiftInstanceId: string;
+    readingType: 'opening' | 'closing';
+    meterValue: number;
+    imageUrl?: string;
   }): Promise<MeterReading> => {
-    const response = await apiClient.post<{ meterReading: MeterReading }>('/api/meter-readings', {
-      nozzleId: data.nozzle_id,
-      shiftInstanceId: data.shift_instance_id,
-      readingType: data.reading_type,
-      meterValue: data.meter_value,
-      imageUrl: data.image_url,
-    });
+    const response = await apiClient.post<{ meterReading: MeterReading }>('/api/meter-readings', data);
     return response.data.meterReading;
   },
 
