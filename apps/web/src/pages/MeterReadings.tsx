@@ -46,14 +46,13 @@ export function MeterReadings() {
     queryFn: () => meterReadingsApi.getAll({ page, size: 20 }),
   });
 
-  // Fetch nozzles from branches
+  // Fetch nozzles from branches (branches already include nested dispensingUnits.nozzles)
   const { data: nozzlesData } = useQuery({
     queryKey: ['branches', 'dispensing-units'],
     queryFn: async () => {
       const branches = await branchesApi.getAll();
-      if (branches.items.length > 0) {
-        const dispensingUnits = await branchesApi.getDispensingUnits(branches.items[0].id);
-        return dispensingUnits.flatMap(unit => unit.nozzles);
+      if (branches.items.length > 0 && (branches.items[0] as any).dispensingUnits) {
+        return (branches.items[0] as any).dispensingUnits.flatMap((unit: any) => unit.nozzles || []);
       }
       return [];
     },
@@ -117,7 +116,7 @@ export function MeterReadings() {
     }
   };
 
-  const selectedNozzle = nozzlesData?.find(n => n.id === selectedNozzleId);
+  const selectedNozzle = nozzlesData?.find((n: any) => n.id === selectedNozzleId);
 
   return (
     <div className="space-y-6">
@@ -271,9 +270,9 @@ export function MeterReadings() {
                   <SelectValue placeholder="Select nozzle" />
                 </SelectTrigger>
                 <SelectContent>
-                  {nozzlesData?.map((nozzle) => (
+                  {nozzlesData?.map((nozzle: any) => (
                     <SelectItem key={nozzle.id} value={nozzle.id}>
-                      {nozzle.nozzle_number} - {nozzle.fuel_type?.name || 'Unknown'}
+                      Nozzle {nozzle.nozzleNumber} - {nozzle.fuelType?.name || 'Unknown'}
                     </SelectItem>
                   ))}
                 </SelectContent>
