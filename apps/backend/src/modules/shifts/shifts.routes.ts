@@ -8,6 +8,8 @@ const shiftsController = new ShiftsController();
 // All routes require authentication
 router.use(authenticate);
 
+router.post('/', shiftsController.createShift);
+router.get('/', shiftsController.getAllShifts);
 router.post('/open', shiftsController.openShift);
 router.post('/:id/close', shiftsController.closeShift);
 router.get('/current', shiftsController.getCurrentShift);

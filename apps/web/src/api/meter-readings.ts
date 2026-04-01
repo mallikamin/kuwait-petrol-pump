@@ -9,8 +9,46 @@ export const meterReadingsApi = {
     nozzle_id?: string;
     reading_type?: 'opening' | 'closing';
   }): Promise<PaginatedResponse<MeterReading>> => {
-    const response = await apiClient.get<{ readings: MeterReading[] }>('/api/meter-readings', { params });
-    return { items: response.data.readings, total: response.data.readings.length, page: params?.page || 1, size: params?.size || 50, pages: 1 };
+    const response = await apiClient.get<{
+      readings: MeterReading[];
+      total: number;
+      page: number;
+      size: number;
+      pages: number;
+    }>('/api/meter-readings', { params });
+    return {
+      items: response.data.readings,
+      total: response.data.total,
+      page: response.data.page,
+      size: response.data.size,
+      pages: response.data.pages
+    };
+  },
+
+  create: async (data: {
+    nozzle_id: string;
+    shift_instance_id: string;
+    reading_type: 'opening' | 'closing';
+    meter_value: number;
+    image_url?: string;
+  }): Promise<MeterReading> => {
+    const response = await apiClient.post<{ meterReading: MeterReading }>('/api/meter-readings', {
+      nozzleId: data.nozzle_id,
+      shiftInstanceId: data.shift_instance_id,
+      readingType: data.reading_type,
+      meterValue: data.meter_value,
+      imageUrl: data.image_url,
+    });
+    return response.data.meterReading;
+  },
+
+  getLatestForNozzle: async (nozzleId: string): Promise<MeterReading | null> => {
+    try {
+      const response = await apiClient.get<{ reading: MeterReading }>(`/api/meter-readings/${nozzleId}/latest`);
+      return response.data.reading;
+    } catch (error) {
+      return null;
+    }
   },
 
   getById: async (id: string): Promise<MeterReading> => {

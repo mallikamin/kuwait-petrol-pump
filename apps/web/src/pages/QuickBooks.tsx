@@ -35,7 +35,8 @@ export default function QuickBooks() {
   const handleConnect = async () => {
     try {
       const response = await quickbooksApi.initiateOAuth();
-      window.location.href = response.authorizationUrl;
+      // Open QB OAuth in new window/tab (don't redirect current page)
+      window.open(response.authorizationUrl, '_blank');
     } catch (error) {
       console.error('Failed to initiate OAuth:', error);
     }

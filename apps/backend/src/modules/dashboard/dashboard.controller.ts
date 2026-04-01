@@ -134,7 +134,42 @@ export class DashboardController {
         return totalStock < (product.lowStockThreshold || 0);
       }).length;
 
+      // Mobile-specific stats
+      const todayReadingsCount = await prisma.meterReading.count({
+        where: {
+          nozzle: {
+            dispensingUnit: {
+              branch: { organizationId },
+            },
+          },
+          recordedAt: { gte: todayStart, lte: todayEnd },
+        },
+      });
+
+      const lastReading = await prisma.meterReading.findFirst({
+        where: {
+          nozzle: {
+            dispensingUnit: {
+              branch: { organizationId },
+            },
+          },
+        },
+        orderBy: { recordedAt: 'desc' },
+      });
+
+      const currentShift = await prisma.shiftInstance.findFirst({
+        where: {
+          branch: { organizationId },
+          status: 'open',
+        },
+        include: {
+          shift: true,
+        },
+        orderBy: { openedAt: 'desc' },
+      });
+
       res.json({
+        // Web dashboard fields
         today_sales: todayTotalAgg._sum.totalAmount?.toNumber() || 0,
         today_fuel_sales: todayFuelAgg._sum.totalAmount?.toNumber() || 0,
         today_product_sales: todayNonFuelAgg._sum.totalAmount?.toNumber() || 0,
@@ -143,6 +178,18 @@ export class DashboardController {
         low_stock_products: lowStockCount,
         total_customers: totalCustomers,
         pending_credit: pendingCreditAgg._sum.totalAmount?.toNumber() || 0,
+        // Mobile dashboard fields
+        current_shift: currentShift
+          ? {
+              id: currentShift.shift.id,
+              name: currentShift.shift.name,
+              start_time: currentShift.shift.startTime.toISOString(),
+              end_time: currentShift.shift.endTime.toISOString(),
+            }
+          : null,
+        pending_readings_count: 0, // No pending readings concept yet
+        last_reading_timestamp: lastReading?.recordedAt.toISOString() || null,
+        total_readings_today: todayReadingsCount,
       });
     } catch (error) {
       next(error);

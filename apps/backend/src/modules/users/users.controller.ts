@@ -22,7 +22,7 @@ type User = {
 // Validation Schemas
 // ---------------------------------------------------------------------------
 
-const VALID_ROLES = ['admin', 'manager', 'accountant', 'cashier', 'operator'] as const;
+const VALID_ROLES = ['ADMIN', 'MANAGER', 'ACCOUNTANT', 'CASHIER', 'OPERATOR'] as const;
 
 const createUserSchema = z.object({
   username: z.string().min(3, 'Username must be at least 3 characters').max(100),

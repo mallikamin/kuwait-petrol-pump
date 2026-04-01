@@ -24,6 +24,12 @@ export default defineConfig({
     }
   },
   renderer: {
+    root: '.',
+    build: {
+      rollupOptions: {
+        input: './index.html'
+      }
+    },
     resolve: {
       alias: {
         '@': resolve(__dirname, 'src/renderer'),

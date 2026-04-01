@@ -64,7 +64,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       )}
     >
       <div className="flex h-16 items-center justify-between border-b px-4">
-        {!collapsed && <h1 className="text-xl font-bold text-primary">KPP Admin</h1>}
+        {!collapsed && <h1 className="text-xl font-bold text-primary">Petrol Pump POS Admin</h1>}
         <button
           onClick={onToggle}
           className="rounded-lg p-2 hover:bg-accent transition-colors"

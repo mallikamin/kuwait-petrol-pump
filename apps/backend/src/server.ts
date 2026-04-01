@@ -4,9 +4,13 @@ import { connectRedis } from './config/redis';
 import { prisma } from './config/database';
 import { logger } from './utils/logger';
 import { queueProcessor } from './services/quickbooks/queue-processor.service';
+import { initializeUploadDirectory } from './utils/image-storage';
 
 async function startServer() {
   try {
+    // Initialize upload directory for audit trail images
+    initializeUploadDirectory();
+
     // Connect to Redis
     await connectRedis();
 

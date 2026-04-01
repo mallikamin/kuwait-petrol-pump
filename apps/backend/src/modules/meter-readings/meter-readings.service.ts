@@ -7,10 +7,54 @@ type CreateMeterReadingData = CreateMeterReadingInput;
 
 export class MeterReadingsService {
   /**
+   * Get all meter readings for an organization
+   */
+  async getAllReadings(organizationId: string, limit: number = 100, isOcr?: boolean) {
+    const readings = await prisma.meterReading.findMany({
+      where: {
+        nozzle: {
+          dispensingUnit: {
+            branch: {
+              organizationId,
+            },
+          },
+        },
+        ...(isOcr !== undefined && { isOcr }),
+      },
+      include: {
+        nozzle: {
+          include: {
+            fuelType: true,
+            dispensingUnit: true,
+          },
+        },
+        shiftInstance: {
+          include: {
+            shift: true,
+          },
+        },
+        recordedByUser: {
+          select: {
+            id: true,
+            fullName: true,
+            username: true,
+          },
+        },
+      },
+      orderBy: {
+        recordedAt: 'desc',
+      },
+      take: limit,
+    });
+
+    return readings;
+  }
+
+  /**
    * Create a new meter reading
    */
   async createMeterReading(data: CreateMeterReadingData, userId: string, organizationId: string) {
-    const { nozzleId, shiftInstanceId, readingType, meterValue, imageUrl, ocrResult, isManualOverride } = data;
+    const { nozzleId, shiftInstanceId, shiftId, readingType, meterValue, imageUrl, imageBase64, ocrResult, isOcr, ocrConfidence, isManualOverride, customTimestamp } = data as CreateMeterReadingData & { customTimestamp?: string };
 
     // Verify nozzle belongs to organization
     const nozzle = await prisma.nozzle.findFirst({
@@ -35,10 +79,64 @@ export class MeterReadingsService {
       throw new AppError(404, 'Nozzle not found or inactive');
     }
 
+    // Determine the shift instance ID
+    let resolvedShiftInstanceId = shiftInstanceId;
+
+    // If shiftId provided instead of shiftInstanceId, get/create today's shift instance
+    if (!resolvedShiftInstanceId && shiftId) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      // Verify shift exists and belongs to organization
+      const shift = await prisma.shift.findFirst({
+        where: {
+          id: shiftId,
+          branch: {
+            organizationId,
+          },
+          isActive: true,
+        },
+      });
+
+      if (!shift) {
+        throw new AppError(404, 'Shift not found or inactive');
+      }
+
+      // Find or create today's shift instance
+      let shiftInstance = await prisma.shiftInstance.findUnique({
+        where: {
+          shiftId_date: {
+            shiftId,
+            date: today,
+          },
+        },
+      });
+
+      if (!shiftInstance) {
+        // Auto-create shift instance if it doesn't exist
+        shiftInstance = await prisma.shiftInstance.create({
+          data: {
+            shiftId,
+            branchId: shift.branchId,
+            date: today,
+            openedAt: new Date(),
+            openedBy: userId,
+            status: 'open',
+          },
+        });
+      }
+
+      resolvedShiftInstanceId = shiftInstance.id;
+    }
+
+    if (!resolvedShiftInstanceId) {
+      throw new AppError(400, 'Either shiftInstanceId or shiftId must be provided');
+    }
+
     // Verify shift instance belongs to organization
     const shiftInstance = await prisma.shiftInstance.findFirst({
       where: {
-        id: shiftInstanceId,
+        id: resolvedShiftInstanceId,
         branch: {
           organizationId,
         },
@@ -64,11 +162,48 @@ export class MeterReadingsService {
       throw new AppError(400, `Meter value (${meterValue}) must be greater than the last reading (${latestReading.meterValue.toString()})`);
     }
 
+    // VALIDATION: Closing → Opening Continuity
+    // When submitting an OPENING reading, check if yesterday's CLOSING exists and matches
+    if (readingType === 'opening') {
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      yesterday.setHours(0, 0, 0, 0);
+
+      const yesterdayClosing = await prisma.meterReading.findFirst({
+        where: {
+          nozzleId,
+          readingType: 'closing',
+          recordedAt: {
+            gte: yesterday,
+            lt: new Date(yesterday.getTime() + 24 * 60 * 60 * 1000), // Within yesterday
+          },
+        },
+        orderBy: { recordedAt: 'desc' },
+      });
+
+      if (yesterdayClosing) {
+        const closingValue = parseFloat(yesterdayClosing.meterValue.toString());
+        const openingValue = parseFloat(meterValue.toString());
+        const variance = Math.abs(openingValue - closingValue);
+        const tolerance = 0.01; // 0.01 liters tolerance
+
+        if (variance > tolerance) {
+          // Log warning but don't block (operator might have a valid reason)
+          console.warn(
+            `⚠️ Opening reading mismatch for nozzle ${nozzleId}:`,
+            `Yesterday's closing: ${closingValue}, Today's opening: ${openingValue}, Variance: ${variance}`
+          );
+          // You could optionally throw an error here if you want to enforce strict continuity:
+          // throw new AppError(400, `Opening reading (${openingValue}) does not match yesterday's closing (${closingValue}). Variance: ${variance.toFixed(2)}`);
+        }
+      }
+    }
+
     // Check if reading already exists for this nozzle and shift
     const existingReading = await prisma.meterReading.findFirst({
       where: {
         nozzleId,
-        shiftInstanceId,
+        shiftInstanceId: resolvedShiftInstanceId,
         readingType,
       },
     });
@@ -77,15 +212,38 @@ export class MeterReadingsService {
       throw new AppError(400, `${readingType} reading already exists for this nozzle in this shift`);
     }
 
+    // Process image if base64 provided (mobile app submission)
+    let finalImageUrl = imageUrl;
+    if (imageBase64 && !imageUrl) {
+      // Save base64 image to disk for audit trail
+      const { saveBase64Image } = await import('../../utils/image-storage');
+      finalImageUrl = await saveBase64Image(imageBase64, {
+        nozzleId,
+        userId,
+        readingType,
+      });
+    }
+
+    // Create meter reading with optional custom timestamp for back-dated entries
+    const recordedAt = customTimestamp ? new Date(customTimestamp) : new Date();
+
+    // Validate custom timestamp is not in the future
+    if (customTimestamp && recordedAt > new Date()) {
+      throw new AppError(400, 'Cannot create meter reading with future timestamp');
+    }
+
     // Create meter reading
     const meterReading = await prisma.meterReading.create({
       data: {
         nozzleId,
-        shiftInstanceId,
+        shiftInstanceId: resolvedShiftInstanceId,
         readingType,
         meterValue: new Decimal(meterValue),
-        ...(imageUrl && { imageUrl }),
+        recordedAt, // Use custom timestamp if provided, else current time
+        ...(finalImageUrl && { imageUrl: finalImageUrl }),
         ...(ocrResult && { ocrResult: new Decimal(ocrResult) }),
+        ...(isOcr !== undefined && { isOcr }),
+        ...(ocrConfidence !== undefined && { ocrConfidence }),
         isManualOverride,
         recordedBy: userId,
       },

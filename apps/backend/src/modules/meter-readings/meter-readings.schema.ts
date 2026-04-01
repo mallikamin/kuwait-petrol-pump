@@ -2,13 +2,21 @@ import { z } from 'zod';
 
 export const createMeterReadingSchema = z.object({
   nozzleId: z.string().uuid(),
-  shiftInstanceId: z.string().uuid(),
+  shiftInstanceId: z.string().uuid().optional(),
+  shiftId: z.string().uuid().optional(),
   readingType: z.enum(['opening', 'closing']),
-  meterValue: z.number().positive(),
+  meterValue: z.number().nonnegative({ message: 'Meter reading must be a positive number or zero' }),
   imageUrl: z.string().url().optional(),
+  imageBase64: z.string().optional(),
   ocrResult: z.number().positive().optional(),
+  isOcr: z.boolean().default(false),
+  ocrConfidence: z.number().min(0).max(1).optional(),
   isManualOverride: z.boolean().default(false),
-});
+  customTimestamp: z.string().datetime().optional(), // For back-dated entries
+}).refine(
+  (data) => data.shiftInstanceId || data.shiftId,
+  { message: 'Either shiftInstanceId or shiftId must be provided' }
+);
 
 export const verifyReadingSchema = z.object({
   verifiedValue: z.number().positive(),

@@ -2,6 +2,14 @@ import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { ShiftsService } from './shifts.service';
 
+const createShiftSchema = z.object({
+  branchId: z.string().uuid(),
+  shiftNumber: z.number().int().min(1),
+  name: z.string().optional(),
+  startTime: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/), // HH:MM or HH:MM:SS
+  endTime: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/),
+});
+
 const openShiftSchema = z.object({
   branchId: z.string().uuid(),
   shiftId: z.string().uuid(),
@@ -36,6 +44,73 @@ export class ShiftsController {
   }
 
   /**
+   * POST /api/shifts
+   * Create a new shift template
+   */
+  createShift = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      // Only admin and manager can create shifts
+      if (!['ADMIN', 'MANAGER'].includes(req.user.role)) {
+        return res.status(403).json({ error: 'Insufficient permissions' });
+      }
+
+      const data = createShiftSchema.parse(req.body);
+
+      const shift = await this.shiftsService.createShift(
+        data.branchId,
+        req.user.organizationId,
+        {
+          shiftNumber: data.shiftNumber,
+          name: data.name,
+          startTime: data.startTime,
+          endTime: data.endTime,
+        }
+      );
+
+      res.status(201).json({
+        shift,
+        message: 'Shift created successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * GET /api/shifts
+   * Get all shifts for the user's branch
+   */
+  getAllShifts = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      // Use the user's branch ID
+      const branchId = req.user.branchId;
+
+      if (!branchId) {
+        return res.status(400).json({ error: 'User has no branch assigned' });
+      }
+
+      const shifts = await this.shiftsService.getAllShifts(branchId, req.user.organizationId);
+
+      res.json({
+        items: shifts,
+        total: shifts.length,
+        page: 1,
+        size: shifts.length,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
    * POST /api/shifts/open
    * Open a new shift
    */
@@ -46,7 +121,7 @@ export class ShiftsController {
       }
 
       // Only manager, cashier, and operator can open shifts
-      if (!['admin', 'manager', 'cashier', 'operator'].includes(req.user.role)) {
+      if (!['ADMIN', 'MANAGER', 'CASHIER', 'OPERATOR'].includes(req.user.role)) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
@@ -79,7 +154,7 @@ export class ShiftsController {
       }
 
       // Only manager, cashier, and operator can close shifts
-      if (!['admin', 'manager', 'cashier', 'operator'].includes(req.user.role)) {
+      if (!['ADMIN', 'MANAGER', 'CASHIER', 'OPERATOR'].includes(req.user.role)) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 

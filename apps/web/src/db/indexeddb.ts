@@ -275,7 +275,7 @@ export class OfflineQueue {
 
     try {
       // Call backend sync endpoint with JWT auth (via apiClient interceptor)
-      const response = await apiClient.post('/sync/queue', {
+      const response = await apiClient.post('/api/sync/queue', {
         deviceId,
         sales: pendingSales,
       });

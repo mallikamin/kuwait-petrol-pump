@@ -64,3 +64,4 @@ manual-test-evidence-*/
 # Electron
 apps/desktop-pos/out/
 apps/desktop-pos/dist-electron/
+build-mobile-isolated/

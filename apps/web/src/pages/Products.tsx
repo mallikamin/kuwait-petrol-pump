@@ -57,12 +57,12 @@ export function Products() {
                         {product.name}
                       </div>
                     </TableCell>
-                    <TableCell>{product.code}</TableCell>
-                    <TableCell>{product.category?.name || '-'}</TableCell>
-                    <TableCell>{formatCurrency(Number(product.unit_price))}</TableCell>
+                    <TableCell>{product.sku}</TableCell>
+                    <TableCell>{product.category || '-'}</TableCell>
+                    <TableCell>{formatCurrency(Number(product.unitPrice))}</TableCell>
                     <TableCell>
-                      <Badge variant={product.is_active ? 'default' : 'secondary'}>
-                        {product.is_active ? 'Active' : 'Inactive'}
+                      <Badge variant={product.isActive ? 'default' : 'secondary'}>
+                        {product.isActive ? 'Active' : 'Inactive'}
                       </Badge>
                     </TableCell>
                   </TableRow>

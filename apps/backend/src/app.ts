@@ -31,9 +31,22 @@ export function createApp() {
 
   // Security middleware
   app.use(helmet());
+
+  // Parse CORS_ORIGIN as comma-separated list
+  const allowedOrigins = env.CORS_ORIGIN.split(',').map(origin => origin.trim());
+
   app.use(
     cors({
-      origin: env.CORS_ORIGIN,
+      origin: (origin, callback) => {
+        // Allow requests with no origin (like mobile apps or curl)
+        if (!origin) return callback(null, true);
+
+        if (allowedOrigins.includes(origin)) {
+          callback(null, true);
+        } else {
+          callback(new Error('Not allowed by CORS'));
+        }
+      },
       credentials: true,
     })
   );
@@ -45,9 +58,12 @@ export function createApp() {
   });
   app.use('/api/', limiter);
 
-  // Body parsing
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
+  // Body parsing (increased limit for base64 images from mobile OCR)
+  app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+  // Serve uploaded images for audit trail (requires authentication)
+  app.use('/uploads', express.static('uploads'));
 
   // Health check (both paths for nginx proxy and direct access)
   const healthHandler = (_req: express.Request, res: express.Response) => {

@@ -28,7 +28,7 @@ export class SalesController {
       }
 
       // Only cashier, operator, manager can create sales
-      if (!['admin', 'manager', 'cashier', 'operator'].includes(req.user.role)) {
+      if (!['ADMIN', 'MANAGER', 'CASHIER', 'OPERATOR'].includes(req.user.role)) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
@@ -56,7 +56,7 @@ export class SalesController {
       }
 
       // Only cashier, operator, manager can create sales
-      if (!['admin', 'manager', 'cashier', 'operator'].includes(req.user.role)) {
+      if (!['ADMIN', 'MANAGER', 'CASHIER', 'OPERATOR'].includes(req.user.role)) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 

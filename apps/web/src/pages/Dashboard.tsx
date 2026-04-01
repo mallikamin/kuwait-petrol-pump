@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { AlertCircle, DollarSign, Fuel, Package, ShoppingBag, Clock, Users } from 'lucide-react';
+import { AlertCircle, Banknote, Fuel, Package, ShoppingBag, Clock, Users } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -81,7 +81,7 @@ export function Dashboard() {
             <StatCard
               title="Today's Sales"
               value={formatCurrency(stats?.today_sales || 0)}
-              icon={<DollarSign className="h-4 w-4 text-muted-foreground" />}
+              icon={<Banknote className="h-4 w-4 text-muted-foreground" />}
               trend="Total revenue today"
             />
             <StatCard
@@ -227,8 +227,8 @@ export function Dashboard() {
                   {lowStockProducts.map((product) => (
                     <TableRow key={product.id}>
                       <TableCell className="font-medium">{product.name}</TableCell>
-                      <TableCell>{product.code}</TableCell>
-                      <TableCell>{product.min_stock_level}</TableCell>
+                      <TableCell>{product.sku}</TableCell>
+                      <TableCell>{product.lowStockThreshold || '-'}</TableCell>
                       <TableCell>
                         <Badge variant="destructive">Low Stock</Badge>
                       </TableCell>

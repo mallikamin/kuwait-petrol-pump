@@ -142,16 +142,16 @@ export interface Customer {
 export interface Product {
   id: string;
   name: string;
-  code: string;
-  barcode?: string;
-  category_id: string;
-  category?: Category;
-  unit_price: number;
-  cost_price: number;
-  unit: string;
-  min_stock_level: number;
-  is_active: boolean;
-  created_at: string;
+  sku: string;
+  barcode?: string | null;
+  category?: string | null;
+  unitPrice: number;
+  costPrice?: number | null;
+  isActive: boolean;
+  lowStockThreshold?: number | null;
+  createdAt: string;
+  updatedAt: string;
+  stockLevels?: Stock[];
 }
 
 export interface Category {

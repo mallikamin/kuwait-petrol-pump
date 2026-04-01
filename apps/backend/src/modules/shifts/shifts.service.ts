@@ -3,6 +3,88 @@ import { AppError } from '../../middleware/error.middleware';
 
 export class ShiftsService {
   /**
+   * Create a new shift template
+   */
+  async createShift(
+    branchId: string,
+    organizationId: string,
+    data: {
+      shiftNumber: number;
+      name?: string;
+      startTime: string;
+      endTime: string;
+    }
+  ) {
+    // Verify branch belongs to organization
+    const branch = await prisma.branch.findFirst({
+      where: {
+        id: branchId,
+        organizationId,
+      },
+    });
+
+    if (!branch) {
+      throw new AppError(404, 'Branch not found');
+    }
+
+    // Check if shift number already exists for this branch
+    const existingShift = await prisma.shift.findFirst({
+      where: {
+        branchId,
+        shiftNumber: data.shiftNumber,
+      },
+    });
+
+    if (existingShift) {
+      throw new AppError(400, 'Shift number already exists for this branch');
+    }
+
+    // Create shift
+    const shift = await prisma.shift.create({
+      data: {
+        branchId,
+        shiftNumber: data.shiftNumber,
+        name: data.name || `Shift ${data.shiftNumber}`,
+        startTime: new Date(`1970-01-01T${data.startTime}`),
+        endTime: new Date(`1970-01-01T${data.endTime}`),
+        isActive: true,
+      },
+      include: {
+        branch: true,
+      },
+    });
+
+    return shift;
+  }
+
+  /**
+   * Get all shifts for a branch
+   */
+  async getAllShifts(branchId: string, organizationId: string) {
+    // Verify branch belongs to organization
+    const branch = await prisma.branch.findFirst({
+      where: {
+        id: branchId,
+        organizationId,
+      },
+    });
+
+    if (!branch) {
+      throw new AppError(404, 'Branch not found');
+    }
+
+    const shifts = await prisma.shift.findMany({
+      where: {
+        branchId,
+        isActive: true,
+      },
+      orderBy: { shiftNumber: 'asc' },
+    });
+
+    return shifts;
+  }
+
+  /**
    * Open a new shift
    */
   async openShift(branchId: string, shiftId: string, userId: string, organizationId: string) {

@@ -1,4 +1,4 @@
-import { PrismaClient, UserRole, FuelType, ShiftStatus } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
@@ -25,13 +25,24 @@ async function main() {
     prisma.branch.deleteMany(),
   ]);
 
+  // Get or create default organization
+  let org = await prisma.organization.findFirst();
+  if (!org) {
+    org = await prisma.organization.create({
+      data: {
+        name: 'Kuwait Petrol Pump',
+        slug: 'kuwait-petrol-pump',
+        isActive: true,
+      },
+    });
+  }
+
   // Create Main Branch
   const mainBranch = await prisma.branch.create({
     data: {
+      organizationId: org.id,
       name: 'Main Branch',
       location: 'Kuwait City',
-      phone: '+965 1234 5678',
-      email: 'main@petrolpump.com',
     },
   });
 
@@ -42,55 +53,65 @@ async function main() {
 
   const admin = await prisma.user.create({
     data: {
+      organizationId: org.id,
+      username: 'admin',
       email: 'admin@petrolpump.com',
-      name: 'Admin User',
-      password: hashedPassword,
-      role: UserRole.ADMIN,
+      fullName: 'Admin User',
+      passwordHash: hashedPassword,
+      role: 'ADMIN',
       branchId: mainBranch.id,
     },
   });
 
   const manager = await prisma.user.create({
     data: {
+      organizationId: org.id,
+      username: 'manager',
       email: 'manager@petrolpump.com',
-      name: 'Manager User',
-      password: hashedPassword,
-      role: UserRole.MANAGER,
+      fullName: 'Manager User',
+      passwordHash: hashedPassword,
+      role: 'MANAGER',
       branchId: mainBranch.id,
     },
   });
 
   const cashier = await prisma.user.create({
     data: {
+      organizationId: org.id,
+      username: 'cashier',
       email: 'cashier@petrolpump.com',
-      name: 'Cashier User',
-      password: hashedPassword,
-      role: UserRole.CASHIER,
+      fullName: 'Cashier User',
+      passwordHash: hashedPassword,
+      role: 'CASHIER',
       branchId: mainBranch.id,
     },
   });
 
   const operator = await prisma.user.create({
     data: {
+      organizationId: org.id,
+      username: 'operator',
       email: 'operator@petrolpump.com',
-      name: 'Pump Operator',
-      password: hashedPassword,
-      role: UserRole.OPERATOR,
+      fullName: 'Pump Operator',
+      passwordHash: hashedPassword,
+      role: 'OPERATOR',
       branchId: mainBranch.id,
     },
   });
 
   const accountant = await prisma.user.create({
     data: {
+      organizationId: org.id,
+      username: 'accountant',
       email: 'accountant@petrolpump.com',
-      name: 'Accountant User',
-      password: hashedPassword,
-      role: UserRole.ACCOUNTANT,
+      fullName: 'Accountant User',
+      passwordHash: hashedPassword,
+      role: 'ACCOUNTANT',
       branchId: mainBranch.id,
     },
   });
 
-  console.log('✅ Created users:', [admin.email, manager.email, cashier.email, operator.email, accountant.email]);
+  console.log('✅ Created users:', [admin.username, manager.username, cashier.username, operator.username, accountant.username]);
 
   // Create 4 Dispensing Units with 6 total nozzles (as per questionnaire)
   const unit1 = await prisma.dispensingUnit.create({
@@ -266,11 +287,11 @@ async function main() {
   console.log('🎉 Seeding completed!');
   console.log('');
   console.log('📝 Demo Credentials:');
-  console.log('Email: admin@petrolpump.com | Password: password123');
-  console.log('Email: manager@petrolpump.com | Password: password123');
-  console.log('Email: cashier@petrolpump.com | Password: password123');
-  console.log('Email: operator@petrolpump.com | Password: password123');
-  console.log('Email: accountant@petrolpump.com | Password: password123');
+  console.log('Username: admin | Password: password123');
+  console.log('Username: manager | Password: password123');
+  console.log('Username: cashier | Password: password123');
+  console.log('Username: operator | Password: password123');
+  console.log('Username: accountant | Password: password123');
 }
 
 main()

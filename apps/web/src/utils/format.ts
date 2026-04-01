@@ -1,12 +1,12 @@
 import { format as dateFnsFormat } from 'date-fns';
 
 export const formatCurrency = (amount: number): string => {
-  return new Intl.NumberFormat('en-PK', {
-    style: 'currency',
-    currency: 'PKR',
+  // Format as PKR (Pakistani Rupees) with explicit "Rs" prefix
+  const formatted = new Intl.NumberFormat('en-PK', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(amount);
+  return `Rs ${formatted}`;
 };
 
 export const formatNumber = (value: number, decimals: number = 2): string => {

@@ -24,7 +24,7 @@ export class BifurcationController {
       }
 
       // Only manager and accountant can create bifurcations
-      if (!['admin', 'manager', 'accountant'].includes(req.user.role)) {
+      if (!['ADMIN', 'MANAGER', 'ACCOUNTANT'].includes(req.user.role)) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
@@ -91,7 +91,7 @@ export class BifurcationController {
       }
 
       // Only manager and accountant can verify bifurcations
-      if (!['admin', 'manager', 'accountant'].includes(req.user.role)) {
+      if (!['ADMIN', 'MANAGER', 'ACCOUNTANT'].includes(req.user.role)) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
