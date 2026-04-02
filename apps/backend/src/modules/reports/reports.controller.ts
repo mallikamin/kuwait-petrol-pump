@@ -47,9 +47,8 @@ export class ReportsController {
         return res.status(401).json({ error: 'Not authenticated' });
       }
 
-      // Only managers and accountants can access all branch reports
-      // Cashiers/operators can only access their own shift reports
-      if (!['ADMIN', 'MANAGER', 'ACCOUNTANT', 'admin', 'manager', 'accountant'].includes(req.user.role)) {
+      // Only managers, accountants, and operators can access reports
+      if (!['admin', 'manager', 'accountant', 'operator'].includes(req.user.role)) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
@@ -90,14 +89,10 @@ export class ReportsController {
 
       const query = shiftReportQuerySchema.parse(req.query);
 
-      // Verify user has permission to view this shift report
-      // For now, allow managers/accountants to view all, and cashiers/operators to view their own
-      const canViewAllReports = ['ADMIN', 'MANAGER', 'ACCOUNTANT', 'admin', 'manager', 'accountant'].includes(req.user.role);
+      // Allow managers, accountants, and operators to view shift reports
+      const canViewAllReports = ['admin', 'manager', 'accountant', 'operator'].includes(req.user.role);
 
       if (!canViewAllReports) {
-        // Cashiers/operators can only view their own shift reports
-        // This would require checking if the user opened/closed this shift
-        // For now, we'll restrict access
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
@@ -125,8 +120,8 @@ export class ReportsController {
         return res.status(401).json({ error: 'Not authenticated' });
       }
 
-      // Only managers and accountants can access variance reports
-      if (!['ADMIN', 'MANAGER', 'ACCOUNTANT', 'admin', 'manager', 'accountant'].includes(req.user.role)) {
+      // Only managers, accountants, and operators can access variance reports
+      if (!['admin', 'manager', 'accountant', 'operator'].includes(req.user.role)) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
@@ -171,7 +166,7 @@ export class ReportsController {
       }
 
       // Only managers and accountants can access customer ledger reports
-      if (!['ADMIN', 'MANAGER', 'ACCOUNTANT', 'admin', 'manager', 'accountant'].includes(req.user.role)) {
+      if (!['admin', 'manager', 'accountant'].includes(req.user.role)) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
@@ -209,7 +204,7 @@ export class ReportsController {
       }
 
       // Only managers and accountants can access inventory reports
-      if (!['ADMIN', 'MANAGER', 'ACCOUNTANT', 'admin', 'manager', 'accountant'].includes(req.user.role)) {
+      if (!['admin', 'manager', 'accountant'].includes(req.user.role)) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
