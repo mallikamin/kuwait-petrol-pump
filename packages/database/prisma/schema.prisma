@@ -338,7 +338,7 @@ model Sale {
 model FuelSale {
   id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   saleId         String   @map("sale_id") @db.Uuid
-  nozzleId       String   @map("nozzle_id") @db.Uuid
+  nozzleId       String?  @map("nozzle_id") @db.Uuid // Optional - client removed nozzle tracking
   fuelTypeId     String   @map("fuel_type_id") @db.Uuid
   quantityLiters Decimal  @map("quantity_liters") @db.Decimal(10, 2)
   pricePerLiter  Decimal  @map("price_per_liter") @db.Decimal(10, 2)
@@ -347,7 +347,7 @@ model FuelSale {
 
   // Relations
   sale     Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  nozzle   Nozzle   @relation(fields: [nozzleId], references: [id])
+  nozzle   Nozzle?  @relation(fields: [nozzleId], references: [id]) // Optional relation
   fuelType FuelType @relation(fields: [fuelTypeId], references: [id])
 
   @@index([saleId], name: "idx_fuel_sales_sale")

@@ -14,5 +14,6 @@ router.get('/payment-stats', controller.getPaymentStats);
 router.get('/recent-transactions', controller.getRecentTransactions);
 router.get('/low-stock', controller.getLowStock);
 router.get('/top-customers', controller.getTopCustomers);
+router.get('/liters-available', controller.getLitersAvailable);
 
 export default router;

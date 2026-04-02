@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const createFuelSaleSchema = z.object({
   branchId: z.string().uuid(),
   shiftInstanceId: z.string().uuid().optional(),
-  nozzleId: z.string().uuid(),
+  nozzleId: z.string().uuid().optional(), // Optional - client removed nozzle selection from POS
   fuelTypeId: z.string().uuid(),
   quantityLiters: z.number().positive(),
   pricePerLiter: z.number().positive(),

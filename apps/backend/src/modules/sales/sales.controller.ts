@@ -137,4 +137,37 @@ export class SalesController {
       next(error);
     }
   };
+
+  /**
+   * GET /api/sales/today
+   * Get today's sales for current branch (for POS posted entries display)
+   */
+  getTodaysSales = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      const branchId = req.user.branchId;
+      if (!branchId) {
+        return res.status(400).json({ error: 'User has no assigned branch' });
+      }
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+
+      const sales = await this.salesService.getTodaysSales(
+        branchId,
+        req.user.organizationId,
+        today,
+        tomorrow
+      );
+
+      res.json({ sales, count: sales.length });
+    } catch (error) {
+      next(error);
+    }
+  };
 }

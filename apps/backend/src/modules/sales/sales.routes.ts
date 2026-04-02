@@ -10,6 +10,7 @@ router.use(authenticate);
 
 router.post('/fuel', salesController.createFuelSale);
 router.post('/non-fuel', salesController.createNonFuelSale);
+router.get('/today', salesController.getTodaysSales);
 router.get('/summary', salesController.getSalesSummary);
 router.get('/:id', salesController.getSaleById);
 router.get('/', salesController.getSales);

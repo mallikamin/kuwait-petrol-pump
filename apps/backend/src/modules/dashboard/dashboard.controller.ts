@@ -556,4 +556,58 @@ export class DashboardController {
       next(error);
     }
   };
+
+  /**
+   * GET /api/dashboard/liters-available
+   * Returns available liters for PMG and HSD fuel types.
+   *
+   * For now, this returns 0 (placeholder) until inventory tracking is implemented.
+   * Future: Calculate from opening stock - today's sales
+   *
+   * Response shape:
+   * { pmg: number, hsd: number }
+   */
+  getLitersAvailable = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      const { organizationId } = req.user;
+      const branchId = req.user.branchId;
+
+      if (!branchId) {
+        return res.status(400).json({ error: 'User has no assigned branch' });
+      }
+
+      // Get PMG and HSD fuel type IDs
+      const fuelTypes = await prisma.fuelType.findMany({
+        where: {
+          organizationId,
+          name: { in: ['PMG', 'HSD'] },
+        },
+      });
+
+      const pmgFuelType = fuelTypes.find(ft => ft.name === 'PMG');
+      const hsdFuelType = fuelTypes.find(ft => ft.name === 'HSD');
+
+      // For now, return 0 as placeholder
+      // TODO: Implement inventory tracking
+      // Future: opening_stock - sum(sales.liters where date = today)
+      const pmgAvailable = 0;
+      const hsdAvailable = 0;
+
+      res.json({
+        pmg: pmgAvailable,
+        hsd: hsdAvailable,
+        note: 'Inventory tracking coming soon',
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
 }
