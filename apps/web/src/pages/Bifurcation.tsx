@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Calculator } from 'lucide-react';
+import { Plus, Calculator, Loader2, AlertTriangle, CheckCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -16,51 +16,149 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { formatCurrency, formatDate } from '@/utils/format';
-import { apiClient } from '@/api/client';
+import { bifurcationsApi } from '@/api/bifurcations';
+import { useAuthStore } from '@/store/auth';
 
 interface BifurcationFormData {
+  branchId: string;
   date: string;
-  totalPMGLiters: number;
-  totalHSDLiters: number;
-  creditSales: number;
-  psoCardSales: number;
-  bankCardSales: number;
-  cashSales: number;
-  notes: string;
+  pmgTotalLiters: number;
+  pmgTotalAmount: number;
+  hsdTotalLiters: number;
+  hsdTotalAmount: number;
+  cashAmount: number;
+  creditAmount: number;
+  cardAmount: number;
+  psoCardAmount: number;
+  expectedTotal: number;
+  actualTotal: number;
+  varianceNotes: string;
+  creditVerified: boolean;
+  cardVerified: boolean;
 }
 
 export function Bifurcation() {
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
+  const [loadingSummary, setLoadingSummary] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+
   const [formData, setFormData] = useState<BifurcationFormData>({
+    branchId: '',
     date: new Date().toISOString().split('T')[0],
-    totalPMGLiters: 0,
-    totalHSDLiters: 0,
-    creditSales: 0,
-    psoCardSales: 0,
-    bankCardSales: 0,
-    cashSales: 0,
-    notes: '',
+    pmgTotalLiters: 0,
+    pmgTotalAmount: 0,
+    hsdTotalLiters: 0,
+    hsdTotalAmount: 0,
+    cashAmount: 0,
+    creditAmount: 0,
+    cardAmount: 0,
+    psoCardAmount: 0,
+    expectedTotal: 0,
+    actualTotal: 0,
+    varianceNotes: '',
+    creditVerified: false,
+    cardVerified: false,
   });
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user } = useAuthStore();
 
-  // Fetch bifurcation records
-  const { data: bifurcations, isLoading } = useQuery({
-    queryKey: ['bifurcations'],
+  // Fetch bifurcation history
+  const { data: bifurcationsData, isLoading } = useQuery({
+    queryKey: ['bifurcations', 'history'],
     queryFn: async () => {
-      const response = await apiClient.get('/api/bifurcation');
-      return response.data;
+      if (!user?.branch_id) return { bifurcations: [], pagination: { total: 0 } };
+      const response = await bifurcationsApi.getAll({
+        branchId: user.branch_id,
+      });
+      return response;
     },
+    enabled: !!user?.branch_id,
   });
+
+  // Load daily summary when wizard opens
+  useEffect(() => {
+    if (isWizardOpen && user?.branch_id && currentStep === 1) {
+      loadDailySummary();
+    }
+  }, [isWizardOpen, user?.branch_id]);
+
+  const loadDailySummary = async () => {
+    if (!user?.branch_id) {
+      toast({
+        title: 'Error',
+        description: 'Branch not found. Please log in again.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setLoadingSummary(true);
+    setSummaryError(null);
+
+    try {
+      const summary = await bifurcationsApi.getSummary({
+        date: formData.date,
+        branchId: user.branch_id,
+      });
+
+      // Auto-populate form with summary data
+      setFormData(prev => ({
+        ...prev,
+        branchId: user.branch_id || '',
+        pmgTotalLiters: summary.pmgTotalLiters,
+        pmgTotalAmount: summary.pmgTotalAmount,
+        hsdTotalLiters: summary.hsdTotalLiters,
+        hsdTotalAmount: summary.hsdTotalAmount,
+        cashAmount: summary.cashAmount,
+        creditAmount: summary.creditAmount,
+        cardAmount: summary.cardAmount,
+        psoCardAmount: summary.psoCardAmount,
+        expectedTotal: summary.expectedTotal,
+      }));
+
+      toast({
+        title: 'Summary Loaded',
+        description: `Loaded ${summary.totalSalesCount} sales for ${formatDate(summary.date)}`,
+      });
+    } catch (error: any) {
+      const errorMsg = error.response?.data?.message || 'Failed to load sales summary';
+      setSummaryError(errorMsg);
+      toast({
+        title: 'Error',
+        description: errorMsg,
+        variant: 'destructive',
+      });
+    } finally {
+      setLoadingSummary(false);
+    }
+  };
 
   const createBifurcation = useMutation({
     mutationFn: async (data: BifurcationFormData) => {
-      const response = await apiClient.post('/api/bifurcation', data);
-      return response.data;
+      const response = await bifurcationsApi.create({
+        branchId: data.branchId,
+        date: new Date(data.date).toISOString(),
+        pmgTotalLiters: data.pmgTotalLiters,
+        pmgTotalAmount: data.pmgTotalAmount,
+        hsdTotalLiters: data.hsdTotalLiters,
+        hsdTotalAmount: data.hsdTotalAmount,
+        cashAmount: data.cashAmount,
+        creditAmount: data.creditAmount,
+        cardAmount: data.cardAmount,
+        psoCardAmount: data.psoCardAmount,
+        expectedTotal: data.expectedTotal,
+        actualTotal: data.actualTotal,
+        varianceNotes: data.varianceNotes || undefined,
+      });
+      return response;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bifurcations'] });
@@ -82,20 +180,60 @@ export function Bifurcation() {
 
   const resetForm = () => {
     setFormData({
+      branchId: user?.branch_id || '',
       date: new Date().toISOString().split('T')[0],
-      totalPMGLiters: 0,
-      totalHSDLiters: 0,
-      creditSales: 0,
-      psoCardSales: 0,
-      bankCardSales: 0,
-      cashSales: 0,
-      notes: '',
+      pmgTotalLiters: 0,
+      pmgTotalAmount: 0,
+      hsdTotalLiters: 0,
+      hsdTotalAmount: 0,
+      cashAmount: 0,
+      creditAmount: 0,
+      cardAmount: 0,
+      psoCardAmount: 0,
+      expectedTotal: 0,
+      actualTotal: 0,
+      varianceNotes: '',
+      creditVerified: false,
+      cardVerified: false,
     });
     setCurrentStep(1);
+    setSummaryError(null);
   };
 
   const handleNext = () => {
-    if (currentStep < 4) {
+    // Validation before moving to next step
+    if (currentStep === 2 && !formData.creditVerified) {
+      toast({
+        title: 'Verification Required',
+        description: 'Please verify credit sales before proceeding',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (currentStep === 3 && !formData.cardVerified) {
+      toast({
+        title: 'Verification Required',
+        description: 'Please verify card sales before proceeding',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (currentStep === 4) {
+      // Validate variance notes if variance is significant
+      const variance = formData.actualTotal - formData.expectedTotal;
+      if (Math.abs(variance) > 5000 && !formData.varianceNotes.trim()) {
+        toast({
+          title: 'Variance Notes Required',
+          description: 'Please explain the variance greater than 5000 PKR',
+          variant: 'destructive',
+        });
+        return;
+      }
+    }
+
+    if (currentStep < 5) {
       setCurrentStep(currentStep + 1);
     }
   };
@@ -107,17 +245,42 @@ export function Bifurcation() {
   };
 
   const handleSubmit = () => {
+    // Final validation
+    if (!formData.branchId) {
+      toast({
+        title: 'Error',
+        description: 'Branch ID is missing',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (formData.actualTotal === 0) {
+      toast({
+        title: 'Error',
+        description: 'Please enter the actual total cash counted',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     createBifurcation.mutate(formData);
   };
 
-  const totalSales = formData.creditSales + formData.psoCardSales + formData.bankCardSales + formData.cashSales;
+  const handleDateChange = (newDate: string) => {
+    setFormData(prev => ({ ...prev, date: newDate }));
+    // Don't auto-reload on date change, user must click "Load Summary" button
+  };
+
+  const variance = formData.actualTotal - formData.expectedTotal;
+  const varianceColor = variance === 0 ? 'text-green-600' : variance < 0 ? 'text-red-600' : 'text-yellow-600';
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Bifurcation</h1>
-          <p className="text-muted-foreground">End-of-day sales allocation (Cash/Credit/Card)</p>
+          <p className="text-muted-foreground">End-of-day sales reconciliation and cash variance tracking</p>
         </div>
         <Button onClick={() => setIsWizardOpen(true)}>
           <Plus className="mr-2 h-4 w-4" />
@@ -134,7 +297,7 @@ export function Bifurcation() {
         <TabsContent value="records" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Bifurcation Records</CardTitle>
+              <CardTitle>Bifurcation History</CardTitle>
             </CardHeader>
             <CardContent>
               {isLoading ? (
@@ -143,7 +306,7 @@ export function Bifurcation() {
                     <Skeleton key={i} className="h-16" />
                   ))}
                 </div>
-              ) : !bifurcations || bifurcations.length === 0 ? (
+              ) : !bifurcationsData?.bifurcations || bifurcationsData.bifurcations.length === 0 ? (
                 <div className="py-8 text-center text-muted-foreground">
                   No bifurcation records yet. Click "New Bifurcation" to create one.
                 </div>
@@ -154,30 +317,37 @@ export function Bifurcation() {
                       <TableHead>Date</TableHead>
                       <TableHead>PMG (L)</TableHead>
                       <TableHead>HSD (L)</TableHead>
-                      <TableHead>Credit</TableHead>
-                      <TableHead>PSO Card</TableHead>
-                      <TableHead>Bank Card</TableHead>
-                      <TableHead>Cash</TableHead>
-                      <TableHead>Total</TableHead>
+                      <TableHead>Expected Total</TableHead>
+                      <TableHead>Actual Total</TableHead>
+                      <TableHead>Variance</TableHead>
+                      <TableHead>Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {bifurcations.map((record: any) => (
-                      <TableRow key={record.id}>
-                        <TableCell>{formatDate(record.date)}</TableCell>
-                        <TableCell>{record.totalPMGLiters || 0}</TableCell>
-                        <TableCell>{record.totalHSDLiters || 0}</TableCell>
-                        <TableCell>{formatCurrency(record.creditSales)}</TableCell>
-                        <TableCell>{formatCurrency(record.psoCardSales)}</TableCell>
-                        <TableCell>{formatCurrency(record.bankCardSales)}</TableCell>
-                        <TableCell>{formatCurrency(record.cashSales)}</TableCell>
-                        <TableCell className="font-medium">
-                          {formatCurrency(
-                            record.creditSales + record.psoCardSales + record.bankCardSales + record.cashSales
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {bifurcationsData.bifurcations.map((record: any) => {
+                      const recordVariance = (record.actualTotal || 0) - (record.expectedTotal || 0);
+                      return (
+                        <TableRow key={record.id}>
+                          <TableCell>{formatDate(record.date)}</TableCell>
+                          <TableCell>{record.pmgTotalLiters?.toFixed(2) || '0.00'}</TableCell>
+                          <TableCell>{record.hsdTotalLiters?.toFixed(2) || '0.00'}</TableCell>
+                          <TableCell>{formatCurrency(record.expectedTotal)}</TableCell>
+                          <TableCell>{formatCurrency(record.actualTotal)}</TableCell>
+                          <TableCell className={recordVariance === 0 ? 'text-green-600' : recordVariance < 0 ? 'text-red-600' : 'text-yellow-600'}>
+                            {formatCurrency(recordVariance)}
+                          </TableCell>
+                          <TableCell>
+                            <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                              record.status === 'verified' ? 'bg-green-100 text-green-800' :
+                              record.status === 'completed' ? 'bg-blue-100 text-blue-800' :
+                              'bg-yellow-100 text-yellow-800'
+                            }`}>
+                              {record.status}
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               )}
@@ -196,8 +366,8 @@ export function Bifurcation() {
                   1
                 </div>
                 <div>
-                  <h3 className="font-semibold">Record Total Sales</h3>
-                  <p className="text-sm text-muted-foreground">Enter total PMG and HSD liters sold</p>
+                  <h3 className="font-semibold">Load Daily Summary</h3>
+                  <p className="text-sm text-muted-foreground">System auto-loads all sales posted for the day (PMG/HSD liters and amounts by payment method)</p>
                 </div>
               </div>
               <div className="flex items-start space-x-3">
@@ -205,8 +375,8 @@ export function Bifurcation() {
                   2
                 </div>
                 <div>
-                  <h3 className="font-semibold">Review Credit Sales</h3>
-                  <p className="text-sm text-muted-foreground">Accountant reviews all credit sale invoices (petrol pump slips)</p>
+                  <h3 className="font-semibold">Verify Credit Sales</h3>
+                  <p className="text-sm text-muted-foreground">Review all credit sale invoices against physical slips. Edit if mismatch found.</p>
                 </div>
               </div>
               <div className="flex items-start space-x-3">
@@ -214,8 +384,8 @@ export function Bifurcation() {
                   3
                 </div>
                 <div>
-                  <h3 className="font-semibold">Enter Card Transactions</h3>
-                  <p className="text-sm text-muted-foreground">Enter bank cards and PSO pump cards</p>
+                  <h3 className="font-semibold">Verify Card Transactions</h3>
+                  <p className="text-sm text-muted-foreground">Match PSO card and bank card amounts against terminal reports. Edit if needed.</p>
                 </div>
               </div>
               <div className="flex items-start space-x-3">
@@ -223,8 +393,17 @@ export function Bifurcation() {
                   4
                 </div>
                 <div>
-                  <h3 className="font-semibold">Calculate Cash</h3>
-                  <p className="text-sm text-muted-foreground">Remaining balance is automatically allocated to cash</p>
+                  <h3 className="font-semibold">Physical Cash Count</h3>
+                  <p className="text-sm text-muted-foreground">Count actual cash in drawer. System calculates variance automatically.</p>
+                </div>
+              </div>
+              <div className="flex items-start space-x-3">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                  5
+                </div>
+                <div>
+                  <h3 className="font-semibold">Review & Submit</h3>
+                  <p className="text-sm text-muted-foreground">Final review of all amounts and variance. Explain any significant discrepancies.</p>
                 </div>
               </div>
 
@@ -241,163 +420,372 @@ export function Bifurcation() {
 
       {/* Bifurcation Wizard Dialog */}
       <Dialog open={isWizardOpen} onOpenChange={setIsWizardOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Bifurcation Wizard - Step {currentStep} of 4</DialogTitle>
+            <DialogTitle>Bifurcation Wizard - Step {currentStep} of 5</DialogTitle>
             <DialogDescription>
-              {currentStep === 1 && 'Enter total fuel sales for the day'}
-              {currentStep === 2 && 'Enter credit sales amount'}
-              {currentStep === 3 && 'Enter card transaction amounts'}
-              {currentStep === 4 && 'Review and confirm bifurcation'}
+              {currentStep === 1 && 'Load daily sales summary from POS'}
+              {currentStep === 2 && 'Verify credit sales against physical invoices'}
+              {currentStep === 3 && 'Verify card transactions against terminal reports'}
+              {currentStep === 4 && 'Count physical cash and calculate variance'}
+              {currentStep === 5 && 'Review all amounts and submit'}
             </DialogDescription>
           </DialogHeader>
 
           <div className="py-4">
-            {/* Step 1: Total Sales */}
+            {/* Step 1: Auto-Load Summary */}
             {currentStep === 1 && (
               <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="date">Date</Label>
-                  <Input
-                    id="date"
-                    type="date"
-                    value={formData.date}
-                    onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                  />
-                </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="pmg">Total PMG Liters</Label>
+                    <Label htmlFor="date">Bifurcation Date</Label>
                     <Input
-                      id="pmg"
-                      type="number"
-                      step="0.01"
-                      value={formData.totalPMGLiters}
-                      onChange={(e) =>
-                        setFormData({ ...formData, totalPMGLiters: parseFloat(e.target.value) || 0 })
-                      }
+                      id="date"
+                      type="date"
+                      value={formData.date}
+                      onChange={(e) => handleDateChange(e.target.value)}
+                      max={new Date().toISOString().split('T')[0]}
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="hsd">Total HSD Liters</Label>
-                    <Input
-                      id="hsd"
-                      type="number"
-                      step="0.01"
-                      value={formData.totalHSDLiters}
-                      onChange={(e) =>
-                        setFormData({ ...formData, totalHSDLiters: parseFloat(e.target.value) || 0 })
-                      }
-                    />
+                  <div className="flex items-end">
+                    <Button
+                      onClick={loadDailySummary}
+                      disabled={loadingSummary}
+                      className="w-full"
+                    >
+                      {loadingSummary ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Loading...
+                        </>
+                      ) : (
+                        'Load Summary'
+                      )}
+                    </Button>
                   </div>
                 </div>
+
+                {summaryError && (
+                  <Alert variant="destructive">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertDescription>{summaryError}</AlertDescription>
+                  </Alert>
+                )}
+
+                {formData.expectedTotal > 0 && (
+                  <Card className="bg-muted/50">
+                    <CardHeader>
+                      <CardTitle className="text-lg">Daily Sales Summary (Read-Only)</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-muted-foreground">PMG Total</p>
+                          <p className="text-2xl font-bold">{formData.pmgTotalLiters.toFixed(2)} L</p>
+                          <p className="text-sm text-muted-foreground">{formatCurrency(formData.pmgTotalAmount)}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-muted-foreground">HSD Total</p>
+                          <p className="text-2xl font-bold">{formData.hsdTotalLiters.toFixed(2)} L</p>
+                          <p className="text-sm text-muted-foreground">{formatCurrency(formData.hsdTotalAmount)}</p>
+                        </div>
+                      </div>
+
+                      <div className="border-t pt-4 space-y-2">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Cash Sales:</span>
+                          <span className="font-medium">{formatCurrency(formData.cashAmount)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Credit Sales:</span>
+                          <span className="font-medium">{formatCurrency(formData.creditAmount)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Bank Card:</span>
+                          <span className="font-medium">{formatCurrency(formData.cardAmount)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">PSO Card:</span>
+                          <span className="font-medium">{formatCurrency(formData.psoCardAmount)}</span>
+                        </div>
+                        <div className="flex justify-between text-lg font-bold border-t pt-2">
+                          <span>Expected Total:</span>
+                          <span>{formatCurrency(formData.expectedTotal)}</span>
+                        </div>
+                      </div>
+
+                      <Alert>
+                        <CheckCircle className="h-4 w-4" />
+                        <AlertDescription>
+                          Summary loaded from {(formData.pmgTotalLiters + formData.hsdTotalLiters).toFixed(0)} liters sold across all payment methods
+                        </AlertDescription>
+                      </Alert>
+                    </CardContent>
+                  </Card>
+                )}
               </div>
             )}
 
-            {/* Step 2: Credit Sales */}
+            {/* Step 2: Verify Credit Sales */}
             {currentStep === 2 && (
               <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="credit">Credit Sales Amount</Label>
-                  <Input
-                    id="credit"
-                    type="number"
-                    step="0.01"
-                    value={formData.creditSales}
-                    onChange={(e) =>
-                      setFormData({ ...formData, creditSales: parseFloat(e.target.value) || 0 })
-                    }
-                    placeholder="0.00"
-                  />
-                  <p className="text-sm text-muted-foreground">
-                    Total amount from all credit sale invoices
-                  </p>
-                </div>
-              </div>
-            )}
+                <Alert>
+                  <AlertDescription>
+                    Review all credit sale invoices (petrol pump slips) and verify the total matches system records
+                  </AlertDescription>
+                </Alert>
 
-            {/* Step 3: Card Transactions */}
-            {currentStep === 3 && (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="psoCard">PSO Card Sales</Label>
-                  <Input
-                    id="psoCard"
-                    type="number"
-                    step="0.01"
-                    value={formData.psoCardSales}
-                    onChange={(e) =>
-                      setFormData({ ...formData, psoCardSales: parseFloat(e.target.value) || 0 })
-                    }
-                    placeholder="0.00"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="bankCard">Bank Card Sales</Label>
-                  <Input
-                    id="bankCard"
-                    type="number"
-                    step="0.01"
-                    value={formData.bankCardSales}
-                    onChange={(e) =>
-                      setFormData({ ...formData, bankCardSales: parseFloat(e.target.value) || 0 })
-                    }
-                    placeholder="0.00"
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Step 4: Review & Confirm */}
-            {currentStep === 4 && (
-              <div className="space-y-4">
                 <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg">Summary</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Date:</span>
-                      <span className="font-medium">{formatDate(formData.date)}</span>
+                  <CardContent className="pt-6 space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="creditAmount">Credit Sales Amount</Label>
+                      <Input
+                        id="creditAmount"
+                        type="number"
+                        step="0.01"
+                        value={formData.creditAmount}
+                        onChange={(e) =>
+                          setFormData({ ...formData, creditAmount: parseFloat(e.target.value) || 0 })
+                        }
+                      />
+                      <p className="text-sm text-muted-foreground">
+                        Pre-filled from POS sales. Edit if physical invoices show different total.
+                      </p>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">PMG Liters:</span>
-                      <span className="font-medium">{formData.totalPMGLiters}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">HSD Liters:</span>
-                      <span className="font-medium">{formData.totalHSDLiters}</span>
-                    </div>
-                    <div className="border-t pt-3 mt-3">
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Credit Sales:</span>
-                        <span>{formatCurrency(formData.creditSales)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">PSO Card:</span>
-                        <span>{formatCurrency(formData.psoCardSales)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Bank Card:</span>
-                        <span>{formatCurrency(formData.bankCardSales)}</span>
-                      </div>
-                      <div className="flex justify-between font-medium text-lg border-t pt-2 mt-2">
-                        <span>Total:</span>
-                        <span>{formatCurrency(totalSales)}</span>
-                      </div>
+
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="creditVerified"
+                        checked={formData.creditVerified}
+                        onCheckedChange={(checked) =>
+                          setFormData({ ...formData, creditVerified: checked === true })
+                        }
+                      />
+                      <label
+                        htmlFor="creditVerified"
+                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                      >
+                        I have reviewed all credit sale invoices and verified this amount
+                      </label>
                     </div>
                   </CardContent>
                 </Card>
+              </div>
+            )}
 
-                <div className="space-y-2">
-                  <Label htmlFor="notes">Notes (Optional)</Label>
-                  <Input
-                    id="notes"
-                    value={formData.notes}
-                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                    placeholder="Any additional notes..."
-                  />
-                </div>
+            {/* Step 3: Verify Card Sales */}
+            {currentStep === 3 && (
+              <div className="space-y-4">
+                <Alert>
+                  <AlertDescription>
+                    Match card terminal reports against system totals. Edit if terminal shows different amounts.
+                  </AlertDescription>
+                </Alert>
+
+                <Card>
+                  <CardContent className="pt-6 space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="psoCardAmount">PSO Card Sales</Label>
+                      <Input
+                        id="psoCardAmount"
+                        type="number"
+                        step="0.01"
+                        value={formData.psoCardAmount}
+                        onChange={(e) =>
+                          setFormData({ ...formData, psoCardAmount: parseFloat(e.target.value) || 0 })
+                        }
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="cardAmount">Bank Card Sales</Label>
+                      <Input
+                        id="cardAmount"
+                        type="number"
+                        step="0.01"
+                        value={formData.cardAmount}
+                        onChange={(e) =>
+                          setFormData({ ...formData, cardAmount: parseFloat(e.target.value) || 0 })
+                        }
+                      />
+                    </div>
+
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="cardVerified"
+                        checked={formData.cardVerified}
+                        onCheckedChange={(checked) =>
+                          setFormData({ ...formData, cardVerified: checked === true })
+                        }
+                      />
+                      <label
+                        htmlFor="cardVerified"
+                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                      >
+                        I have verified card amounts against terminal reports
+                      </label>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* Step 4: Physical Cash Count */}
+            {currentStep === 4 && (
+              <div className="space-y-4">
+                <Alert>
+                  <AlertDescription>
+                    Count all physical cash in the drawer and enter the actual amount
+                  </AlertDescription>
+                </Alert>
+
+                <Card>
+                  <CardContent className="pt-6 space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <Label className="text-muted-foreground">Expected Cash</Label>
+                        <p className="text-2xl font-bold">{formatCurrency(formData.cashAmount)}</p>
+                        <p className="text-xs text-muted-foreground">From system records</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="actualTotal">Actual Cash Counted *</Label>
+                        <Input
+                          id="actualTotal"
+                          type="number"
+                          step="0.01"
+                          value={formData.actualTotal || ''}
+                          onChange={(e) =>
+                            setFormData({ ...formData, actualTotal: parseFloat(e.target.value) || 0 })
+                          }
+                          placeholder="Enter counted amount"
+                          className="text-xl font-bold"
+                        />
+                      </div>
+                    </div>
+
+                    {formData.actualTotal > 0 && (
+                      <div className={`p-4 rounded-lg border-2 ${
+                        variance === 0 ? 'bg-green-50 border-green-200' :
+                        variance < 0 ? 'bg-red-50 border-red-200' :
+                        'bg-yellow-50 border-yellow-200'
+                      }`}>
+                        <div className="flex justify-between items-center">
+                          <span className="font-semibold">Variance:</span>
+                          <span className={`text-3xl font-bold ${varianceColor}`}>
+                            {formatCurrency(variance)}
+                          </span>
+                        </div>
+                        {variance !== 0 && (
+                          <p className="text-sm mt-2 text-muted-foreground">
+                            {variance < 0 ? 'Cash SHORT' : 'Cash OVER'}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {Math.abs(variance) > 5000 && (
+                      <div className="space-y-2">
+                        <Label htmlFor="varianceNotes">
+                          Variance Explanation * <span className="text-red-600">(Required for variance &gt; 5000)</span>
+                        </Label>
+                        <Textarea
+                          id="varianceNotes"
+                          value={formData.varianceNotes}
+                          onChange={(e) => setFormData({ ...formData, varianceNotes: e.target.value })}
+                          placeholder="Explain the reason for this variance..."
+                          rows={4}
+                          className={!formData.varianceNotes.trim() ? 'border-red-500' : ''}
+                        />
+                      </div>
+                    )}
+
+                    {Math.abs(variance) <= 5000 && variance !== 0 && (
+                      <div className="space-y-2">
+                        <Label htmlFor="varianceNotes">Variance Notes (Optional)</Label>
+                        <Textarea
+                          id="varianceNotes"
+                          value={formData.varianceNotes}
+                          onChange={(e) => setFormData({ ...formData, varianceNotes: e.target.value })}
+                          placeholder="Optional notes about this variance..."
+                          rows={3}
+                        />
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* Step 5: Review & Submit */}
+            {currentStep === 5 && (
+              <div className="space-y-4">
+                <Alert>
+                  <CheckCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    Final review before submitting bifurcation record
+                  </AlertDescription>
+                </Alert>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Bifurcation Summary for {formatDate(formData.date)}</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4 pb-4 border-b">
+                      <div>
+                        <p className="text-sm text-muted-foreground">PMG Total</p>
+                        <p className="text-lg font-semibold">{formData.pmgTotalLiters.toFixed(2)} L</p>
+                        <p className="text-sm">{formatCurrency(formData.pmgTotalAmount)}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">HSD Total</p>
+                        <p className="text-lg font-semibold">{formData.hsdTotalLiters.toFixed(2)} L</p>
+                        <p className="text-sm">{formatCurrency(formData.hsdTotalAmount)}</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Cash Sales:</span>
+                        <span className="font-medium">{formatCurrency(formData.cashAmount)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Credit Sales:</span>
+                        <span className="font-medium">{formatCurrency(formData.creditAmount)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Bank Card:</span>
+                        <span className="font-medium">{formatCurrency(formData.cardAmount)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">PSO Card:</span>
+                        <span className="font-medium">{formatCurrency(formData.psoCardAmount)}</span>
+                      </div>
+                    </div>
+
+                    <div className="border-t pt-4 space-y-2">
+                      <div className="flex justify-between text-lg font-semibold">
+                        <span>Expected Total:</span>
+                        <span>{formatCurrency(formData.expectedTotal)}</span>
+                      </div>
+                      <div className="flex justify-between text-lg font-semibold">
+                        <span>Actual Cash Counted:</span>
+                        <span>{formatCurrency(formData.actualTotal)}</span>
+                      </div>
+                      <div className={`flex justify-between text-xl font-bold border-t pt-2 ${varianceColor}`}>
+                        <span>Variance:</span>
+                        <span>{formatCurrency(variance)}</span>
+                      </div>
+                    </div>
+
+                    {formData.varianceNotes && (
+                      <div className="bg-muted p-4 rounded-lg">
+                        <p className="text-sm font-medium mb-1">Variance Notes:</p>
+                        <p className="text-sm text-muted-foreground">{formData.varianceNotes}</p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
               </div>
             )}
           </div>
@@ -405,7 +793,7 @@ export function Bifurcation() {
           <DialogFooter className="flex justify-between">
             <div>
               {currentStep > 1 && (
-                <Button variant="outline" onClick={handleBack}>
+                <Button variant="outline" onClick={handleBack} disabled={createBifurcation.isPending}>
                   Back
                 </Button>
               )}
@@ -417,14 +805,24 @@ export function Bifurcation() {
                   setIsWizardOpen(false);
                   resetForm();
                 }}
+                disabled={createBifurcation.isPending}
               >
                 Cancel
               </Button>
-              {currentStep < 4 ? (
-                <Button onClick={handleNext}>Next</Button>
+              {currentStep < 5 ? (
+                <Button onClick={handleNext} disabled={formData.expectedTotal === 0 && currentStep === 1}>
+                  Next
+                </Button>
               ) : (
                 <Button onClick={handleSubmit} disabled={createBifurcation.isPending}>
-                  {createBifurcation.isPending ? 'Saving...' : 'Save Bifurcation'}
+                  {createBifurcation.isPending ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    'Submit Bifurcation'
+                  )}
                 </Button>
               )}
             </div>

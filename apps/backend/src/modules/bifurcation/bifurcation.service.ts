@@ -338,4 +338,108 @@ export class BifurcationService {
 
     return bifurcation;
   }
+
+  /**
+   * Get daily sales summary for bifurcation
+   * Auto-fetches sales data from fuel_sales table
+   */
+  async getDailySalesSummary(branchId: string, date: string, organizationId: string) {
+    // Verify branch belongs to organization
+    const branch = await prisma.branch.findFirst({
+      where: { id: branchId, organizationId },
+    });
+
+    if (!branch) {
+      throw new AppError(404, 'Branch not found');
+    }
+
+    // Parse date and create start/end range for the day
+    const targetDate = new Date(date);
+    const startOfDay = new Date(targetDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(targetDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    // Get all fuel sales for the date with payment method from Sale
+    const fuelSales = await prisma.fuelSale.findMany({
+      where: {
+        sale: {
+          branchId,
+          saleDate: {
+            gte: startOfDay,
+            lte: endOfDay,
+          },
+        },
+      },
+      include: {
+        sale: {
+          select: {
+            paymentMethod: true,
+            totalAmount: true,
+          },
+        },
+        fuelType: {
+          select: {
+            code: true,
+          },
+        },
+      },
+    });
+
+    // Initialize summary
+    let pmgTotalLiters = 0;
+    let pmgTotalAmount = 0;
+    let hsdTotalLiters = 0;
+    let hsdTotalAmount = 0;
+    let cashAmount = 0;
+    let creditAmount = 0;
+    let cardAmount = 0; // Bank cards
+    let psoCardAmount = 0;
+
+    // Process each fuel sale
+    for (const fuelSale of fuelSales) {
+      const liters = parseFloat(fuelSale.quantityLiters.toString());
+      const amount = parseFloat(fuelSale.totalAmount.toString());
+      const fuelCode = fuelSale.fuelType.code;
+      const paymentMethod = fuelSale.sale.paymentMethod;
+
+      // Sum by fuel type
+      if (fuelCode === 'PMG') {
+        pmgTotalLiters += liters;
+        pmgTotalAmount += amount;
+      } else if (fuelCode === 'HSD') {
+        hsdTotalLiters += liters;
+        hsdTotalAmount += amount;
+      }
+
+      // Sum by payment method
+      if (paymentMethod === 'cash') {
+        cashAmount += amount;
+      } else if (paymentMethod === 'credit') {
+        creditAmount += amount;
+      } else if (paymentMethod === 'card') {
+        cardAmount += amount;
+      } else if (paymentMethod === 'pso_card') {
+        psoCardAmount += amount;
+      }
+    }
+
+    // Calculate expected total
+    const expectedTotal = cashAmount + creditAmount + cardAmount + psoCardAmount;
+
+    return {
+      date,
+      branchId,
+      pmgTotalLiters: Number(pmgTotalLiters.toFixed(2)),
+      pmgTotalAmount: Number(pmgTotalAmount.toFixed(2)),
+      hsdTotalLiters: Number(hsdTotalLiters.toFixed(2)),
+      hsdTotalAmount: Number(hsdTotalAmount.toFixed(2)),
+      cashAmount: Number(cashAmount.toFixed(2)),
+      creditAmount: Number(creditAmount.toFixed(2)),
+      cardAmount: Number(cardAmount.toFixed(2)),
+      psoCardAmount: Number(psoCardAmount.toFixed(2)),
+      expectedTotal: Number(expectedTotal.toFixed(2)),
+      totalSalesCount: fuelSales.length,
+    };
+  }
 }
