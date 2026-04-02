@@ -129,18 +129,21 @@ export function Customers() {
   };
 
   const handleSubmit = () => {
-    if (!formData.name || !formData.code) {
+    if (!formData.name) {
       toast({
         title: 'Validation Error',
-        description: 'Name and code are required',
+        description: 'Name is required',
         variant: 'destructive',
       });
       return;
     }
 
     if (selectedCustomerId) {
-      updateMutation.mutate({ id: selectedCustomerId, data: formData });
+      // When editing, don't send code (it's readonly)
+      const { code, ...updateData } = formData;
+      updateMutation.mutate({ id: selectedCustomerId, data: updateData });
     } else {
+      // When creating, code is optional (auto-generated if not provided)
       createMutation.mutate(formData);
     }
   };
@@ -273,12 +276,14 @@ export function Customers() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="code">Code *</Label>
+              <Label htmlFor="code">Code {selectedCustomerId ? '(readonly)' : '(optional - auto-generated)'}</Label>
               <Input
                 id="code"
                 value={formData.code}
                 onChange={(e) => setFormData({ ...formData, code: e.target.value })}
-                placeholder="Customer code"
+                placeholder={selectedCustomerId ? "Auto-generated" : "Leave blank to auto-generate"}
+                readOnly={!!selectedCustomerId}
+                disabled={!!selectedCustomerId}
               />
             </div>
 
