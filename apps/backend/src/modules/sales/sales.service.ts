@@ -472,7 +472,6 @@ export class SalesService {
           select: {
             id: true,
             name: true,
-            code: true,
           },
         },
         fuelSales: {
@@ -500,7 +499,7 @@ export class SalesService {
       take: 50, // Limit to last 50 sales of the day
     });
 
-    return sales.map(sale => ({
+    return sales.map((sale: any) => ({
       id: sale.id,
       saleType: sale.saleType,
       totalAmount: sale.totalAmount.toNumber(),
@@ -510,12 +509,12 @@ export class SalesService {
       customer: sale.customer,
       createdAt: sale.createdAt,
       items: sale.saleType === 'fuel'
-        ? sale.fuelSales.map(fs => ({
+        ? sale.fuelSales.map((fs: any) => ({
             fuelType: fs.fuelType.name,
             quantity: fs.quantityLiters.toNumber(),
             amount: fs.totalAmount.toNumber(),
           }))
-        : sale.nonFuelSales.map(nfs => ({
+        : sale.nonFuelSales.map((nfs: any) => ({
             product: nfs.product.name,
             quantity: nfs.quantity,
             amount: nfs.totalAmount.toNumber(),

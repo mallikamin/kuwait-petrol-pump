@@ -15,6 +15,8 @@ import meterReadingsRoutes from './modules/meter-readings/meter-readings.routes'
 import salesRoutes from './modules/sales/sales.routes';
 import customersRoutes from './modules/customers/customers.routes';
 import productsRoutes from './modules/products/products.routes';
+import suppliersRoutes from './modules/suppliers/suppliers.routes';
+import purchaseOrdersRoutes from './modules/purchase-orders/purchase-orders.routes';
 import bifurcationRoutes from './modules/bifurcation/bifurcation.routes';
 import reportsRoutes from './modules/reports/reports.routes';
 import dashboardRoutes from './modules/dashboard/dashboard.routes';
@@ -87,6 +89,8 @@ export function createApp() {
   app.use('/api/sales', salesRoutes);
   app.use('/api/customers', customersRoutes);
   app.use('/api/products', productsRoutes);
+  app.use('/api/suppliers', suppliersRoutes);
+  app.use('/api/purchase-orders', purchaseOrdersRoutes);
   app.use('/api/bifurcation', bifurcationRoutes);
   app.use('/api/reports', reportsRoutes);
   app.use('/api/dashboard', dashboardRoutes);
@@ -114,6 +118,8 @@ export function createApp() {
         sales: '/api/sales/*',
         customers: '/api/customers/*',
         products: '/api/products/*',
+        suppliers: '/api/suppliers/*',
+        purchaseOrders: '/api/purchase-orders/*',
         bifurcation: '/api/bifurcation/*',
         reports: '/api/reports/*',
         dashboard: '/api/dashboard/*',

@@ -17,6 +17,8 @@ import { Reports } from '@/pages/Reports';
 import { Users } from '@/pages/Users';
 import { POS } from '@/pages/POS';
 import QuickBooks from '@/pages/QuickBooks';
+import { Suppliers } from '@/pages/Suppliers';
+import { PurchaseOrders } from '@/pages/PurchaseOrders';
 import { NotFound } from '@/pages/NotFound';
 import { useAuthStore } from '@/store/auth';
 import { useThemeStore } from '@/store/theme';
@@ -70,6 +72,8 @@ function App() {
             <Route path="sales" element={<Sales />} />
             <Route path="customers" element={<Customers />} />
             <Route path="products" element={<Products />} />
+            <Route path="suppliers" element={<Suppliers />} />
+            <Route path="purchase-orders" element={<PurchaseOrders />} />
             <Route path="bifurcation" element={<Bifurcation />} />
             <Route path="reports" element={<Reports />} />
             <Route path="quickbooks" element={<QuickBooks />} />

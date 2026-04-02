@@ -587,7 +587,6 @@ export class DashboardController {
       // Get PMG and HSD fuel type IDs
       const fuelTypes = await prisma.fuelType.findMany({
         where: {
-          organizationId,
           name: { in: ['PMG', 'HSD'] },
         },
       });

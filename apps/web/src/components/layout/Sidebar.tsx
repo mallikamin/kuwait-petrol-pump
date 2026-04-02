@@ -14,6 +14,8 @@ import {
   ChevronLeft,
   CreditCard,
   Link2,
+  Truck,
+  ShoppingCart as ShoppingBag,
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { useAuthStore } from '@/store/auth';
@@ -37,6 +39,8 @@ const navItems: NavItem[] = [
   { title: 'Sales', href: '/sales', icon: <ShoppingCart className="h-5 w-5" /> },
   { title: 'Customers', href: '/customers', icon: <Users className="h-5 w-5" /> },
   { title: 'Products', href: '/products', icon: <Package className="h-5 w-5" /> },
+  { title: 'Suppliers', href: '/suppliers', icon: <Truck className="h-5 w-5" />, roles: ['admin', 'manager'] },
+  { title: 'Purchase Orders', href: '/purchase-orders', icon: <ShoppingBag className="h-5 w-5" />, roles: ['admin', 'manager'] },
   { title: 'Bifurcation', href: '/bifurcation', icon: <Calculator className="h-5 w-5" /> },
   { title: 'Reports', href: '/reports', icon: <FileText className="h-5 w-5" /> },
   { title: 'QuickBooks', href: '/quickbooks', icon: <Link2 className="h-5 w-5" />, roles: ['admin', 'manager'] },
