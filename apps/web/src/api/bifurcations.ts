@@ -72,16 +72,37 @@ export const bifurcationsApi = {
   }): Promise<{
     date: string;
     branchId: string;
-    pmgTotalLiters: number;
-    pmgTotalAmount: number;
-    hsdTotalLiters: number;
-    hsdTotalAmount: number;
-    cashAmount: number;
-    creditAmount: number;
-    cardAmount: number;
-    psoCardAmount: number;
+    pos: {
+      pmgTotalLiters: number;
+      pmgTotalAmount: number;
+      hsdTotalLiters: number;
+      hsdTotalAmount: number;
+      cashAmount: number;
+      creditAmount: number;
+      cardAmount: number;
+      psoCardAmount: number;
+      totalAmount: number;
+      salesCount: number;
+    };
+    meterReadings: {
+      pmgTotalLiters: number;
+      pmgTotalAmount: number;
+      pmgPricePerLiter: number;
+      hsdTotalLiters: number;
+      hsdTotalAmount: number;
+      hsdPricePerLiter: number;
+      totalAmount: number;
+      nozzleDetails: any[];
+    } | null;
+    lag: {
+      pmgLiters: number;
+      hsdLiters: number;
+      pmgAmount: number;
+      hsdAmount: number;
+      totalAmount: number;
+    };
     expectedTotal: number;
-    totalSalesCount: number;
+    expectedCash: number;
   }> => {
     const response = await apiClient.get('/api/bifurcation/summary', { params });
     return response.data.summary;

@@ -48,6 +48,11 @@ export function Bifurcation() {
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
 
+  // Store meter readings and POS data separately
+  const [meterData, setMeterData] = useState<any>(null);
+  const [posData, setPosData] = useState<any>(null);
+  const [lagData, setLagData] = useState<any>(null);
+
   const [formData, setFormData] = useState<BifurcationFormData>({
     branchId: '',
     date: new Date().toISOString().split('T')[0],
@@ -109,24 +114,32 @@ export function Bifurcation() {
         branchId: user.branch_id,
       });
 
-      // Auto-populate form with summary data
+      // Store meter readings and POS data separately
+      setMeterData(summary.meterReadings);
+      setPosData(summary.pos);
+      setLagData(summary.lag);
+
+      // Auto-populate form with data from METER READINGS (source of truth)
+      const useMeter = summary.meterReadings !== null;
       setFormData(prev => ({
         ...prev,
         branchId: user.branch_id || '',
-        pmgTotalLiters: summary.pmgTotalLiters,
-        pmgTotalAmount: summary.pmgTotalAmount,
-        hsdTotalLiters: summary.hsdTotalLiters,
-        hsdTotalAmount: summary.hsdTotalAmount,
-        cashAmount: summary.cashAmount,
-        creditAmount: summary.creditAmount,
-        cardAmount: summary.cardAmount,
-        psoCardAmount: summary.psoCardAmount,
+        pmgTotalLiters: useMeter && summary.meterReadings ? summary.meterReadings.pmgTotalLiters : summary.pos.pmgTotalLiters,
+        pmgTotalAmount: useMeter && summary.meterReadings ? summary.meterReadings.pmgTotalAmount : summary.pos.pmgTotalAmount,
+        hsdTotalLiters: useMeter && summary.meterReadings ? summary.meterReadings.hsdTotalLiters : summary.pos.hsdTotalLiters,
+        hsdTotalAmount: useMeter && summary.meterReadings ? summary.meterReadings.hsdTotalAmount : summary.pos.hsdTotalAmount,
+        cashAmount: summary.pos.cashAmount,
+        creditAmount: summary.pos.creditAmount,
+        cardAmount: summary.pos.cardAmount,
+        psoCardAmount: summary.pos.psoCardAmount,
         expectedTotal: summary.expectedTotal,
       }));
 
       toast({
         title: 'Summary Loaded',
-        description: `Loaded ${summary.totalSalesCount} sales for ${formatDate(summary.date)}`,
+        description: useMeter && summary.meterReadings
+          ? `Loaded meter readings: ${summary.meterReadings.pmgTotalLiters.toFixed(0)}L PMG + ${summary.meterReadings.hsdTotalLiters.toFixed(0)}L HSD`
+          : `Loaded ${summary.pos.salesCount} POS sales for ${formatDate(summary.date)}`,
       });
     } catch (error: any) {
       const errorMsg = error.response?.data?.message || 'Failed to load sales summary';
@@ -473,55 +486,159 @@ export function Bifurcation() {
                 )}
 
                 {formData.expectedTotal > 0 && (
-                  <Card className="bg-muted/50">
-                    <CardHeader>
-                      <CardTitle className="text-lg">Daily Sales Summary (Read-Only)</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-1">
-                          <p className="text-sm font-medium text-muted-foreground">PMG Total</p>
-                          <p className="text-2xl font-bold">{formData.pmgTotalLiters.toFixed(2)} L</p>
-                          <p className="text-sm text-muted-foreground">{formatCurrency(formData.pmgTotalAmount)}</p>
+                  <div className="space-y-4">
+                    {/* Reconciliation Table: Meter Readings vs POS Posted */}
+                    <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-200">
+                      <CardHeader>
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <Calculator className="h-5 w-5 text-blue-600" />
+                          Reconciliation: Meter Readings vs POS Posted
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="overflow-x-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="w-[120px]">Fuel Type</TableHead>
+                                <TableHead className="text-right">Meter Readings<br/><span className="text-xs text-muted-foreground">(Source of Truth)</span></TableHead>
+                                <TableHead className="text-right">POS Posted<br/><span className="text-xs text-muted-foreground">(System Records)</span></TableHead>
+                                <TableHead className="text-right">Lag<br/><span className="text-xs text-muted-foreground">(Missing Entries)</span></TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {meterData ? (
+                                <>
+                                  <TableRow>
+                                    <TableCell className="font-medium">PMG (Liters)</TableCell>
+                                    <TableCell className="text-right font-bold text-green-700">
+                                      {meterData.pmgTotalLiters.toFixed(2)} L
+                                    </TableCell>
+                                    <TableCell className="text-right">
+                                      {posData.pmgTotalLiters.toFixed(2)} L
+                                    </TableCell>
+                                    <TableCell className={`text-right font-semibold ${lagData.pmgLiters > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                      {lagData.pmgLiters > 0 && '+'}
+                                      {lagData.pmgLiters.toFixed(2)} L
+                                    </TableCell>
+                                  </TableRow>
+                                  <TableRow>
+                                    <TableCell className="font-medium">PMG (Amount)</TableCell>
+                                    <TableCell className="text-right font-bold text-green-700">
+                                      {formatCurrency(meterData.pmgTotalAmount)}
+                                    </TableCell>
+                                    <TableCell className="text-right">
+                                      {formatCurrency(posData.pmgTotalAmount)}
+                                    </TableCell>
+                                    <TableCell className={`text-right font-semibold ${lagData.pmgAmount > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                      {lagData.pmgAmount > 0 && '+'}
+                                      {formatCurrency(lagData.pmgAmount)}
+                                    </TableCell>
+                                  </TableRow>
+                                  <TableRow>
+                                    <TableCell className="font-medium">HSD (Liters)</TableCell>
+                                    <TableCell className="text-right font-bold text-green-700">
+                                      {meterData.hsdTotalLiters.toFixed(2)} L
+                                    </TableCell>
+                                    <TableCell className="text-right">
+                                      {posData.hsdTotalLiters.toFixed(2)} L
+                                    </TableCell>
+                                    <TableCell className={`text-right font-semibold ${lagData.hsdLiters > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                      {lagData.hsdLiters > 0 && '+'}
+                                      {lagData.hsdLiters.toFixed(2)} L
+                                    </TableCell>
+                                  </TableRow>
+                                  <TableRow>
+                                    <TableCell className="font-medium">HSD (Amount)</TableCell>
+                                    <TableCell className="text-right font-bold text-green-700">
+                                      {formatCurrency(meterData.hsdTotalAmount)}
+                                    </TableCell>
+                                    <TableCell className="text-right">
+                                      {formatCurrency(posData.hsdTotalAmount)}
+                                    </TableCell>
+                                    <TableCell className={`text-right font-semibold ${lagData.hsdAmount > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                      {lagData.hsdAmount > 0 && '+'}
+                                      {formatCurrency(lagData.hsdAmount)}
+                                    </TableCell>
+                                  </TableRow>
+                                  <TableRow className="bg-blue-100 font-bold">
+                                    <TableCell>TOTAL</TableCell>
+                                    <TableCell className="text-right text-green-700">
+                                      {formatCurrency(meterData.totalAmount)}
+                                    </TableCell>
+                                    <TableCell className="text-right">
+                                      {formatCurrency(posData.totalAmount)}
+                                    </TableCell>
+                                    <TableCell className={`text-right ${lagData.totalAmount > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                      {lagData.totalAmount > 0 && '+'}
+                                      {formatCurrency(lagData.totalAmount)}
+                                    </TableCell>
+                                  </TableRow>
+                                </>
+                              ) : (
+                                <TableRow>
+                                  <TableCell colSpan={4} className="text-center text-muted-foreground">
+                                    No meter readings available for this date. Using POS sales as source.
+                                  </TableCell>
+                                </TableRow>
+                              )}
+                            </TableBody>
+                          </Table>
                         </div>
-                        <div className="space-y-1">
-                          <p className="text-sm font-medium text-muted-foreground">HSD Total</p>
-                          <p className="text-2xl font-bold">{formData.hsdTotalLiters.toFixed(2)} L</p>
-                          <p className="text-sm text-muted-foreground">{formatCurrency(formData.hsdTotalAmount)}</p>
-                        </div>
-                      </div>
 
-                      <div className="border-t pt-4 space-y-2">
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Cash Sales:</span>
-                          <span className="font-medium">{formatCurrency(formData.cashAmount)}</span>
-                        </div>
+                        {lagData && lagData.totalAmount > 0 && (
+                          <Alert variant="destructive" className="mt-4">
+                            <AlertTriangle className="h-4 w-4" />
+                            <AlertDescription>
+                              <strong>POS Entry Lag Detected:</strong> {formatCurrency(lagData.totalAmount)} worth of sales ({lagData.pmgLiters.toFixed(2)}L PMG + {lagData.hsdLiters.toFixed(2)}L HSD) not posted in POS.
+                              Reconciliation will use meter readings as source of truth.
+                            </AlertDescription>
+                          </Alert>
+                        )}
+
+                        {lagData && lagData.totalAmount === 0 && (
+                          <Alert className="mt-4">
+                            <CheckCircle className="h-4 w-4 text-green-600" />
+                            <AlertDescription className="text-green-700">
+                              <strong>Perfect Match!</strong> Meter readings match POS posted sales exactly. No lag detected.
+                            </AlertDescription>
+                          </Alert>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    {/* Payment Methods Breakdown */}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg">Payment Methods (From POS)</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
                         <div className="flex justify-between text-sm">
                           <span className="text-muted-foreground">Credit Sales:</span>
                           <span className="font-medium">{formatCurrency(formData.creditAmount)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">PSO Card:</span>
+                          <span className="font-medium">{formatCurrency(formData.psoCardAmount)}</span>
                         </div>
                         <div className="flex justify-between text-sm">
                           <span className="text-muted-foreground">Bank Card:</span>
                           <span className="font-medium">{formatCurrency(formData.cardAmount)}</span>
                         </div>
                         <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">PSO Card:</span>
-                          <span className="font-medium">{formatCurrency(formData.psoCardAmount)}</span>
+                          <span className="text-muted-foreground">Cash (POS Posted):</span>
+                          <span className="font-medium">{formatCurrency(formData.cashAmount)}</span>
                         </div>
-                        <div className="flex justify-between text-lg font-bold border-t pt-2">
-                          <span>Expected Total:</span>
-                          <span>{formatCurrency(formData.expectedTotal)}</span>
+                        <div className="flex justify-between text-lg font-bold border-t pt-2 mt-2 bg-blue-50 p-2 rounded">
+                          <span>Expected Cash (From Meters):</span>
+                          <span className="text-blue-700">{formatCurrency(formData.expectedTotal - formData.creditAmount - formData.cardAmount - formData.psoCardAmount)}</span>
                         </div>
-                      </div>
-
-                      <Alert>
-                        <CheckCircle className="h-4 w-4" />
-                        <AlertDescription>
-                          Summary loaded from {(formData.pmgTotalLiters + formData.hsdTotalLiters).toFixed(0)} liters sold across all payment methods
-                        </AlertDescription>
-                      </Alert>
-                    </CardContent>
-                  </Card>
+                        <p className="text-xs text-muted-foreground pt-2">
+                          Formula: Meter Total - Credit - Cards = Expected Cash for Walk-in Customers
+                        </p>
+                      </CardContent>
+                    </Card>
+                  </div>
                 )}
               </div>
             )}

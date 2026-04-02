@@ -340,6 +340,148 @@ export class BifurcationService {
   }
 
   /**
+   * Get meter readings differential for a date
+   * Returns: Opening vs Closing readings grouped by fuel type
+   */
+  async getMeterReadingsDifferential(branchId: string, date: string, organizationId: string) {
+    // Verify branch belongs to organization
+    const branch = await prisma.branch.findFirst({
+      where: { id: branchId, organizationId },
+    });
+
+    if (!branch) {
+      throw new AppError(404, 'Branch not found');
+    }
+
+    // Parse date and create start/end range for the day
+    const targetDate = new Date(date);
+    const startOfDay = new Date(targetDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(targetDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    // Get all meter readings for the date
+    const meterReadings = await prisma.meterReading.findMany({
+      where: {
+        recordedAt: {
+          gte: startOfDay,
+          lte: endOfDay,
+        },
+        nozzle: {
+          dispensingUnit: {
+            branchId,
+          },
+        },
+      },
+      include: {
+        nozzle: {
+          include: {
+            fuelType: {
+              select: {
+                code: true,
+                name: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        recordedAt: 'asc',
+      },
+    });
+
+    // Group by nozzle and calculate differential
+    const nozzleDifferentials = new Map<string, {
+      nozzleId: string;
+      nozzleName: string;
+      fuelType: string;
+      opening: number;
+      closing: number;
+      differential: number;
+    }>();
+
+    for (const reading of meterReadings) {
+      const nozzleId = reading.nozzleId;
+      const meterValue = parseFloat(reading.meterValue.toString());
+
+      if (!nozzleDifferentials.has(nozzleId)) {
+        nozzleDifferentials.set(nozzleId, {
+          nozzleId,
+          nozzleName: reading.nozzle.name,
+          fuelType: reading.nozzle.fuelType.code,
+          opening: reading.readingType === 'opening' ? meterValue : 0,
+          closing: reading.readingType === 'closing' ? meterValue : 0,
+          differential: 0,
+        });
+      } else {
+        const existing = nozzleDifferentials.get(nozzleId)!;
+        if (reading.readingType === 'opening') {
+          existing.opening = meterValue;
+        } else if (reading.readingType === 'closing') {
+          existing.closing = meterValue;
+        }
+      }
+    }
+
+    // Calculate differentials
+    nozzleDifferentials.forEach((nozzle) => {
+      nozzle.differential = nozzle.closing - nozzle.opening;
+    });
+
+    // Aggregate by fuel type
+    let pmgTotalLiters = 0;
+    let hsdTotalLiters = 0;
+
+    nozzleDifferentials.forEach((nozzle) => {
+      if (nozzle.fuelType === 'PMG') {
+        pmgTotalLiters += nozzle.differential;
+      } else if (nozzle.fuelType === 'HSD') {
+        hsdTotalLiters += nozzle.differential;
+      }
+    });
+
+    // Get fuel prices for the date
+    const fuelPrices = await prisma.fuelPrice.findMany({
+      where: {
+        fuelType: {
+          code: { in: ['PMG', 'HSD'] },
+        },
+        effectiveFrom: {
+          lte: endOfDay,
+        },
+        OR: [
+          { effectiveTo: null },
+          { effectiveTo: { gte: startOfDay } },
+        ],
+      },
+      include: {
+        fuelType: true,
+      },
+      orderBy: {
+        effectiveFrom: 'desc',
+      },
+    });
+
+    const pmgPrice = fuelPrices.find(p => p.fuelType.code === 'PMG');
+    const hsdPrice = fuelPrices.find(p => p.fuelType.code === 'HSD');
+
+    const pmgTotalAmount = pmgTotalLiters * (pmgPrice ? parseFloat(pmgPrice.pricePerLiter.toString()) : 0);
+    const hsdTotalAmount = hsdTotalLiters * (hsdPrice ? parseFloat(hsdPrice.pricePerLiter.toString()) : 0);
+
+    return {
+      date,
+      branchId,
+      pmgTotalLiters: Number(pmgTotalLiters.toFixed(2)),
+      pmgTotalAmount: Number(pmgTotalAmount.toFixed(2)),
+      pmgPricePerLiter: pmgPrice ? parseFloat(pmgPrice.pricePerLiter.toString()) : 0,
+      hsdTotalLiters: Number(hsdTotalLiters.toFixed(2)),
+      hsdTotalAmount: Number(hsdTotalAmount.toFixed(2)),
+      hsdPricePerLiter: hsdPrice ? parseFloat(hsdPrice.pricePerLiter.toString()) : 0,
+      nozzleDetails: Array.from(nozzleDifferentials.values()),
+    };
+  }
+
+  /**
    * Get daily sales summary for bifurcation
    * Auto-fetches sales data from fuel_sales table
    */
@@ -424,22 +566,75 @@ export class BifurcationService {
       }
     }
 
-    // Calculate expected total
-    const expectedTotal = cashAmount + creditAmount + cardAmount + psoCardAmount;
+    // Calculate expected total from POS
+    const posExpectedTotal = cashAmount + creditAmount + cardAmount + psoCardAmount;
+
+    // Get meter readings differential (source of truth)
+    let meterReadings = null;
+    try {
+      meterReadings = await this.getMeterReadingsDifferential(branchId, date, organizationId);
+    } catch (error) {
+      // Meter readings might not exist for the date - not fatal
+      console.warn('No meter readings found for date:', date);
+    }
+
+    // Calculate lag (meter readings vs POS posted)
+    let pmgLagLiters = 0;
+    let hsdLagLiters = 0;
+    let pmgLagAmount = 0;
+    let hsdLagAmount = 0;
+    let expectedTotalFromMeters = posExpectedTotal; // Default to POS if no meter readings
+
+    if (meterReadings) {
+      pmgLagLiters = meterReadings.pmgTotalLiters - pmgTotalLiters;
+      hsdLagLiters = meterReadings.hsdTotalLiters - hsdTotalLiters;
+      pmgLagAmount = meterReadings.pmgTotalAmount - pmgTotalAmount;
+      hsdLagAmount = meterReadings.hsdTotalAmount - hsdTotalAmount;
+
+      // Use meter readings for expected total (source of truth)
+      // Meter total - credit - cards = expected cash
+      const meterTotal = meterReadings.pmgTotalAmount + meterReadings.hsdTotalAmount;
+      expectedTotalFromMeters = meterTotal;
+    }
 
     return {
       date,
       branchId,
-      pmgTotalLiters: Number(pmgTotalLiters.toFixed(2)),
-      pmgTotalAmount: Number(pmgTotalAmount.toFixed(2)),
-      hsdTotalLiters: Number(hsdTotalLiters.toFixed(2)),
-      hsdTotalAmount: Number(hsdTotalAmount.toFixed(2)),
-      cashAmount: Number(cashAmount.toFixed(2)),
-      creditAmount: Number(creditAmount.toFixed(2)),
-      cardAmount: Number(cardAmount.toFixed(2)),
-      psoCardAmount: Number(psoCardAmount.toFixed(2)),
-      expectedTotal: Number(expectedTotal.toFixed(2)),
-      totalSalesCount: fuelSales.length,
+      // POS posted sales
+      pos: {
+        pmgTotalLiters: Number(pmgTotalLiters.toFixed(2)),
+        pmgTotalAmount: Number(pmgTotalAmount.toFixed(2)),
+        hsdTotalLiters: Number(hsdTotalLiters.toFixed(2)),
+        hsdTotalAmount: Number(hsdTotalAmount.toFixed(2)),
+        cashAmount: Number(cashAmount.toFixed(2)),
+        creditAmount: Number(creditAmount.toFixed(2)),
+        cardAmount: Number(cardAmount.toFixed(2)),
+        psoCardAmount: Number(psoCardAmount.toFixed(2)),
+        totalAmount: Number(posExpectedTotal.toFixed(2)),
+        salesCount: fuelSales.length,
+      },
+      // Meter readings (source of truth)
+      meterReadings: meterReadings ? {
+        pmgTotalLiters: meterReadings.pmgTotalLiters,
+        pmgTotalAmount: meterReadings.pmgTotalAmount,
+        pmgPricePerLiter: meterReadings.pmgPricePerLiter,
+        hsdTotalLiters: meterReadings.hsdTotalLiters,
+        hsdTotalAmount: meterReadings.hsdTotalAmount,
+        hsdPricePerLiter: meterReadings.hsdPricePerLiter,
+        totalAmount: Number((meterReadings.pmgTotalAmount + meterReadings.hsdTotalAmount).toFixed(2)),
+        nozzleDetails: meterReadings.nozzleDetails,
+      } : null,
+      // Lag calculation (meter - POS)
+      lag: {
+        pmgLiters: Number(pmgLagLiters.toFixed(2)),
+        hsdLiters: Number(hsdLagLiters.toFixed(2)),
+        pmgAmount: Number(pmgLagAmount.toFixed(2)),
+        hsdAmount: Number(hsdLagAmount.toFixed(2)),
+        totalAmount: Number((pmgLagAmount + hsdLagAmount).toFixed(2)),
+      },
+      // Expected totals for bifurcation
+      expectedTotal: Number(expectedTotalFromMeters.toFixed(2)),
+      expectedCash: Number((expectedTotalFromMeters - creditAmount - cardAmount - psoCardAmount).toFixed(2)),
     };
   }
 }
