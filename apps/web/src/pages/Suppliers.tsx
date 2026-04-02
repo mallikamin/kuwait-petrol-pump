@@ -148,7 +148,10 @@ export function Suppliers() {
     setIsEditDialogOpen(true);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = (id: string, name: string) => {
+    if (!confirm(`Delete supplier "${name}"? This action cannot be undone.`)) {
+      return;
+    }
     deleteMutation.mutate(id);
   };
 
@@ -249,7 +252,7 @@ export function Suppliers() {
                             variant="ghost"
                             size="sm"
                             className="text-destructive hover:text-destructive"
-                            onClick={() => handleDelete(supplier.id)}
+                            onClick={() => handleDelete(supplier.id, supplier.name)}
                           >
                             <Trash2 className="mr-1 h-3 w-3" />
                             Delete

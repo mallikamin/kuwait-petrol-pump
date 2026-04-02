@@ -199,52 +199,56 @@ export class PurchaseOrdersService {
       throw new AppError(400, 'Only draft purchase orders can be updated');
     }
 
-    // If updating items, recalculate total
-    let totalAmount = existing.totalAmount;
-    if (data.items) {
-      totalAmount = new Decimal(
-        data.items.reduce(
-          (sum, item) => sum + item.quantityOrdered * item.costPerUnit,
-          0
-        )
-      );
+    // Use transaction to prevent data loss if update fails
+    const updated = await prisma.$transaction(async (tx) => {
+      // If updating items, recalculate total
+      let totalAmount = existing.totalAmount;
+      if (data.items) {
+        totalAmount = new Decimal(
+          data.items.reduce(
+            (sum, item) => sum + item.quantityOrdered * item.costPerUnit,
+            0
+          )
+        );
 
-      // Delete old items and create new ones
-      await prisma.purchaseOrderItem.deleteMany({
-        where: { purchaseOrderId: poId },
-      });
-    }
+        // Delete old items (inside transaction)
+        await tx.purchaseOrderItem.deleteMany({
+          where: { purchaseOrderId: poId },
+        });
+      }
 
-    const updated = await prisma.purchaseOrder.update({
-      where: { id: poId },
-      data: {
-        supplierId: data.supplierId,
-        orderDate: data.orderDate,
-        totalAmount,
-        notes: data.notes,
-        ...(data.items && {
+      // Update PO
+      return await tx.purchaseOrder.update({
+        where: { id: poId },
+        data: {
+          supplierId: data.supplierId,
+          orderDate: data.orderDate,
+          totalAmount,
+          notes: data.notes,
+          ...(data.items && {
+            items: {
+              create: data.items.map(item => ({
+                itemType: item.itemType,
+                fuelTypeId: item.fuelTypeId,
+                productId: item.productId,
+                quantityOrdered: new Decimal(item.quantityOrdered),
+                costPerUnit: new Decimal(item.costPerUnit),
+                totalCost: new Decimal(item.quantityOrdered * item.costPerUnit),
+              })),
+            },
+          }),
+        },
+        include: {
+          supplier: true,
+          branch: true,
           items: {
-            create: data.items.map(item => ({
-              itemType: item.itemType,
-              fuelTypeId: item.fuelTypeId,
-              productId: item.productId,
-              quantityOrdered: new Decimal(item.quantityOrdered),
-              costPerUnit: new Decimal(item.costPerUnit),
-              totalCost: new Decimal(item.quantityOrdered * item.costPerUnit),
-            })),
-          },
-        }),
-      },
-      include: {
-        supplier: true,
-        branch: true,
-        items: {
-          include: {
-            fuelType: true,
-            product: true,
+            include: {
+              fuelType: true,
+              product: true,
+            },
           },
         },
-      },
+      });
     });
 
     return updated;

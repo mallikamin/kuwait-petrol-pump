@@ -240,9 +240,10 @@ export function PurchaseOrders() {
 
   function handleOpenPayment(po: PurchaseOrder) {
     setSelectedPO(po);
+    const outstanding = (po.totalAmount ?? 0) - (po.paidAmount ?? 0);
     setPaymentForm({
       paymentDate: new Date().toISOString().split('T')[0],
-      amount: Math.max((po.totalAmount ?? 0) - (po.paidAmount ?? 0), 0),
+      amount: outstanding > 0 ? outstanding : 0,
       paymentMethod: 'cash',
       referenceNumber: '',
       notes: '',
