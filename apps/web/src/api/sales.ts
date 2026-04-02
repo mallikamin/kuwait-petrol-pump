@@ -12,9 +12,21 @@ export interface SalesFilters {
   status?: string;
 }
 
+// Strip empty/null/undefined values so backend never sees empty query params
+function cleanParams(params?: SalesFilters): Record<string, unknown> | undefined {
+  if (!params) return undefined;
+  const cleaned: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== '' && value != null) {
+      cleaned[key] = typeof value === 'string' ? value.trim() : value;
+    }
+  }
+  return Object.keys(cleaned).length > 0 ? cleaned : undefined;
+}
+
 export const salesApi = {
   getAll: async (params?: SalesFilters): Promise<PaginatedResponse<Sale>> => {
-    const response = await apiClient.get<any>('/api/sales', { params });
+    const response = await apiClient.get<any>('/api/sales', { params: cleanParams(params) });
     const data = response.data;
     // Backend returns { sales: [...], pagination: { total, limit, offset, pages } }
     const sales = data.sales || data.items || [];

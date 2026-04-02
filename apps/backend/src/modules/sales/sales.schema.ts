@@ -36,18 +36,31 @@ export const createNonFuelSaleSchema = z.object({
   discountAmount: z.number().nonnegative().optional(),
 });
 
+// Strip empty/null/falsy query param values to undefined so .optional() works
+const emptyToUndefined = (val: unknown) => {
+  if (val === '' || val === null || val === undefined) return undefined;
+  if (val === 'null' || val === 'undefined') return undefined;
+  return val;
+};
+
+// Safe date preprocess: empty/invalid -> undefined, valid string -> Date
+const safeDate = z.preprocess(emptyToUndefined, z.coerce.date().optional());
+
+// Safe int preprocess: empty -> undefined, valid string -> number
+const safeInt = z.preprocess(emptyToUndefined, z.string().transform(val => parseInt(val, 10)).optional());
+
 export const getSalesQuerySchema = z.object({
-  branchId: z.preprocess(val => val === '' ? undefined : val, z.string().uuid().optional()),
-  shiftInstanceId: z.preprocess(val => val === '' ? undefined : val, z.string().uuid().optional()),
-  saleType: z.preprocess(val => val === '' ? undefined : val, z.enum(['fuel', 'non_fuel']).optional()),
-  paymentMethod: z.preprocess(val => val === '' ? undefined : val, z.string().optional()),
-  customerId: z.preprocess(val => val === '' ? undefined : val, z.string().uuid().optional()),
-  startDate: z.preprocess(val => val === '' ? undefined : val, z.string().transform(val => new Date(val)).optional()),
-  endDate: z.preprocess(val => val === '' ? undefined : val, z.string().transform(val => new Date(val)).optional()),
-  limit: z.preprocess(val => val === '' ? undefined : val, z.string().transform(val => parseInt(val, 10)).optional()),
-  offset: z.preprocess(val => val === '' ? undefined : val, z.string().transform(val => parseInt(val, 10)).optional()),
-  page: z.preprocess(val => val === '' ? undefined : val, z.string().transform(val => parseInt(val, 10)).optional()),
-  size: z.preprocess(val => val === '' ? undefined : val, z.string().transform(val => parseInt(val, 10)).optional()),
+  branchId: z.preprocess(emptyToUndefined, z.string().uuid().optional()),
+  shiftInstanceId: z.preprocess(emptyToUndefined, z.string().uuid().optional()),
+  saleType: z.preprocess(emptyToUndefined, z.enum(['fuel', 'non_fuel']).optional()),
+  paymentMethod: z.preprocess(emptyToUndefined, z.string().optional()),
+  customerId: z.preprocess(emptyToUndefined, z.string().uuid().optional()),
+  startDate: safeDate,
+  endDate: safeDate,
+  limit: safeInt,
+  offset: safeInt,
+  page: safeInt,
+  size: safeInt,
 });
 
 export const getSummaryQuerySchema = z.object({
