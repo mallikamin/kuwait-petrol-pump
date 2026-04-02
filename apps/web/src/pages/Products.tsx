@@ -348,6 +348,11 @@ export function Products() {
                 type="number"
                 step="0.01"
                 value={formData.unitPrice}
+                onFocus={(e) => {
+                  if (formData.unitPrice === 0) {
+                    e.target.select();
+                  }
+                }}
                 onChange={(e) =>
                   setFormData({ ...formData, unitPrice: parseFloat(e.target.value) || 0 })
                 }
@@ -362,6 +367,11 @@ export function Products() {
                 type="number"
                 step="0.01"
                 value={formData.costPrice}
+                onFocus={(e) => {
+                  if (formData.costPrice === 0) {
+                    e.target.select();
+                  }
+                }}
                 onChange={(e) =>
                   setFormData({ ...formData, costPrice: parseFloat(e.target.value) || 0 })
                 }

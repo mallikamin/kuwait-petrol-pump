@@ -569,15 +569,19 @@ export class ReportsService {
     });
 
     // Calculate running balance and aggregate
-    let totalAmount = 0;
+    let runningBalance = 0;
     const transactions = sales.map(sale => {
-      totalAmount += sale.totalAmount.toNumber();
+      const saleAmount = sale.totalAmount.toNumber();
+      runningBalance += saleAmount;
+
       return {
         id: sale.id,
+        slipNumber: sale.id.substring(0, 8).toUpperCase(), // Short slip number from ID
         date: sale.saleDate,
         type: sale.saleType,
-        amount: sale.totalAmount.toNumber(),
+        amount: saleAmount,
         paymentMethod: sale.paymentMethod,
+        runningBalance,
         branch: {
           id: sale.branch.id,
           name: sale.branch.name,
@@ -594,6 +598,7 @@ export class ReportsService {
                 fuelSales: sale.fuelSales.map(fs => ({
                   fuelType: fs.fuelType.name,
                   liters: fs.quantityLiters.toNumber(),
+                  pricePerLiter: fs.pricePerLiter.toNumber(),
                   amount: fs.totalAmount.toNumber(),
                 })),
               }
@@ -614,6 +619,7 @@ export class ReportsService {
         name: customer.name,
         phone: customer.phone,
         email: customer.email,
+        vehicleNumbers: customer.vehicleNumbers || [],
       },
       dateRange: {
         startDate,
@@ -621,7 +627,7 @@ export class ReportsService {
       },
       summary: {
         totalTransactions: sales.length,
-        totalAmount,
+        totalAmount: runningBalance,
       },
       transactions,
     };

@@ -608,14 +608,56 @@ export function Reports() {
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={() => {
                 if (!customerLedger) return;
-                const headers = ['Date', 'Type', 'Details', 'Amount', 'Payment Method'];
-                const rows: (string | number)[][] = (customerLedger.transactions || []).map((t: any) => [
-                  formatDate(t.date || new Date()),
-                  t.type || '-',
-                  t.type === 'fuel' ? (t.details?.fuelSales || []).map((fs: any) => `${fs.fuelType}: ${fs.liters}L`).join(', ') : '-',
-                  t.amount || 0,
-                  t.paymentMethod || '-',
-                ]);
+                const vehicleNumbers = (customerLedger.customer?.vehicleNumbers || []).join(', ') || 'N/A';
+                const headers = ['Date', 'Customer Name', 'Vehicle#', 'Slip#', 'Product/Fuel', 'Rate', 'Quantity', 'Price', 'Payment Method', 'Balance'];
+                const rows: (string | number)[][] = (customerLedger.transactions || []).map((t: any) => {
+                  const isFuel = t.type === 'fuel';
+                  const fuelSales = t.details?.fuelSales || [];
+                  const items = t.details?.items || [];
+
+                  if (isFuel && fuelSales.length > 0) {
+                    // For fuel sales, create one row per fuel type
+                    return fuelSales.map((fs: any) => [
+                      formatDate(t.date || new Date()),
+                      customerLedger.customer?.name || '-',
+                      vehicleNumbers,
+                      t.slipNumber || t.id?.substring(0, 8) || '-',
+                      fs.fuelType || '-',
+                      fs.pricePerLiter || 0,
+                      `${fs.liters || 0}L`,
+                      fs.amount || 0,
+                      t.paymentMethod || '-',
+                      t.runningBalance || 0,
+                    ]);
+                  } else if (items.length > 0) {
+                    // For non-fuel sales, create one row per item
+                    return items.map((item: any) => [
+                      formatDate(t.date || new Date()),
+                      customerLedger.customer?.name || '-',
+                      vehicleNumbers,
+                      t.slipNumber || t.id?.substring(0, 8) || '-',
+                      item.productName || '-',
+                      item.unitPrice || 0,
+                      item.quantity || 0,
+                      item.amount || 0,
+                      t.paymentMethod || '-',
+                      t.runningBalance || 0,
+                    ]);
+                  }
+
+                  return [[
+                    formatDate(t.date || new Date()),
+                    customerLedger.customer?.name || '-',
+                    vehicleNumbers,
+                    t.slipNumber || '-',
+                    '-',
+                    0,
+                    0,
+                    t.amount || 0,
+                    t.paymentMethod || '-',
+                    t.runningBalance || 0,
+                  ]];
+                }).flat();
                 downloadCSV(`customer-ledger-${customerLedger.customer?.name || 'unknown'}-${startDate}-to-${endDate}.csv`, toCSV(headers, rows));
               }}>
                 <Download className="mr-2 h-4 w-4" /> CSV
