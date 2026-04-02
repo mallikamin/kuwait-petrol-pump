@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -22,10 +22,10 @@ import {
 } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Plus, Gauge, AlertCircle } from 'lucide-react';
+import { Plus, Gauge, AlertCircle, Filter } from 'lucide-react';
 import { meterReadingsApi, branchesApi, shiftsApi } from '@/api';
 import { toast } from 'sonner';
-import { format } from 'date-fns';
+import { format, subDays } from 'date-fns';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useAuthStore } from '@/store/auth';
 
@@ -35,6 +35,8 @@ export function MeterReadings() {
   const [selectedNozzleId, setSelectedNozzleId] = useState('');
   const [readingType, setReadingType] = useState<'opening' | 'closing'>('opening');
   const [meterValue, setMeterValue] = useState('');
+  const [filterDate, setFilterDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [showFilters, setShowFilters] = useState(false);
 
   const queryClient = useQueryClient();
   const { user } = useAuthStore();
@@ -65,12 +67,21 @@ export function MeterReadings() {
     enabled: !!branchId,
   });
 
-  // Get latest reading for selected nozzle (for auto-populate)
+  // Get latest CLOSING reading for selected nozzle (for auto-populate)
   const { data: latestReading, isLoading: isLoadingLatest } = useQuery({
     queryKey: ['meterReadings', 'latest', selectedNozzleId],
     queryFn: () => meterReadingsApi.getLatestForNozzle(selectedNozzleId),
-    enabled: !!selectedNozzleId && readingType === 'opening',
+    enabled: !!selectedNozzleId,
   });
+
+  // Auto-populate opening reading when latest reading loads
+  useEffect(() => {
+    if (readingType === 'opening' && latestReading && latestReading.reading_type === 'closing') {
+      setMeterValue(latestReading.reading_value.toString());
+    } else if (readingType === 'closing') {
+      setMeterValue(''); // Clear for closing
+    }
+  }, [latestReading, readingType]);
 
   // Create meter reading mutation
   const createMutation = useMutation({
@@ -106,17 +117,35 @@ export function MeterReadings() {
     });
   };
 
-  // Auto-populate opening reading when nozzle is selected
   const handleNozzleChange = (nozzleId: string) => {
     setSelectedNozzleId(nozzleId);
-
-    // If opening reading and we have latest reading, auto-populate
-    if (readingType === 'opening' && latestReading && latestReading.reading_type === 'closing') {
-      setMeterValue(latestReading.reading_value.toString());
-    }
+    setMeterValue(''); // Clear value, useEffect will populate if opening
   };
 
   const selectedNozzle = nozzlesData?.find((n: any) => n.id === selectedNozzleId);
+
+  // Group readings by nozzle and shift for consolidated view
+  const groupedReadings = (data?.items || []).reduce((acc: any, reading) => {
+    const key = `${reading.nozzle_id}_${reading.shift_id || 'unknown'}`;
+    if (!acc[key]) {
+      acc[key] = {
+        nozzle: reading.nozzle,
+        nozzle_id: reading.nozzle_id,
+        shift_id: reading.shift_id,
+        opening: null,
+        closing: null,
+        date: reading.created_at,
+      };
+    }
+    if (reading.reading_type === 'opening') {
+      acc[key].opening = reading;
+    } else {
+      acc[key].closing = reading;
+    }
+    return acc;
+  }, {});
+
+  const consolidatedReadings = Object.values(groupedReadings);
 
   return (
     <div className="space-y-6">
@@ -131,9 +160,60 @@ export function MeterReadings() {
         </Button>
       </div>
 
+      {/* Filters */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle>Filters</CardTitle>
+            <Button variant="ghost" size="sm" onClick={() => setShowFilters(!showFilters)}>
+              <Filter className="mr-2 h-4 w-4" />
+              {showFilters ? 'Hide' : 'Show'} Filters
+            </Button>
+          </div>
+        </CardHeader>
+        {showFilters && (
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <Label htmlFor="filter-date">Date</Label>
+                <Input
+                  id="filter-date"
+                  type="date"
+                  value={filterDate}
+                  onChange={(e) => setFilterDate(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label>Quick Filters</Label>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setFilterDate(format(new Date(), 'yyyy-MM-dd'))}
+                  >
+                    Today
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setFilterDate(format(subDays(new Date(), 1), 'yyyy-MM-dd'))}
+                  >
+                    Yesterday
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        )}
+      </Card>
+
+      {/* Consolidated Readings Table */}
       <Card>
         <CardHeader>
-          <CardTitle>All Readings</CardTitle>
+          <CardTitle>Meter Readings - {format(new Date(filterDate), 'MMM dd, yyyy')}</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Opening and closing readings grouped by nozzle
+          </p>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -142,7 +222,7 @@ export function MeterReadings() {
                 <Skeleton key={i} className="h-16" />
               ))}
             </div>
-          ) : data?.items.length === 0 ? (
+          ) : consolidatedReadings.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
               <Gauge className="mx-auto h-12 w-12 mb-4 opacity-50" />
               <p>No meter readings found</p>
@@ -155,46 +235,87 @@ export function MeterReadings() {
                   <TableRow>
                     <TableHead>Nozzle</TableHead>
                     <TableHead>Fuel Type</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Meter Value</TableHead>
-                    <TableHead>Recorded At</TableHead>
-                    <TableHead>Recorded By</TableHead>
+                    <TableHead>Opening Reading</TableHead>
+                    <TableHead>Opening Time</TableHead>
+                    <TableHead>Closing Reading</TableHead>
+                    <TableHead>Closing Time</TableHead>
+                    <TableHead>Variance (L)</TableHead>
                     <TableHead>Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {data?.items.map((reading) => (
-                    <TableRow key={reading.id}>
-                      <TableCell className="font-medium">
-                        <div className="flex items-center">
-                          <Gauge className="mr-2 h-4 w-4 text-muted-foreground" />
-                          {reading.nozzle?.nozzleNumber || (reading.nozzle as any)?.nozzle_number || '-'}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">
-                          {reading.nozzle?.fuelType?.name || (reading.nozzle as any)?.fuel_type?.name || '-'}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={reading.reading_type === 'opening' ? 'default' : 'secondary'}>
-                          {reading.reading_type}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="font-mono">{reading.reading_value} L</TableCell>
-                      <TableCell className="text-sm">
-                        {reading.created_at ? format(new Date(reading.created_at), 'MMM dd, yyyy HH:mm') : '-'}
-                      </TableCell>
-                      <TableCell className="text-sm">
-                        {(reading as any).created_by?.full_name || (reading as any).created_by?.username || '-'}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={reading.is_verified ? 'default' : 'secondary'}>
-                          {reading.is_verified ? 'Verified' : 'Pending'}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {consolidatedReadings.map((row: any, idx) => {
+                    const variance = row.opening && row.closing
+                      ? row.closing.reading_value - row.opening.reading_value
+                      : null;
+                    const isMismatch = row.opening && row.closing && variance !== null && variance < 0;
+
+                    return (
+                      <TableRow key={idx} className={isMismatch ? 'bg-destructive/10' : ''}>
+                        <TableCell className="font-medium">
+                          <div className="flex items-center">
+                            <Gauge className="mr-2 h-4 w-4 text-muted-foreground" />
+                            {row.nozzle?.name || row.nozzle?.nozzle_number || '-'}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">
+                            {row.nozzle?.fuel_type?.name || '-'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="font-mono">
+                          {row.opening ? (
+                            <span className="text-green-600 font-semibold">
+                              {row.opening.reading_value} L
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {row.opening?.created_at
+                            ? format(new Date(row.opening.created_at), 'HH:mm')
+                            : '-'}
+                        </TableCell>
+                        <TableCell className="font-mono">
+                          {row.closing ? (
+                            <span className="text-red-600 font-semibold">
+                              {row.closing.reading_value} L
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {row.closing?.created_at
+                            ? format(new Date(row.closing.created_at), 'HH:mm')
+                            : '-'}
+                        </TableCell>
+                        <TableCell className="font-mono">
+                          {variance !== null ? (
+                            <span className={variance < 0 ? 'text-destructive font-semibold' : ''}>
+                              {variance.toFixed(2)} L
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {!row.opening && !row.closing ? (
+                            <Badge variant="secondary">No Data</Badge>
+                          ) : !row.opening ? (
+                            <Badge variant="destructive">Missing Opening</Badge>
+                          ) : !row.closing ? (
+                            <Badge variant="default">Open</Badge>
+                          ) : isMismatch ? (
+                            <Badge variant="destructive">Error</Badge>
+                          ) : (
+                            <Badge variant="default">Complete</Badge>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
 
@@ -202,7 +323,7 @@ export function MeterReadings() {
               {data && data.pages > 1 && (
                 <div className="flex items-center justify-between mt-4">
                   <p className="text-sm text-muted-foreground">
-                    Page {data.page} of {data.pages} ({data.total} total)
+                    Page {data.page} of {data.pages} ({data.total} total readings)
                   </p>
                   <div className="flex gap-2">
                     <Button
@@ -235,7 +356,7 @@ export function MeterReadings() {
           <DialogHeader>
             <DialogTitle>Record Meter Reading</DialogTitle>
             <DialogDescription>
-              Enter meter reading for a nozzle. Opening readings will auto-populate from yesterday's closing.
+              Enter meter reading for a nozzle. Opening readings will auto-populate from the latest closing reading.
             </DialogDescription>
           </DialogHeader>
 
@@ -305,11 +426,11 @@ export function MeterReadings() {
                 onChange={(e) => setMeterValue(e.target.value)}
               />
               {isLoadingLatest && readingType === 'opening' && (
-                <p className="text-xs text-muted-foreground">Loading previous reading...</p>
+                <p className="text-xs text-muted-foreground">Loading latest reading...</p>
               )}
-              {latestReading && readingType === 'opening' && (
-                <p className="text-xs text-muted-foreground">
-                  Previous closing: {latestReading.reading_value} L (auto-populated)
+              {latestReading && readingType === 'opening' && latestReading.reading_type === 'closing' && (
+                <p className="text-xs text-green-600">
+                  ✓ Auto-populated from latest closing: {latestReading.reading_value} L
                 </p>
               )}
             </div>
