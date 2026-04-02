@@ -27,6 +27,7 @@ import { productsApi, fuelPricesApi, customersApi, dashboardApi, salesApi } from
 import { OfflineQueue, QueuedSale } from '@/db/indexeddb';
 import { SyncStatus } from '@/components/SyncStatus';
 import { Receipt, ReceiptData } from '@/components/Receipt';
+import { MeterReadingCapture, MeterReadingData } from '@/components/MeterReadingCapture';
 import { formatCurrency } from '@/utils/format';
 import { Product } from '@/types';
 import {
@@ -63,6 +64,7 @@ interface FuelCartItem {
   fuelTypeName: string;
   quantityLiters: number;
   pricePerLiter: number;
+  meterReading?: MeterReadingData;
 }
 
 export function POS() {
@@ -84,6 +86,7 @@ export function POS() {
   // Fuel sale form
   const [selectedFuelTypeId, setSelectedFuelTypeId] = useState('');
   const [liters, setLiters] = useState('');
+  const [meterReadingData, setMeterReadingData] = useState<MeterReadingData | null>(null);
 
   // Customer selection (both tabs)
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
@@ -203,6 +206,7 @@ export function POS() {
     setFuelCart(null);
     setLiters('');
     setSelectedFuelTypeId('');
+    setMeterReadingData(null);
     setSelectedCustomerId('');
     setVehicleNumber('');
     setSlipNumber('');
@@ -235,6 +239,7 @@ export function POS() {
       fuelTypeName: fuelType.name,
       quantityLiters: parseFloat(liters),
       pricePerLiter,
+      meterReading: meterReadingData || undefined,
     });
 
     toast({ title: 'Fuel added', description: `${liters}L ${fuelType.name}` });
@@ -290,6 +295,12 @@ export function POS() {
           quantityLiters: fuelCart.quantityLiters,
           pricePerLiter: fuelCart.pricePerLiter,
           totalAmount: fuelCart.quantityLiters * fuelCart.pricePerLiter,
+          previousReading: fuelCart.meterReading?.previousReading,
+          currentReading: fuelCart.meterReading?.currentReading,
+          calculatedLiters: fuelCart.meterReading?.calculatedLiters,
+          imageUrl: fuelCart.meterReading?.imageUrl,
+          ocrConfidence: fuelCart.meterReading?.ocrConfidence,
+          isManualReading: fuelCart.meterReading?.isManualReading,
         }] : undefined,
         nonFuelSales: activeTab === 'product' ? cart.map(item => ({
           productId: item.productId,
@@ -558,6 +569,21 @@ export function POS() {
                       onChange={(e) => setLiters(e.target.value)}
                     />
                   </div>
+
+                  {/* Meter Reading Capture */}
+                  {selectedFuelTypeId && (
+                    <MeterReadingCapture
+                      nozzleId=""
+                      fuelTypeId={selectedFuelTypeId}
+                      onCapture={(data) => {
+                        setMeterReadingData(data);
+                        // Auto-fill liters if OCR captured it
+                        if (data.calculatedLiters && !liters) {
+                          setLiters(data.calculatedLiters.toFixed(2));
+                        }
+                      }}
+                    />
+                  )}
 
                   {/* Total Calculation Display */}
                   {selectedFuelTypeId && liters && parseFloat(liters) > 0 && (() => {

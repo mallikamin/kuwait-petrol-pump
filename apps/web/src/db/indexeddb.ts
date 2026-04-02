@@ -35,6 +35,12 @@ export interface QueuedSale {
     quantityLiters: number;
     pricePerLiter: number;
     totalAmount: number;
+    previousReading?: number;
+    currentReading?: number;
+    calculatedLiters?: number;
+    imageUrl?: string;
+    ocrConfidence?: number;
+    isManualReading?: boolean;
   }>;
   nonFuelSales?: Array<{
     productId: string;

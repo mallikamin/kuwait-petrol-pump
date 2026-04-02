@@ -91,6 +91,10 @@ services:
       QUICKBOOKS_ENVIRONMENT: ${QUICKBOOKS_ENVIRONMENT}
       QB_TOKEN_ENCRYPTION_KEY: ${QB_TOKEN_ENCRYPTION_KEY}
       QB_STATE_SECRET: ${QB_STATE_SECRET}
+      UPLOAD_DIR: /app/uploads/meter-readings
+      CLAUDE_API_KEY: ${CLAUDE_API_KEY}
+    volumes:
+      - meter_images:/app/uploads
     ports:
       - "127.0.0.1:3000:3000"
     networks:
@@ -135,6 +139,7 @@ services:
       - ./certbot/conf:/etc/letsencrypt
       - certbot_var:/var/lib/letsencrypt
       - web_root:/var/www/html
+      - meter_images:/app/uploads:ro
     networks:
       - kuwaitpos-network
     healthcheck:
@@ -192,6 +197,12 @@ volumes:
       type: none
       o: bind
       device: /opt/kuwaitpos/data/redis
+  meter_images:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/kuwaitpos/data/uploads
   certbot_etc:
     driver: local
   certbot_var:

@@ -8,6 +8,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { OCRService } from './ocr.service';
+import { ImageUploadService } from './image-upload.service';
 import { hasRole } from '../../middleware/auth.middleware';
 import { OCRRateLimiter, OCRRateLimitError } from './ocr-rate-limiter';
 
@@ -117,6 +118,86 @@ export class OCRController {
       );
 
       res.json(quotaInfo);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * POST /api/meter-readings/upload
+   * Upload meter reading image to file system
+   */
+  static uploadImage = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ) => {
+    try {
+      // 1. Authentication check
+      if (!req.user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      // 2. Authorization check
+      if (!hasRole(req.user, ['admin', 'manager', 'operator', 'cashier'])) {
+        return res.status(403).json({
+          error: 'Insufficient permissions',
+        });
+      }
+
+      // 3. Validate request body
+      const uploadSchema = z.object({
+        imageBase64: z.string().min(100, 'Image data too short'),
+        nozzleId: z.string().uuid('Invalid nozzle ID'),
+      });
+
+      const validationResult = uploadSchema.safeParse(req.body);
+      if (!validationResult.success) {
+        return res.status(400).json({
+          error: 'Invalid request',
+          details: validationResult.error.errors,
+        });
+      }
+
+      const { imageBase64, nozzleId } = validationResult.data;
+
+      // 4. Upload image
+      const result = await ImageUploadService.uploadImage(imageBase64, nozzleId);
+
+      res.json({
+        success: true,
+        imageUrl: result.imageUrl,
+        filename: result.filename,
+        size: result.size,
+      });
+    } catch (error: any) {
+      console.error('[Upload] Error:', error);
+      res.status(500).json({
+        error: error.message || 'Failed to upload image',
+      });
+    }
+  };
+
+  /**
+   * GET /api/meter-readings/upload/stats
+   * Get disk usage statistics
+   */
+  static getUploadStats = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      if (!hasRole(req.user, ['admin', 'manager'])) {
+        return res.status(403).json({ error: 'Admin or manager only' });
+      }
+
+      const stats = await ImageUploadService.getDiskUsage();
+      res.json(stats);
     } catch (error) {
       next(error);
     }

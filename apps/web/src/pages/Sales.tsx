@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Download, Filter, X } from 'lucide-react';
+import { Download, Filter, X, Camera, Image as ImageIcon } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -21,6 +21,7 @@ import { formatCurrency, formatDateTime } from '@/utils/format';
 
 export function Sales() {
   const [isFilterDialogOpen, setIsFilterDialogOpen] = useState(false);
+  const [meterImageDialog, setMeterImageDialog] = useState<{ open: boolean; imageUrl: string; sale: any } | null>(null);
   const [filters, setFilters] = useState({
     startDate: '',
     endDate: '',
@@ -187,6 +188,7 @@ export function Sales() {
                   <TableHead>Customer</TableHead>
                   <TableHead>Payment</TableHead>
                   <TableHead>Amount</TableHead>
+                  <TableHead>Meter</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
@@ -208,6 +210,37 @@ export function Sales() {
                     </TableCell>
                     <TableCell className="font-medium">
                       {formatCurrency(Number(sale.totalAmount || sale.net_amount || 0))}
+                    </TableCell>
+                    <TableCell>
+                      {(sale.saleType || sale.sale_type) === 'fuel' && sale.fuelSales?.[0] && (
+                        <div className="flex flex-col gap-1 text-xs">
+                          {sale.fuelSales[0].previousReading != null && sale.fuelSales[0].currentReading != null ? (
+                            <>
+                              <div className="flex items-center gap-1">
+                                <Camera className="h-3 w-3" />
+                                <span>{sale.fuelSales[0].previousReading} → {sale.fuelSales[0].currentReading}</span>
+                              </div>
+                              {sale.fuelSales[0].imageUrl && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 px-2 text-xs"
+                                  onClick={() => setMeterImageDialog({
+                                    open: true,
+                                    imageUrl: sale.fuelSales[0].imageUrl,
+                                    sale
+                                  })}
+                                >
+                                  <ImageIcon className="h-3 w-3 mr-1" />
+                                  View
+                                </Button>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Badge
@@ -234,6 +267,56 @@ export function Sales() {
           )}
         </CardContent>
       </Card>
+
+      {/* Meter Image Dialog */}
+      {meterImageDialog && (
+        <Dialog open={meterImageDialog.open} onOpenChange={(open) => !open && setMeterImageDialog(null)}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Meter Reading Image</DialogTitle>
+              <DialogDescription>
+                {meterImageDialog.sale.fuelSales?.[0] && (
+                  <div className="space-y-2 mt-2">
+                    <div className="flex justify-between text-sm">
+                      <span>Previous Reading:</span>
+                      <span className="font-medium">{meterImageDialog.sale.fuelSales[0].previousReading}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span>Current Reading:</span>
+                      <span className="font-medium">{meterImageDialog.sale.fuelSales[0].currentReading}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span>Calculated Liters:</span>
+                      <span className="font-medium">{meterImageDialog.sale.fuelSales[0].calculatedLiters || '-'}</span>
+                    </div>
+                    {meterImageDialog.sale.fuelSales[0].ocrConfidence && (
+                      <div className="flex justify-between text-sm">
+                        <span>OCR Confidence:</span>
+                        <span className="font-medium">{(meterImageDialog.sale.fuelSales[0].ocrConfidence * 100).toFixed(1)}%</span>
+                      </div>
+                    )}
+                    {meterImageDialog.sale.fuelSales[0].isManualReading && (
+                      <Badge variant="secondary">Manual Entry</Badge>
+                    )}
+                  </div>
+                )}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-4">
+              <img
+                src={meterImageDialog.imageUrl}
+                alt="Meter Reading"
+                className="w-full rounded-lg border"
+              />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setMeterImageDialog(null)}>
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Filter Dialog */}
       <Dialog open={isFilterDialogOpen} onOpenChange={setIsFilterDialogOpen}>

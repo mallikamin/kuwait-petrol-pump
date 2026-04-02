@@ -22,6 +22,12 @@ export class SalesService {
       customerId,
       vehicleNumber,
       slipNumber,
+      previousReading,
+      currentReading,
+      calculatedLiters,
+      imageUrl,
+      ocrConfidence,
+      isManualReading,
     } = data;
 
     // Verify branch belongs to organization
@@ -81,6 +87,12 @@ export class SalesService {
             quantityLiters: new Decimal(quantityLiters),
             pricePerLiter: new Decimal(pricePerLiter),
             totalAmount: new Decimal(totalAmount),
+            previousReading: previousReading !== undefined ? new Decimal(previousReading) : null,
+            currentReading: currentReading !== undefined ? new Decimal(currentReading) : null,
+            calculatedLiters: calculatedLiters !== undefined ? new Decimal(calculatedLiters) : null,
+            imageUrl: imageUrl || null,
+            ocrConfidence: ocrConfidence !== undefined ? ocrConfidence : null,
+            isManualReading: isManualReading || false,
           },
         },
       },

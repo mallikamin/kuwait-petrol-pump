@@ -11,6 +11,13 @@ export const createFuelSaleSchema = z.object({
   customerId: z.string().uuid().optional(),
   vehicleNumber: z.string().optional(),
   slipNumber: z.string().optional(),
+  // Meter reading fields (optional - for reconciliation tracking)
+  previousReading: z.number().nonnegative().optional(),
+  currentReading: z.number().nonnegative().optional(),
+  calculatedLiters: z.number().positive().optional(),
+  imageUrl: z.string().url().optional(),
+  ocrConfidence: z.number().min(0).max(1).optional(),
+  isManualReading: z.boolean().optional(),
 });
 
 export const createNonFuelSaleSchema = z.object({
