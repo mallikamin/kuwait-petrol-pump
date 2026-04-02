@@ -6,7 +6,7 @@ export const createProductSchema = z.object({
   category: z.string().max(100).optional(),
   barcode: z.string().max(100).optional(),
   unitPrice: z.number().positive(),
-  costPrice: z.number().positive().optional(),
+  costPrice: z.number().nonnegative().optional(),
   lowStockThreshold: z.number().int().nonnegative().optional(),
 });
 
@@ -16,7 +16,7 @@ export const updateProductSchema = z.object({
   category: z.string().max(100).optional(),
   barcode: z.string().max(100).optional(),
   unitPrice: z.number().positive().optional(),
-  costPrice: z.number().positive().optional(),
+  costPrice: z.number().nonnegative().optional(),
   lowStockThreshold: z.number().int().nonnegative().optional(),
   isActive: z.boolean().optional(),
 });

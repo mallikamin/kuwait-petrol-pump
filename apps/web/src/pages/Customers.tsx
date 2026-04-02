@@ -141,10 +141,20 @@ export function Customers() {
       return;
     }
 
+    // Clean payload: strip empty strings for optional fields
+    const cleanData: Record<string, unknown> = { name: formData.name };
+    if (formData.phone) cleanData.phone = formData.phone;
+    if (formData.email) cleanData.email = formData.email;
+    if (formData.address) cleanData.address = formData.address;
+    if (formData.vehicleNumbers.length > 0) cleanData.vehicleNumbers = formData.vehicleNumbers;
+    if (formData.creditLimit > 0) cleanData.creditLimit = formData.creditLimit;
+    if (formData.creditDays > 0) cleanData.creditDays = formData.creditDays;
+    cleanData.isActive = formData.isActive;
+
     if (selectedCustomerId) {
-      updateMutation.mutate({ id: selectedCustomerId, data: formData });
+      updateMutation.mutate({ id: selectedCustomerId, data: cleanData as Partial<CustomerFormData> });
     } else {
-      createMutation.mutate(formData);
+      createMutation.mutate(cleanData as unknown as CustomerFormData);
     }
   };
 

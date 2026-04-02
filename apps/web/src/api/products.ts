@@ -3,7 +3,13 @@ import { Product, Category, Stock, PaginatedResponse } from '@/types';
 
 export const productsApi = {
   getAll: async (params?: { page?: number; size?: number; search?: string; category_id?: string }): Promise<PaginatedResponse<Product>> => {
-    const response = await apiClient.get<{ products: Product[]; pagination: { total: number; limit: number; offset: number; pages: number } }>('/api/products', { params });
+    // Backend expects limit/offset, not page/size
+    const backendParams: Record<string, unknown> = {};
+    if (params?.search) backendParams.search = params.search;
+    if (params?.category_id) backendParams.category = params.category_id;
+    if (params?.size) backendParams.limit = String(params.size);
+    if (params?.page && params?.size) backendParams.offset = String((params.page - 1) * params.size);
+    const response = await apiClient.get<{ products: Product[]; pagination: { total: number; limit: number; offset: number; pages: number } }>('/api/products', { params: backendParams });
     return { items: response.data.products, total: response.data.pagination.total, page: params?.page || 1, size: response.data.pagination.limit, pages: response.data.pagination.pages };
   },
 

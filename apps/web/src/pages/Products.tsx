@@ -140,10 +140,22 @@ export function Products() {
       return;
     }
 
+    // Clean payload: strip empty strings for optional fields
+    const cleanData: Record<string, unknown> = {
+      name: formData.name,
+      sku: formData.sku,
+      unitPrice: formData.unitPrice,
+      isActive: formData.isActive,
+    };
+    if (formData.barcode) cleanData.barcode = formData.barcode;
+    if (formData.category) cleanData.category = formData.category;
+    if (formData.costPrice > 0) cleanData.costPrice = formData.costPrice;
+    if (formData.lowStockThreshold > 0) cleanData.lowStockThreshold = formData.lowStockThreshold;
+
     if (selectedProductId) {
-      updateMutation.mutate({ id: selectedProductId, data: formData });
+      updateMutation.mutate({ id: selectedProductId, data: cleanData as Partial<ProductFormData> });
     } else {
-      createMutation.mutate(formData);
+      createMutation.mutate(cleanData as Partial<ProductFormData>);
     }
   };
 

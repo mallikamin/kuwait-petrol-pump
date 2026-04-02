@@ -1,23 +1,26 @@
 import { z } from 'zod';
 
+// Transform empty strings to undefined so optional validators pass
+const emptyToUndefined = (val: unknown) => (val === '' ? undefined : val);
+
 export const createCustomerSchema = z.object({
   name: z.string().min(1, 'Customer name is required'),
   phone: z.string().optional(),
-  email: z.string().email().optional(),
+  email: z.preprocess(emptyToUndefined, z.string().email().optional()),
   address: z.string().optional(),
   vehicleNumbers: z.array(z.string()).optional(),
-  creditLimit: z.number().positive().optional(),
-  creditDays: z.number().int().positive().optional(),
+  creditLimit: z.number().nonnegative().optional(),
+  creditDays: z.number().int().nonnegative().optional(),
 });
 
 export const updateCustomerSchema = z.object({
   name: z.string().min(1).optional(),
   phone: z.string().optional(),
-  email: z.string().email().optional(),
+  email: z.preprocess(emptyToUndefined, z.string().email().optional()),
   address: z.string().optional(),
   vehicleNumbers: z.array(z.string()).optional(),
-  creditLimit: z.number().positive().optional(),
-  creditDays: z.number().int().positive().optional(),
+  creditLimit: z.number().nonnegative().optional(),
+  creditDays: z.number().int().nonnegative().optional(),
   isActive: z.boolean().optional(),
 });
 
