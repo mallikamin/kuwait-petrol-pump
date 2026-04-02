@@ -272,7 +272,7 @@ export function MeterReadings() {
                 <SelectContent>
                   {nozzlesData?.map((nozzle: any) => (
                     <SelectItem key={nozzle.id} value={nozzle.id}>
-                      Nozzle {nozzle.nozzleNumber} - {nozzle.fuelType?.name || 'Unknown'}
+                      {nozzle.name || `Nozzle ${nozzle.nozzleNumber}`} - {nozzle.fuelType?.name || 'Unknown'}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -319,7 +319,7 @@ export function MeterReadings() {
               <div className="rounded-lg border p-3 bg-muted/50">
                 <p className="text-sm font-medium">Selected Nozzle</p>
                 <p className="text-xs text-muted-foreground">
-                  {selectedNozzle.nozzleNumber || (selectedNozzle as any).nozzle_number} - {selectedNozzle.fuelType?.name || (selectedNozzle as any).fuel_type?.name}
+                  {(selectedNozzle as any).name || `Nozzle ${selectedNozzle.nozzleNumber || (selectedNozzle as any).nozzle_number}`} - {selectedNozzle.fuelType?.name || (selectedNozzle as any).fuel_type?.name}
                 </p>
               </div>
             )}

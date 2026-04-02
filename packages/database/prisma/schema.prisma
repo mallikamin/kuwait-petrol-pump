@@ -121,6 +121,7 @@ model Nozzle {
   id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   dispensingUnitId String   @map("dispensing_unit_id") @db.Uuid
   nozzleNumber     Int      @map("nozzle_number")
+  name             String?  @db.VarChar(100) // Custom name like "D1N2" or "Dispensing Unit 1 Nozzle 2"
   fuelTypeId       String   @map("fuel_type_id") @db.Uuid
   meterType        String   @default("digital") @map("meter_type") @db.VarChar(20) // 'digital' or 'analog'
   isActive         Boolean  @default(true) @map("is_active")
