@@ -20,6 +20,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { CustomerSelector } from '@/components/ui/customer-selector';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuthStore } from '@/store/auth';
 import { productsApi, branchesApi, fuelPricesApi, customersApi } from '@/api';
@@ -740,19 +741,12 @@ export function POS() {
             {/* Customer Selection */}
             <div className="space-y-1.5">
               <Label className="text-xs">Customer (optional)</Label>
-              <Select value={selectedCustomerId} onValueChange={setSelectedCustomerId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Walk-in customer" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Walk-in customer</SelectItem>
-                  {customers.map(customer => (
-                    <SelectItem key={customer.id} value={customer.id}>
-                      {customer.name} ({customer.code})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <CustomerSelector
+                customers={customers}
+                value={selectedCustomerId}
+                onChange={setSelectedCustomerId}
+                placeholder="Walk-in customer"
+              />
               {selectedCustomer && (
                 <div className="text-xs text-muted-foreground space-y-0.5">
                   <div className="flex justify-between">
