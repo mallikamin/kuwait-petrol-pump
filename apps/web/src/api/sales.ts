@@ -6,8 +6,8 @@ export interface SalesFilters {
   size?: number;
   start_date?: string;
   end_date?: string;
-  sale_type?: 'fuel' | 'product';
-  payment_method?: 'cash' | 'card' | 'credit';
+  sale_type?: 'fuel' | 'product' | 'non_fuel' | string;
+  payment_method?: 'cash' | 'card' | 'credit' | string;
   customer_id?: string;
   status?: string;
 }

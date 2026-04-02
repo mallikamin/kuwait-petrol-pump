@@ -37,15 +37,17 @@ export const createNonFuelSaleSchema = z.object({
 });
 
 export const getSalesQuerySchema = z.object({
-  branchId: z.string().uuid().optional(),
-  shiftInstanceId: z.string().uuid().optional(),
-  saleType: z.enum(['fuel', 'non_fuel']).optional(),
-  paymentMethod: z.string().optional(),
-  customerId: z.string().uuid().optional(),
-  startDate: z.string().datetime().transform(val => new Date(val)).optional(),
-  endDate: z.string().datetime().transform(val => new Date(val)).optional(),
-  limit: z.string().transform(val => parseInt(val, 10)).optional(),
-  offset: z.string().transform(val => parseInt(val, 10)).optional(),
+  branchId: z.preprocess(val => val === '' ? undefined : val, z.string().uuid().optional()),
+  shiftInstanceId: z.preprocess(val => val === '' ? undefined : val, z.string().uuid().optional()),
+  saleType: z.preprocess(val => val === '' ? undefined : val, z.enum(['fuel', 'non_fuel']).optional()),
+  paymentMethod: z.preprocess(val => val === '' ? undefined : val, z.string().optional()),
+  customerId: z.preprocess(val => val === '' ? undefined : val, z.string().uuid().optional()),
+  startDate: z.preprocess(val => val === '' ? undefined : val, z.string().datetime().transform(val => new Date(val)).optional()),
+  endDate: z.preprocess(val => val === '' ? undefined : val, z.string().datetime().transform(val => new Date(val)).optional()),
+  limit: z.preprocess(val => val === '' ? undefined : val, z.string().transform(val => parseInt(val, 10)).optional()),
+  offset: z.preprocess(val => val === '' ? undefined : val, z.string().transform(val => parseInt(val, 10)).optional()),
+  page: z.preprocess(val => val === '' ? undefined : val, z.string().transform(val => parseInt(val, 10)).optional()),
+  size: z.preprocess(val => val === '' ? undefined : val, z.string().transform(val => parseInt(val, 10)).optional()),
 });
 
 export const getSummaryQuerySchema = z.object({
