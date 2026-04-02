@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { hasRole } from '../../middleware/auth.middleware';
 import { CustomersService } from './customers.service';
 import {
   createCustomerSchema,
