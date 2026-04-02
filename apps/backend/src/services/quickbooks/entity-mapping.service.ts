@@ -9,7 +9,7 @@
 
 import { prisma } from '../../config/database';
 
-export type EntityType = 'customer' | 'payment_method' | 'item';
+export type EntityType = 'customer' | 'payment_method' | 'item' | 'vendor' | 'expense_account' | 'bank_account';
 
 export interface MappingFilter {
   entityType?: EntityType;
@@ -75,7 +75,7 @@ export class EntityMappingService {
     const normalizedEntityType = entityType.toLowerCase().trim() as EntityType;
 
     // Validate entityType enum
-    const validTypes: EntityType[] = ['customer', 'payment_method', 'item'];
+    const validTypes: EntityType[] = ['customer', 'payment_method', 'item', 'vendor', 'expense_account', 'bank_account'];
     if (!validTypes.includes(normalizedEntityType)) {
       throw new EntityMappingError(
         `Invalid entityType: ${entityType}. Must be one of: ${validTypes.join(', ')}`

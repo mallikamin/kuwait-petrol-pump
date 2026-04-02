@@ -7,6 +7,9 @@
 
 import { QBSyncQueue } from '@prisma/client';
 import { handleFuelSaleCreate, FuelSalePayload } from './handlers/fuel-sale.handler';
+import { handleVendorCreate, VendorPayload } from './handlers/vendor.handler';
+import { handlePurchaseCreate, PurchasePayload } from './handlers/purchase.handler';
+import { handleBillPaymentCreate, BillPaymentPayload } from './handlers/bill-payment.handler';
 
 export interface JobResult {
   success: boolean;
@@ -25,29 +28,46 @@ export interface JobResult {
 export async function dispatch(job: QBSyncQueue): Promise<JobResult> {
   // Route based on entity type and job type
   if (job.entityType === 'sale' && job.jobType === 'create_sales_receipt') {
-    // Parse payload - handle both string (direct JSON) and object (Prisma JSONB)
-    let payload: FuelSalePayload;
-    if (typeof job.payload === 'string') {
-      // Explicit try-catch for malformed JSON strings
-      try {
-        payload = JSON.parse(job.payload) as FuelSalePayload;
-      } catch (parseError) {
-        throw new Error(
-          `Invalid JSON payload: ${parseError instanceof Error ? parseError.message : 'Malformed JSON string'}`
-        );
-      }
-    } else if (typeof job.payload === 'object' && job.payload !== null) {
-      // Prisma returns JsonValue type - safely cast through unknown
-      payload = job.payload as unknown as FuelSalePayload;
-    } else {
-      throw new Error('Invalid payload: must be JSON string or object');
-    }
-
+    const payload = parsePayload<FuelSalePayload>(job.payload);
     return await handleFuelSaleCreate(job, payload);
+  }
+
+  if (job.entityType === 'supplier' && job.jobType === 'create_vendor') {
+    const payload = parsePayload<VendorPayload>(job.payload);
+    return await handleVendorCreate(job, payload);
+  }
+
+  if (job.entityType === 'purchase_order' && job.jobType === 'create_bill') {
+    const payload = parsePayload<PurchasePayload>(job.payload);
+    return await handlePurchaseCreate(job, payload);
+  }
+
+  if (job.entityType === 'supplier_payment' && job.jobType === 'create_bill_payment') {
+    const payload = parsePayload<BillPaymentPayload>(job.payload);
+    return await handleBillPaymentCreate(job, payload);
   }
 
   // Unsupported combinations throw explicit error
   throw new Error(
     `Unsupported dispatch path: entityType=${job.entityType}, jobType=${job.jobType}`
   );
+}
+
+/**
+ * Parse payload (handles both string JSON and object)
+ */
+function parsePayload<T>(payload: any): T {
+  if (typeof payload === 'string') {
+    try {
+      return JSON.parse(payload) as T;
+    } catch (parseError) {
+      throw new Error(
+        `Invalid JSON payload: ${parseError instanceof Error ? parseError.message : 'Malformed JSON string'}`
+      );
+    }
+  } else if (typeof payload === 'object' && payload !== null) {
+    return payload as unknown as T;
+  } else {
+    throw new Error('Invalid payload: must be JSON string or object');
+  }
 }
