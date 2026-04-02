@@ -23,4 +23,7 @@ router.get('/customer-ledger', reportsController.getCustomerLedgerReport);
 // Inventory report endpoint
 router.get('/inventory', reportsController.getInventoryReport);
 
+// Fuel price history report endpoint
+router.get('/fuel-price-history', reportsController.getFuelPriceHistoryReport);
+
 export default router;

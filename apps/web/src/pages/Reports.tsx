@@ -138,6 +138,13 @@ export function Reports() {
     enabled: fetchEnabled && selectedReport === 'variance' && !!branchId,
   });
 
+  // Fuel Price History
+  const { data: fuelPriceHistory, isLoading: loadingFuelPrice, isError: errorFuelPrice } = useQuery({
+    queryKey: ['report-fuel-price-history', startDate, endDate],
+    queryFn: () => reportsApi.getFuelPriceHistory(new Date(startDate).toISOString(), new Date(endDate).toISOString()),
+    enabled: fetchEnabled && selectedReport === 'fuel-price-history',
+  });
+
   // Get customers list for dropdown
   const { data: customersData } = useQuery({
     queryKey: ['customers-list'],
@@ -145,8 +152,8 @@ export function Reports() {
     enabled: selectedReport === 'customer-ledger',
   });
 
-  const isLoading = loadingDaily || loadingShift || loadingInventory || loadingLedger || loadingVariance;
-  const isError = errorDaily || errorShift || errorInventory || errorLedger || errorVariance;
+  const isLoading = loadingDaily || loadingShift || loadingInventory || loadingLedger || loadingVariance || loadingFuelPrice;
+  const isError = errorDaily || errorShift || errorInventory || errorLedger || errorVariance || errorFuelPrice;
 
   const handleGenerate = () => {
     setFetchEnabled(true);
@@ -865,20 +872,114 @@ export function Reports() {
       )}
 
       {/* FUEL PRICE HISTORY REPORT */}
-      {selectedReport === 'fuel-price-history' && fetchEnabled && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Fuel Price History</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">
-              Fuel price history report showing all price changes from {formatDate(startDate)} to {formatDate(endDate)}
-            </p>
-            <p className="text-sm text-muted-foreground mt-2">
-              <strong>Coming Soon:</strong> This report will show Date, Product (PMG/HSD), Old Price, New Price, Changed By
-            </p>
-          </CardContent>
-        </Card>
+      {selectedReport === 'fuel-price-history' && fuelPriceHistory && !isLoading && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-semibold">Fuel Price History ({formatDate(startDate)} - {formatDate(endDate)})</h2>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => {
+                if (!fuelPriceHistory) return;
+                const headers = ['Date', 'Fuel Type', 'Old Price', 'New Price', 'Change Amount', 'Change %', 'Changed By'];
+                const rows: (string | number)[][] = (fuelPriceHistory.priceChanges || []).map((change: any) => [
+                  formatDate(change.date),
+                  `${change.fuelType} (${change.fuelTypeCode})`,
+                  change.oldPrice !== null ? change.oldPrice : 'N/A',
+                  change.newPrice,
+                  change.priceChange !== null ? change.priceChange.toFixed(3) : 'N/A',
+                  change.percentageChange !== null ? change.percentageChange.toFixed(2) + '%' : 'N/A',
+                  change.changedBy,
+                ]);
+                downloadCSV(`fuel-price-history-${startDate}-to-${endDate}.csv`, toCSV(headers, rows));
+              }}>
+                <Download className="mr-2 h-4 w-4" /> CSV
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => {
+                if (!fuelPriceHistory) return;
+                let html = `<h2>Fuel Price History</h2><p>Period: ${formatDate(startDate)} to ${formatDate(endDate)}</p><table><tr><th>Date</th><th>Fuel Type</th><th class="right">Old Price</th><th class="right">New Price</th><th class="right">Change</th><th class="right">Change %</th><th>Changed By</th></tr>`;
+                (fuelPriceHistory.priceChanges || []).forEach((change: any) => {
+                  html += `<tr><td>${formatDate(change.date)}</td><td>${change.fuelType} (${change.fuelTypeCode})</td><td class="right">${change.oldPrice !== null ? formatCurrency(change.oldPrice) : '-'}</td><td class="right">${formatCurrency(change.newPrice)}</td><td class="right">${change.priceChange !== null ? change.priceChange.toFixed(3) : '-'}</td><td class="right">${change.percentageChange !== null ? change.percentageChange.toFixed(2) + '%' : '-'}</td><td>${change.changedBy}</td></tr>`;
+                });
+                html += '</table>';
+                printReport(`Fuel Price History - ${formatDate(startDate)} to ${formatDate(endDate)}`, html);
+              }}>
+                <Printer className="mr-2 h-4 w-4" /> Print / PDF
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground">Total Price Changes</p>
+                <p className="text-2xl font-bold">{fuelPriceHistory.totalChanges || 0}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground">Date Range</p>
+                <p className="text-2xl font-bold">{formatDate(startDate)} - {formatDate(endDate)}</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {(fuelPriceHistory.priceChanges || []).length > 0 ? (
+            <Card>
+              <CardHeader><CardTitle className="text-base">Price Change History</CardTitle></CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Fuel Type</TableHead>
+                      <TableHead className="text-right">Old Price</TableHead>
+                      <TableHead className="text-right">New Price</TableHead>
+                      <TableHead className="text-right">Change</TableHead>
+                      <TableHead className="text-right">Change %</TableHead>
+                      <TableHead>Changed By</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {fuelPriceHistory.priceChanges.map((change: any) => (
+                      <TableRow key={change.id}>
+                        <TableCell>{formatDate(change.date)}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{change.fuelType} ({change.fuelTypeCode})</Badge>
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {change.oldPrice !== null ? formatCurrency(change.oldPrice) : '-'}
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          {formatCurrency(change.newPrice)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {change.priceChange !== null ? (
+                            <span className={change.priceChange > 0 ? 'text-red-600' : change.priceChange < 0 ? 'text-green-600' : ''}>
+                              {change.priceChange > 0 ? '+' : ''}{change.priceChange.toFixed(3)}
+                            </span>
+                          ) : '-'}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {change.percentageChange !== null ? (
+                            <Badge variant={change.percentageChange > 0 ? 'destructive' : change.percentageChange < 0 ? 'default' : 'secondary'}>
+                              {change.percentageChange > 0 ? '+' : ''}{change.percentageChange.toFixed(2)}%
+                            </Badge>
+                          ) : '-'}
+                        </TableCell>
+                        <TableCell>{change.changedBy}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="py-8 text-center text-muted-foreground">
+                No fuel price changes found for the selected date range.
+              </CardContent>
+            </Card>
+          )}
+        </div>
       )}
 
       {/* No report generated yet */}

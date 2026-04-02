@@ -724,4 +724,68 @@ export class ReportsService {
       })),
     };
   }
+
+  /**
+   * Get fuel price history report with all price changes in a date range
+   */
+  async getFuelPriceHistoryReport(
+    startDate: Date,
+    endDate: Date,
+    organizationId: string
+  ) {
+    // Get all fuel price changes within the date range
+    const priceHistory = await prisma.fuelPrice.findMany({
+      where: {
+        effectiveFrom: {
+          gte: startDate,
+          lte: endDate,
+        },
+      },
+      include: {
+        fuelType: true,
+        changedByUser: {
+          select: {
+            id: true,
+            fullName: true,
+            username: true,
+          },
+        },
+      },
+      orderBy: {
+        effectiveFrom: 'desc',
+      },
+    });
+
+    // Group by fuel type to calculate old price vs new price
+    const priceChanges = priceHistory.map((current, index) => {
+      // Find previous price (next in array since we're sorted desc)
+      const previous = index < priceHistory.length - 1 ? priceHistory[index + 1] : null;
+
+      return {
+        id: current.id,
+        fuelType: current.fuelType.name,
+        fuelTypeCode: current.fuelType.code,
+        date: current.effectiveFrom,
+        oldPrice: previous ? previous.pricePerLiter.toNumber() : null,
+        newPrice: current.pricePerLiter.toNumber(),
+        priceChange: previous
+          ? current.pricePerLiter.toNumber() - previous.pricePerLiter.toNumber()
+          : null,
+        percentageChange: previous
+          ? ((current.pricePerLiter.toNumber() - previous.pricePerLiter.toNumber()) / previous.pricePerLiter.toNumber()) * 100
+          : null,
+        changedBy: current.changedByUser?.fullName || 'System',
+        notes: current.notes,
+      };
+    });
+
+    return {
+      dateRange: {
+        startDate,
+        endDate,
+      },
+      totalChanges: priceChanges.length,
+      priceChanges,
+    };
+  }
 }

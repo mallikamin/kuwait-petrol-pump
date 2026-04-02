@@ -35,4 +35,11 @@ export const reportsApi = {
     });
     return response.data.report || response.data;
   },
+
+  getFuelPriceHistory: async (startDate: string, endDate: string): Promise<any> => {
+    const response = await apiClient.get('/api/reports/fuel-price-history', {
+      params: { startDate, endDate },
+    });
+    return response.data.report || response.data;
+  },
 };

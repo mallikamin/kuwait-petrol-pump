@@ -34,6 +34,7 @@ interface CustomerFormData {
 
 export function Customers() {
   const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
@@ -52,8 +53,8 @@ export function Customers() {
   const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({
-    queryKey: ['customers', page],
-    queryFn: () => customersApi.getAll({ page, size: 20 }),
+    queryKey: ['customers', page, search],
+    queryFn: () => customersApi.getAll({ page, size: 20, search: search || undefined }),
   });
 
   const createMutation = useMutation({
@@ -181,7 +182,19 @@ export function Customers() {
 
       <Card>
         <CardHeader>
-          <CardTitle>All Customers</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>All Customers</CardTitle>
+            <div className="w-72">
+              <Input
+                placeholder="Search by name, phone, or email..."
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(1);
+                }}
+              />
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (

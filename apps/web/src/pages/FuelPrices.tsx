@@ -198,7 +198,7 @@ export function FuelPrices() {
                     <TableCell>{price.fuelType?.name || (price as any).fuel_type?.name || '-'}</TableCell>
                     <TableCell>{formatCurrency(Number(price.pricePerLiter || (price as any).price || 0))}</TableCell>
                     <TableCell>{new Date(price.effectiveFrom || (price as any).effective_from).toLocaleDateString()}</TableCell>
-                    <TableCell>-</TableCell>
+                    <TableCell>{(price as any).changedByUser?.fullName || 'System'}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

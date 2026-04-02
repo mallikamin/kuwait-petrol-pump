@@ -30,6 +30,11 @@ const inventoryReportQuerySchema = z.object({
   branchId: z.string().uuid().optional(),
 });
 
+const fuelPriceHistoryQuerySchema = z.object({
+  startDate: dateString,
+  endDate: dateString,
+});
+
 export class ReportsController {
   private reportsService: ReportsService;
 
@@ -225,6 +230,38 @@ export class ReportsController {
       res.json({
         report,
         message: 'Inventory report retrieved successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * GET /api/reports/fuel-price-history
+   * Get fuel price history report with all price changes
+   */
+  getFuelPriceHistoryReport = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      // Only managers and accountants can access price history reports
+      if (!['admin', 'manager', 'accountant'].includes(req.user.role)) {
+        return res.status(403).json({ error: 'Insufficient permissions' });
+      }
+
+      const query = fuelPriceHistoryQuerySchema.parse(req.query);
+
+      const report = await this.reportsService.getFuelPriceHistoryReport(
+        query.startDate,
+        query.endDate,
+        req.user.organizationId
+      );
+
+      res.json({
+        report,
+        message: 'Fuel price history report retrieved successfully',
       });
     } catch (error) {
       next(error);
