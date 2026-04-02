@@ -148,7 +148,7 @@ export class OCRController {
       // 3. Validate request body
       const uploadSchema = z.object({
         imageBase64: z.string().min(100, 'Image data too short'),
-        nozzleId: z.string().uuid('Invalid nozzle ID'),
+        nozzleId: z.string().uuid('Invalid nozzle ID').optional(),
       });
 
       const validationResult = uploadSchema.safeParse(req.body);
@@ -162,7 +162,7 @@ export class OCRController {
       const { imageBase64, nozzleId } = validationResult.data;
 
       // 4. Upload image
-      const result = await ImageUploadService.uploadImage(imageBase64, nozzleId);
+      const result = await ImageUploadService.uploadImage(imageBase64, nozzleId || 'general');
 
       res.json({
         success: true,
