@@ -286,6 +286,12 @@ export function MeterReadings() {
       return;
     }
 
+    const reading = parseFloat(meterValue);
+    if (isNaN(reading) || reading < 1000000) {
+      toast.error('Meter reading must be at least 7 digits (1,000,000 or higher)');
+      return;
+    }
+
     createMutation.mutate({
       nozzleId: selectedNozzleId,
       shiftInstanceId: currentShift.id,

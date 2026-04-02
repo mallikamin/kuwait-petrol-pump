@@ -5,8 +5,11 @@ export const createMeterReadingSchema = z.object({
   shiftInstanceId: z.string().uuid().optional(),
   shiftId: z.string().uuid().optional(),
   readingType: z.enum(['opening', 'closing']),
-  meterValue: z.number().nonnegative({ message: 'Meter reading must be a positive number or zero' }),
-  imageUrl: z.string().url().optional(),
+  meterValue: z.number().nonnegative({ message: 'Meter reading must be a positive number or zero' }).refine(
+    (val) => val >= 1000000,
+    { message: 'Meter reading must be at least 7 digits (1,000,000 or higher)' }
+  ),
+  imageUrl: z.string().optional(), // Relative path or full URL
   imageBase64: z.string().optional(),
   ocrResult: z.number().positive().optional(),
   isOcr: z.boolean().default(false),
