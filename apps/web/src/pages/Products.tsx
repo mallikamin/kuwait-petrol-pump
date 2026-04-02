@@ -122,8 +122,8 @@ export function Products() {
       sku: product.sku,
       barcode: product.barcode || '',
       category: product.category || '',
-      unitPrice: product.unitPrice,
-      costPrice: product.costPrice || 0,
+      unitPrice: typeof product.unitPrice === 'string' ? parseFloat(product.unitPrice) : product.unitPrice,
+      costPrice: product.costPrice ? (typeof product.costPrice === 'string' ? parseFloat(product.costPrice) : product.costPrice) : 0,
       isActive: product.isActive,
       lowStockThreshold: product.lowStockThreshold || 10,
     });

@@ -98,7 +98,7 @@ export function FuelPrices() {
     updateMutation.mutate({
       fuelTypeId: selectedFuelTypeId,
       price: parseFloat(newPrice),
-      effectiveFrom: effectiveDate,
+      effectiveFrom: new Date(effectiveDate).toISOString(),
     });
   };
 
