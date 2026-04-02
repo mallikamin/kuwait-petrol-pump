@@ -50,7 +50,7 @@ export class CustomersController {
       }
 
       // Only admin and manager can create customers
-      if (!['ADMIN', 'MANAGER'].includes(req.user.role)) {
+      if (!['ADMIN', 'MANAGER', 'admin', 'manager'].includes(req.user.role)) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
