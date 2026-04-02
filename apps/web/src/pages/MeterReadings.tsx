@@ -118,7 +118,9 @@ export function MeterReadings() {
       closeDialog();
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.error || 'Failed to record meter reading');
+      const errorMsg = error?.response?.data?.error || error?.response?.data?.message || 'Failed to record meter reading';
+      console.error('Meter reading submission error:', errorMsg, error?.response?.data);
+      toast.error(errorMsg, { duration: 5000 });
     },
   });
 
@@ -712,7 +714,7 @@ export function MeterReadings() {
       {/* Readings Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Meter Readings - {format(new Date(filterDate), 'MMM dd, yyyy')}</CardTitle>
+          <CardTitle>Meter Readings - {filterDate ? format(new Date(filterDate), 'MMM dd, yyyy') : 'All Dates'}</CardTitle>
           <p className="text-sm text-muted-foreground">Opening and closing readings grouped by nozzle</p>
         </CardHeader>
         <CardContent>
