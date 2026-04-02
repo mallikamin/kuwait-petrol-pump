@@ -12,9 +12,8 @@ import { Input } from '@/components/ui/input';
 interface Customer {
   id: string;
   name: string;
-  code: string;
-  current_balance: number;
-  credit_limit: number;
+  phone?: string;
+  email?: string;
 }
 
 interface CustomerSelectorProps {
@@ -34,7 +33,8 @@ export function CustomerSelector({ customers, value, onChange, placeholder = "Se
     const query = searchQuery.toLowerCase();
     return customers.filter(customer =>
       customer.name.toLowerCase().includes(query) ||
-      customer.code.toLowerCase().includes(query)
+      (customer.phone && customer.phone.toLowerCase().includes(query)) ||
+      (customer.email && customer.email.toLowerCase().includes(query))
     );
   }, [customers, searchQuery]);
 
@@ -51,7 +51,7 @@ export function CustomerSelector({ customers, value, onChange, placeholder = "Se
         >
           {selectedCustomer ? (
             <span className="truncate">
-              {selectedCustomer.name} ({selectedCustomer.code})
+              {selectedCustomer.name} {selectedCustomer.phone ? `(${selectedCustomer.phone})` : ''}
             </span>
           ) : (
             <span className="text-muted-foreground">{placeholder}</span>
@@ -64,7 +64,7 @@ export function CustomerSelector({ customers, value, onChange, placeholder = "Se
           <div className="relative">
             <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search by name or code..."
+              placeholder="Search by name, phone, or email..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-8"
@@ -119,7 +119,7 @@ export function CustomerSelector({ customers, value, onChange, placeholder = "Se
                 />
                 <div className="flex-1">
                   <div className="text-sm font-medium">{customer.name}</div>
-                  <div className="text-xs text-muted-foreground">{customer.code}</div>
+                  <div className="text-xs text-muted-foreground">{customer.phone || customer.email || 'No contact info'}</div>
                 </div>
               </div>
             ))

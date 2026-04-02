@@ -23,10 +23,10 @@ export function Sales() {
   const [isFilterDialogOpen, setIsFilterDialogOpen] = useState(false);
   const [meterImageDialog, setMeterImageDialog] = useState<{ open: boolean; imageUrl: string; sale: any } | null>(null);
   const [filters, setFilters] = useState({
-    start_date: '',
-    end_date: '',
-    payment_method: '',
-    sale_type: '',
+    startDate: '',
+    endDate: '',
+    paymentMethod: '',
+    saleType: '',
   });
   const [appliedFilters, setAppliedFilters] = useState(filters);
   const page = 1; // TODO: Add pagination
@@ -49,10 +49,10 @@ export function Sales() {
 
   const handleClearFilters = () => {
     const emptyFilters = {
-      start_date: '',
-      end_date: '',
-      payment_method: '',
-      sale_type: '',
+      startDate: '',
+      endDate: '',
+      paymentMethod: '',
+      saleType: '',
     };
     setFilters(emptyFilters);
     setAppliedFilters(emptyFilters);
@@ -100,50 +100,50 @@ export function Sales() {
           <CardContent className="py-3">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-sm font-medium">Active Filters:</span>
-              {appliedFilters.start_date && (
+              {appliedFilters.startDate && (
                 <Badge variant="secondary">
-                  From: {appliedFilters.start_date}
+                  From: {appliedFilters.startDate}
                   <X
                     className="ml-1 h-3 w-3 cursor-pointer"
                     onClick={() => {
-                      setFilters({ ...filters, start_date: '' });
-                      setAppliedFilters({ ...appliedFilters, start_date: '' });
+                      setFilters({ ...filters, startDate: '' });
+                      setAppliedFilters({ ...appliedFilters, startDate: '' });
                     }}
                   />
                 </Badge>
               )}
-              {appliedFilters.end_date && (
+              {appliedFilters.endDate && (
                 <Badge variant="secondary">
-                  To: {appliedFilters.end_date}
+                  To: {appliedFilters.endDate}
                   <X
                     className="ml-1 h-3 w-3 cursor-pointer"
                     onClick={() => {
-                      setFilters({ ...filters, end_date: '' });
-                      setAppliedFilters({ ...appliedFilters, end_date: '' });
+                      setFilters({ ...filters, endDate: '' });
+                      setAppliedFilters({ ...appliedFilters, endDate: '' });
                     }}
                   />
                 </Badge>
               )}
-              {appliedFilters.payment_method && (
+              {appliedFilters.paymentMethod && (
                 <Badge variant="secondary">
-                  Payment: {appliedFilters.payment_method}
+                  Payment: {appliedFilters.paymentMethod}
                   <X
                     className="ml-1 h-3 w-3 cursor-pointer"
                     onClick={() => {
-                      setFilters({ ...filters, payment_method: '' });
-                      setAppliedFilters({ ...appliedFilters, payment_method: '' });
+                      setFilters({ ...filters, paymentMethod: '' });
+                      setAppliedFilters({ ...appliedFilters, paymentMethod: '' });
                     }}
                   />
                 </Badge>
               )}
-              {appliedFilters.sale_type && (
+              {appliedFilters.saleType && (
                 <Badge variant="secondary">
-                  Type: {appliedFilters.sale_type}
+                  Type: {appliedFilters.saleType}
                   <X
                     className="ml-1 h-3 w-3 cursor-pointer"
                     onClick={() => {
-                      setFilters({ ...filters, sale_type: '' });
-                      setAppliedFilters({ ...appliedFilters, sale_type: '' });
+                      setFilters({ ...filters, saleType: '' });
+                      setAppliedFilters({ ...appliedFilters, saleType: '' });
                     }}
                   />
                 </Badge>
@@ -331,32 +331,32 @@ export function Sales() {
           <div className="space-y-4 py-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="start_date">Start Date</Label>
+                <Label htmlFor="startDate">Start Date</Label>
                 <Input
-                  id="start_date"
+                  id="startDate"
                   type="date"
-                  value={filters.start_date}
-                  onChange={(e) => setFilters({ ...filters, start_date: e.target.value })}
+                  value={filters.startDate}
+                  onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="end_date">End Date</Label>
+                <Label htmlFor="endDate">End Date</Label>
                 <Input
-                  id="end_date"
+                  id="endDate"
                   type="date"
-                  value={filters.end_date}
-                  onChange={(e) => setFilters({ ...filters, end_date: e.target.value })}
+                  value={filters.endDate}
+                  onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}
                 />
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="payment_method">Payment Method</Label>
+              <Label htmlFor="paymentMethod">Payment Method</Label>
               <select
-                id="payment_method"
-                value={filters.payment_method}
-                onChange={(e) => setFilters({ ...filters, payment_method: e.target.value })}
+                id="paymentMethod"
+                value={filters.paymentMethod}
+                onChange={(e) => setFilters({ ...filters, paymentMethod: e.target.value })}
                 className="w-full px-3 py-2 border rounded-md"
               >
                 <option value="">All</option>
@@ -368,11 +368,11 @@ export function Sales() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="sale_type">Sale Type</Label>
+              <Label htmlFor="saleType">Sale Type</Label>
               <select
-                id="sale_type"
-                value={filters.sale_type}
-                onChange={(e) => setFilters({ ...filters, sale_type: e.target.value })}
+                id="saleType"
+                value={filters.saleType}
+                onChange={(e) => setFilters({ ...filters, saleType: e.target.value })}
                 className="w-full px-3 py-2 border rounded-md"
               >
                 <option value="">All</option>

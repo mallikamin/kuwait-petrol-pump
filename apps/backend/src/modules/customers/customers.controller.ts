@@ -50,7 +50,7 @@ export class CustomersController {
       }
 
       // Only admin and manager can create customers
-      if (!['ADMIN', 'MANAGER', 'admin', 'manager'].includes(req.user.role)) {
+      if (!hasRole(req.user, ['admin', 'manager'])) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
@@ -104,7 +104,7 @@ export class CustomersController {
       }
 
       // Only admin and manager can update customers
-      if (!['ADMIN', 'MANAGER', 'admin', 'manager'].includes(req.user.role)) {
+      if (!hasRole(req.user, ['admin', 'manager'])) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 

@@ -250,8 +250,9 @@ export function POS() {
   const subtotalFuel = fuelCart ? fuelCart.quantityLiters * fuelCart.pricePerLiter : 0;
   const totalAmount = activeTab === 'fuel' ? subtotalFuel : subtotalNonFuel;
 
-  // Credit limit warning
-  const creditLimitExceeded = selectedCustomer && selectedCustomer.current_balance + totalAmount > selectedCustomer.credit_limit;
+  // Credit limit warning (current_balance not yet implemented in backend, using 0 for now)
+  const currentBalance = 0; // TODO: Fetch from backend
+  const creditLimitExceeded = selectedCustomer && currentBalance + totalAmount > (selectedCustomer.creditLimit || 0);
 
   // Submit sale
   const handleSubmit = async () => {
@@ -273,7 +274,7 @@ export function POS() {
     // Check credit limit
     if (creditLimitExceeded && paymentMethod === 'credit') {
       const confirmed = window.confirm(
-        `Credit limit exceeded!\nCurrent balance: ${formatCurrency(selectedCustomer!.current_balance)}\nCredit limit: ${formatCurrency(selectedCustomer!.credit_limit)}\n\nProceed anyway?`
+        `Credit limit exceeded!\nCurrent balance: ${formatCurrency(currentBalance)}\nCredit limit: ${formatCurrency(selectedCustomer!.creditLimit || 0)}\n\nProceed anyway?`
       );
       if (!confirmed) return;
     }
@@ -838,11 +839,11 @@ export function POS() {
                 <div className="text-xs text-muted-foreground space-y-0.5">
                   <div className="flex justify-between">
                     <span>Balance:</span>
-                    <span className="font-medium">{formatCurrency(selectedCustomer.current_balance)}</span>
+                    <span className="font-medium">{formatCurrency(currentBalance)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Limit:</span>
-                    <span className="font-medium">{formatCurrency(selectedCustomer.credit_limit)}</span>
+                    <span className="font-medium">{formatCurrency(selectedCustomer.creditLimit || 0)}</span>
                   </div>
                 </div>
               )}
@@ -853,7 +854,7 @@ export function POS() {
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription className="text-xs">
-                  Credit limit exceeded! Current: {formatCurrency(selectedCustomer!.current_balance)}, Limit: {formatCurrency(selectedCustomer!.credit_limit)}
+                  Credit limit exceeded! Current: {formatCurrency(currentBalance)}, Limit: {formatCurrency(selectedCustomer!.creditLimit || 0)}
                 </AlertDescription>
               </Alert>
             )}

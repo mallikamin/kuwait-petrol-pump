@@ -262,22 +262,24 @@ export function Dashboard() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Customer</TableHead>
-                  <TableHead>Code</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Current Balance</TableHead>
+                  <TableHead>Phone</TableHead>
+                  <TableHead>Email</TableHead>
                   <TableHead>Credit Limit</TableHead>
+                  <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {topCustomers?.map((customer) => (
                   <TableRow key={customer.id}>
                     <TableCell className="font-medium">{customer.name}</TableCell>
-                    <TableCell>{customer.code}</TableCell>
+                    <TableCell>{customer.phone || 'N/A'}</TableCell>
+                    <TableCell>{customer.email || 'N/A'}</TableCell>
+                    <TableCell>{formatCurrency(customer.creditLimit || 0)}</TableCell>
                     <TableCell>
-                      <Badge variant="outline">{customer.customer_type}</Badge>
+                      <Badge variant={customer.isActive ? 'success' : 'secondary'}>
+                        {customer.isActive ? 'Active' : 'Inactive'}
+                      </Badge>
                     </TableCell>
-                    <TableCell>{formatCurrency(customer.current_balance)}</TableCell>
-                    <TableCell>{formatCurrency(customer.credit_limit)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

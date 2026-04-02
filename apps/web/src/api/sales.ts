@@ -4,11 +4,11 @@ import { Sale, PaginatedResponse } from '@/types';
 export interface SalesFilters {
   page?: number;
   size?: number;
-  start_date?: string;
-  end_date?: string;
-  sale_type?: 'fuel' | 'product' | 'non_fuel' | string;
-  payment_method?: 'cash' | 'card' | 'credit' | string;
-  customer_id?: string;
+  startDate?: string;
+  endDate?: string;
+  saleType?: 'fuel' | 'product' | 'non_fuel' | string;
+  paymentMethod?: 'cash' | 'card' | 'credit' | string;
+  customerId?: string;
   status?: string;
 }
 

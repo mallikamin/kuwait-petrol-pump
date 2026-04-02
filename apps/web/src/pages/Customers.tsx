@@ -16,7 +16,6 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { customersApi } from '@/api';
 import { formatCurrency } from '@/utils/format';
@@ -24,12 +23,13 @@ import { useToast } from '@/components/ui/use-toast';
 
 interface CustomerFormData {
   name: string;
-  code: string;
-  customer_type: 'individual' | 'corporate';
   phone: string;
   email: string;
-  credit_limit: number;
-  is_active: boolean;
+  address: string;
+  vehicleNumbers: string[];
+  creditLimit: number;
+  creditDays: number;
+  isActive: boolean;
 }
 
 export function Customers() {
@@ -39,12 +39,13 @@ export function Customers() {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [formData, setFormData] = useState<CustomerFormData>({
     name: '',
-    code: '',
-    customer_type: 'individual',
     phone: '',
     email: '',
-    credit_limit: 0,
-    is_active: true,
+    address: '',
+    vehicleNumbers: [],
+    creditLimit: 0,
+    creditDays: 0,
+    isActive: true,
   });
 
   const { toast } = useToast();
@@ -100,12 +101,13 @@ export function Customers() {
   const resetForm = () => {
     setFormData({
       name: '',
-      code: '',
-      customer_type: 'individual',
       phone: '',
       email: '',
-      credit_limit: 0,
-      is_active: true,
+      address: '',
+      vehicleNumbers: [],
+      creditLimit: 0,
+      creditDays: 0,
+      isActive: true,
     });
   };
 
@@ -118,12 +120,13 @@ export function Customers() {
     setSelectedCustomerId(customer.id);
     setFormData({
       name: customer.name,
-      code: customer.code,
-      customer_type: customer.customer_type,
       phone: customer.phone || '',
       email: customer.email || '',
-      credit_limit: customer.credit_limit,
-      is_active: customer.is_active,
+      address: customer.address || '',
+      vehicleNumbers: customer.vehicleNumbers || [],
+      creditLimit: customer.creditLimit || 0,
+      creditDays: customer.creditDays || 0,
+      isActive: customer.isActive,
     });
     setIsEditDialogOpen(true);
   };
@@ -139,11 +142,8 @@ export function Customers() {
     }
 
     if (selectedCustomerId) {
-      // When editing, don't send code (it's readonly)
-      const { code, ...updateData } = formData;
-      updateMutation.mutate({ id: selectedCustomerId, data: updateData });
+      updateMutation.mutate({ id: selectedCustomerId, data: formData });
     } else {
-      // When creating, code is optional (auto-generated if not provided)
       createMutation.mutate(formData);
     }
   };
@@ -151,7 +151,7 @@ export function Customers() {
   const handleToggleActive = (customer: any) => {
     updateMutation.mutate({
       id: customer.id,
-      data: { is_active: !customer.is_active },
+      data: { isActive: !customer.isActive },
     });
   };
 
@@ -184,10 +184,8 @@ export function Customers() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Name</TableHead>
-                  <TableHead>Code</TableHead>
-                  <TableHead>Type</TableHead>
                   <TableHead>Phone</TableHead>
-                  <TableHead>Current Balance</TableHead>
+                  <TableHead>Email</TableHead>
                   <TableHead>Credit Limit</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Actions</TableHead>
@@ -202,22 +200,16 @@ export function Customers() {
                         {customer.name}
                       </div>
                     </TableCell>
-                    <TableCell>{customer.code}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{customer.customer_type}</Badge>
-                    </TableCell>
                     <TableCell>{customer.phone || 'N/A'}</TableCell>
-                    <TableCell className="font-medium">
-                      {formatCurrency(customer.current_balance)}
-                    </TableCell>
-                    <TableCell>{formatCurrency(customer.credit_limit)}</TableCell>
+                    <TableCell>{customer.email || 'N/A'}</TableCell>
+                    <TableCell>{formatCurrency(customer.creditLimit || 0)}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <Badge variant={customer.is_active ? 'success' : 'destructive'}>
-                          {customer.is_active ? 'Active' : 'Inactive'}
+                        <Badge variant={customer.isActive ? 'success' : 'destructive'}>
+                          {customer.isActive ? 'Active' : 'Inactive'}
                         </Badge>
                         <Switch
-                          checked={customer.is_active}
+                          checked={customer.isActive}
                           onCheckedChange={() => handleToggleActive(customer)}
                         />
                       </div>
@@ -276,36 +268,6 @@ export function Customers() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="code">Code {selectedCustomerId ? '(readonly)' : '(optional - auto-generated)'}</Label>
-              <Input
-                id="code"
-                value={formData.code}
-                onChange={(e) => setFormData({ ...formData, code: e.target.value })}
-                placeholder={selectedCustomerId ? "Auto-generated" : "Leave blank to auto-generate"}
-                readOnly={!!selectedCustomerId}
-                disabled={!!selectedCustomerId}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="customer_type">Type</Label>
-              <Select
-                value={formData.customer_type}
-                onValueChange={(value: 'individual' | 'corporate') =>
-                  setFormData({ ...formData, customer_type: value })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="individual">Individual</SelectItem>
-                  <SelectItem value="corporate">Corporate</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
               <Label htmlFor="phone">Phone</Label>
               <Input
                 id="phone"
@@ -326,28 +288,51 @@ export function Customers() {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="credit_limit">Credit Limit</Label>
+            <div className="space-y-2 col-span-2">
+              <Label htmlFor="address">Address</Label>
               <Input
-                id="credit_limit"
+                id="address"
+                value={formData.address}
+                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                placeholder="Customer address"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="creditLimit">Credit Limit</Label>
+              <Input
+                id="creditLimit"
                 type="number"
-                value={formData.credit_limit}
+                value={formData.creditLimit}
                 onChange={(e) =>
-                  setFormData({ ...formData, credit_limit: parseFloat(e.target.value) || 0 })
+                  setFormData({ ...formData, creditLimit: parseFloat(e.target.value) || 0 })
                 }
                 placeholder="0.00"
               />
             </div>
 
+            <div className="space-y-2">
+              <Label htmlFor="creditDays">Credit Days</Label>
+              <Input
+                id="creditDays"
+                type="number"
+                value={formData.creditDays}
+                onChange={(e) =>
+                  setFormData({ ...formData, creditDays: parseInt(e.target.value) || 0 })
+                }
+                placeholder="0"
+              />
+            </div>
+
             <div className="flex items-center space-x-2 col-span-2">
               <Switch
-                id="is_active"
-                checked={formData.is_active}
+                id="isActive"
+                checked={formData.isActive}
                 onCheckedChange={(checked) =>
-                  setFormData({ ...formData, is_active: checked })
+                  setFormData({ ...formData, isActive: checked })
                 }
               />
-              <Label htmlFor="is_active">Active</Label>
+              <Label htmlFor="isActive">Active</Label>
             </div>
           </div>
 
