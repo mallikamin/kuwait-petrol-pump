@@ -37,4 +37,9 @@ export const dashboardApi = {
     });
     return response.data;
   },
+
+  getLitersAvailable: async (): Promise<{ pmg: number; hsd: number; note?: string }> => {
+    const response = await apiClient.get<{ pmg: number; hsd: number; note?: string }>('/api/dashboard/liters-available');
+    return response.data;
+  },
 };

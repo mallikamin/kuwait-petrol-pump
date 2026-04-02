@@ -40,4 +40,9 @@ export const salesApi = {
     });
     return response.data;
   },
+
+  getTodaysSales: async (): Promise<{ sales: any[]; count: number }> => {
+    const response = await apiClient.get<{ sales: any[]; count: number }>('/api/sales/today');
+    return response.data;
+  },
 };

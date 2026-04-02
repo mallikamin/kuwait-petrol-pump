@@ -23,7 +23,7 @@ import {
 import { CustomerSelector } from '@/components/ui/customer-selector';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuthStore } from '@/store/auth';
-import { productsApi, fuelPricesApi, customersApi } from '@/api';
+import { productsApi, fuelPricesApi, customersApi, dashboardApi, salesApi } from '@/api';
 import { OfflineQueue, QueuedSale } from '@/db/indexeddb';
 import { SyncStatus } from '@/components/SyncStatus';
 import { Receipt, ReceiptData } from '@/components/Receipt';
@@ -133,6 +133,20 @@ export function POS() {
     queryKey: ['pos-customers'],
     queryFn: () => customersApi.getAll({ size: 500 }),
     staleTime: 300000,
+  });
+
+  // Fetch liters available (PMG/HSD)
+  const { data: litersData } = useQuery({
+    queryKey: ['liters-available'],
+    queryFn: () => dashboardApi.getLitersAvailable(),
+    refetchInterval: 30000, // Refetch every 30 seconds
+  });
+
+  // Fetch today's sales
+  const { data: todaysSalesData } = useQuery({
+    queryKey: ['todays-sales'],
+    queryFn: () => salesApi.getTodaysSales(),
+    refetchInterval: 10000, // Refetch every 10 seconds
   });
 
   const customers = customersData?.items || [];
@@ -420,25 +434,57 @@ export function POS() {
           <div className="grid grid-cols-2 gap-4">
             <div className="text-center">
               <p className="text-sm text-muted-foreground">PMG Available</p>
-              <p className="text-3xl font-bold text-blue-600">0</p>
-              <p className="text-xs text-muted-foreground">Liters (Coming Soon)</p>
+              <p className="text-3xl font-bold text-blue-600">{litersData?.pmg?.toLocaleString() || 0}</p>
+              <p className="text-xs text-muted-foreground">Liters</p>
             </div>
             <div className="text-center border-l">
               <p className="text-sm text-muted-foreground">HSD Available</p>
-              <p className="text-3xl font-bold text-green-600">0</p>
-              <p className="text-xs text-muted-foreground">Liters (Coming Soon)</p>
+              <p className="text-3xl font-bold text-green-600">{litersData?.hsd?.toLocaleString() || 0}</p>
+              <p className="text-xs text-muted-foreground">Liters</p>
             </div>
           </div>
+          {litersData?.note && (
+            <p className="text-xs text-center text-muted-foreground mt-2">{litersData.note}</p>
+          )}
         </CardContent>
       </Card>
 
       {/* Today's Posted Entries */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Today's Posted Sales</CardTitle>
+          <CardTitle className="text-base flex items-center justify-between">
+            <span>Today's Posted Sales</span>
+            {todaysSalesData && todaysSalesData.count > 0 && (
+              <Badge variant="secondary">{todaysSalesData.count} sale{todaysSalesData.count !== 1 ? 's' : ''}</Badge>
+            )}
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground">No sales posted today yet. Sales list will appear here.</p>
+          {!todaysSalesData || todaysSalesData.count === 0 ? (
+            <p className="text-sm text-muted-foreground">No sales posted today yet.</p>
+          ) : (
+            <div className="space-y-2 max-h-[300px] overflow-y-auto">
+              {todaysSalesData.sales.slice(0, 10).map((sale: any) => (
+                <div key={sale.id} className="flex items-center justify-between p-2 rounded-md bg-muted/50 text-sm">
+                  <div className="flex-1">
+                    <p className="font-medium">
+                      {sale.saleType === 'fuel'
+                        ? `${sale.items[0]?.fuelType} - ${sale.items[0]?.quantity}L`
+                        : `${sale.items[0]?.product}`
+                      }
+                    </p>
+                    {sale.customer && (
+                      <p className="text-xs text-muted-foreground">{sale.customer.name}</p>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    <p className="font-semibold">{formatCurrency(sale.totalAmount)}</p>
+                    <Badge variant="outline" className="text-xs">{sale.paymentMethod}</Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 
