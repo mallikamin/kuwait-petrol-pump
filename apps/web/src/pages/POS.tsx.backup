@@ -23,7 +23,7 @@ import {
 import { CustomerSelector } from '@/components/ui/customer-selector';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuthStore } from '@/store/auth';
-import { productsApi, fuelPricesApi, customersApi } from '@/api';
+import { productsApi, branchesApi, fuelPricesApi, customersApi } from '@/api';
 import { OfflineQueue, QueuedSale } from '@/db/indexeddb';
 import { SyncStatus } from '@/components/SyncStatus';
 import { Receipt, ReceiptData } from '@/components/Receipt';
@@ -188,7 +188,7 @@ export function POS() {
     setCart([]);
     setFuelCart(null);
     setLiters('');
-    setSelectedFuelTypeId('');
+    setSelectedNozzleId('');
     setSelectedCustomerId('');
     setVehicleNumber('');
     setSlipNumber('');
@@ -196,35 +196,35 @@ export function POS() {
 
   // Fuel cart helpers
   const addFuelToCart = useCallback(() => {
-    if (!selectedFuelTypeId || !liters || parseFloat(liters) <= 0) {
-      toast({ title: 'Invalid input', description: 'Select a fuel type and enter liters', variant: 'destructive' });
+    if (!selectedNozzleId || !liters || parseFloat(liters) <= 0) {
+      toast({ title: 'Invalid input', description: 'Select a nozzle and enter liters', variant: 'destructive' });
       return;
     }
 
-    const fuelType = fuelTypes?.find(ft => ft.id === selectedFuelTypeId);
-    if (!fuelType) {
-      toast({ title: 'Error', description: 'Invalid fuel type', variant: 'destructive' });
+    const nozzle = nozzlesData?.find(n => n.id === selectedNozzleId);
+    if (!nozzle || !nozzle.fuelType) {
+      toast({ title: 'Error', description: 'Invalid nozzle or fuel type', variant: 'destructive' });
       return;
     }
 
-    const pricePerLiter = priceLookup.get(fuelType.id) || 0;
+    const pricePerLiter = priceLookup.get(nozzle.fuelTypeId) || 0;
 
     if (pricePerLiter <= 0) {
-      toast({ title: 'Price not set', description: `No price configured for ${fuelType.name}`, variant: 'destructive' });
+      toast({ title: 'Price not set', description: `No price configured for ${nozzle.fuelType.name}`, variant: 'destructive' });
       return;
     }
 
     setFuelCart({
-      nozzleId: '', // No nozzle tracking
-      nozzleName: fuelType.name,
-      fuelTypeId: fuelType.id,
-      fuelTypeName: fuelType.name,
+      nozzleId: nozzle.id,
+      nozzleName: nozzle.displayName,
+      fuelTypeId: nozzle.fuelTypeId,
+      fuelTypeName: nozzle.fuelType.name,
       quantityLiters: parseFloat(liters),
       pricePerLiter,
     });
 
-    toast({ title: 'Fuel added', description: `${liters}L ${fuelType.name}` });
-  }, [selectedFuelTypeId, liters, fuelTypes, priceLookup, toast]);
+    toast({ title: 'Fuel added', description: `${liters}L ${nozzle.fuelType.name}` });
+  }, [selectedNozzleId, liters, nozzlesData, priceLookup, toast]);
 
   // Totals
   const subtotalNonFuel = cart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
@@ -414,34 +414,6 @@ export function POS() {
         </div>
       )}
 
-      {/* Liters Counter - PMG & HSD Available */}
-      <Card className="bg-gradient-to-r from-blue-50 to-green-50 dark:from-blue-950 dark:to-green-950">
-        <CardContent className="pt-6">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="text-center">
-              <p className="text-sm text-muted-foreground">PMG Available</p>
-              <p className="text-3xl font-bold text-blue-600">0</p>
-              <p className="text-xs text-muted-foreground">Liters (Coming Soon)</p>
-            </div>
-            <div className="text-center border-l">
-              <p className="text-sm text-muted-foreground">HSD Available</p>
-              <p className="text-3xl font-bold text-green-600">0</p>
-              <p className="text-xs text-muted-foreground">Liters (Coming Soon)</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Today's Posted Entries */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Today's Posted Sales</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">No sales posted today yet. Sales list will appear here.</p>
-        </CardContent>
-      </Card>
-
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as SaleTab)} className="space-y-4">
         <TabsList className="grid w-full max-w-[400px] grid-cols-2">
           <TabsTrigger value="fuel" className="flex items-center gap-2">
@@ -466,30 +438,30 @@ export function POS() {
                 <CardContent className="space-y-4">
                   {/* Nozzle Selection */}
                   <div className="space-y-2">
-                    <Label>Fuel Type *</Label>
-                    <Select value={selectedFuelTypeId} onValueChange={setSelectedFuelTypeId}>
+                    <Label>Nozzle *</Label>
+                    <Select value={selectedNozzleId} onValueChange={setSelectedNozzleId}>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select fuel type (PMG/HSD)" />
+                        <SelectValue placeholder="Select nozzle" />
                       </SelectTrigger>
                       <SelectContent>
-                        {fuelTypes?.map(ft => (
-                          <SelectItem key={ft.id} value={ft.id}>
-                            {ft.name}
+                        {nozzlesData?.map(nozzle => (
+                          <SelectItem key={nozzle.id} value={nozzle.id}>
+                            {nozzle.displayName}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
 
-                  {/* Fuel Price Display */}
-                  {selectedFuelTypeId && (() => {
-                    const fuelType = fuelTypes?.find(ft => ft.id === selectedFuelTypeId);
-                    const price = fuelType ? (priceLookup.get(fuelType.id) || 0) : 0;
+                  {/* Fuel Type & Price Display */}
+                  {selectedNozzleId && (() => {
+                    const nozzle = nozzlesData?.find(n => n.id === selectedNozzleId);
+                    const price = nozzle ? (priceLookup.get(nozzle.fuelTypeId) || 0) : 0;
                     return (
                       <div className="p-3 rounded-lg border bg-muted/50">
                         <div className="flex justify-between items-center">
                           <div>
-                            <p className="text-sm font-medium">{fuelType?.name || 'Unknown'}</p>
+                            <p className="text-sm font-medium">{nozzle?.fuelType?.name || 'Unknown'}</p>
                             <p className="text-xs text-muted-foreground">Fuel Type</p>
                           </div>
                           <div className="text-right">
@@ -514,9 +486,9 @@ export function POS() {
                   </div>
 
                   {/* Total Calculation Display */}
-                  {selectedFuelTypeId && liters && parseFloat(liters) > 0 && (() => {
-                    const fuelType = fuelTypes?.find(ft => ft.id === selectedFuelTypeId);
-                    const price = fuelType ? (priceLookup.get(fuelType.id) || 0) : 0;
+                  {selectedNozzleId && liters && parseFloat(liters) > 0 && (() => {
+                    const nozzle = nozzlesData?.find(n => n.id === selectedNozzleId);
+                    const price = nozzle ? (priceLookup.get(nozzle.fuelTypeId) || 0) : 0;
                     const total = parseFloat(liters) * price;
                     return (
                       <div className="p-4 rounded-lg border-2 border-primary bg-primary/5">
@@ -531,7 +503,7 @@ export function POS() {
                     );
                   })()}
 
-                  <Button onClick={addFuelToCart} className="w-full" disabled={!selectedFuelTypeId || !liters}>
+                  <Button onClick={addFuelToCart} className="w-full" disabled={!selectedNozzleId || !liters}>
                     <Plus className="mr-2 h-4 w-4" />
                     Add to Cart
                   </Button>

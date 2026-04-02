@@ -26,7 +26,7 @@ import { reportsApi, apiClient } from '@/api';
 import { useAuthStore } from '@/store/auth';
 import { formatCurrency } from '@/utils/format';
 
-type ReportType = 'daily-sales' | 'shift' | 'inventory' | 'customer-ledger' | 'variance';
+type ReportType = 'daily-sales' | 'shift' | 'inventory' | 'customer-ledger' | 'variance' | 'fuel-price-history';
 
 function formatDate(date: string | Date): string {
   const d = new Date(date);
@@ -286,6 +286,7 @@ export function Reports() {
                   <SelectItem value="inventory">Inventory Report</SelectItem>
                   <SelectItem value="customer-ledger">Customer Ledger</SelectItem>
                   <SelectItem value="variance">Variance Report</SelectItem>
+                  <SelectItem value="fuel-price-history">Fuel Price History</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -335,7 +336,7 @@ export function Reports() {
               </>
             )}
 
-            {(selectedReport === 'variance') && (
+            {(selectedReport === 'variance' || selectedReport === 'fuel-price-history') && (
               <>
                 <div className="space-y-2">
                   <Label>Start Date</Label>
@@ -861,6 +862,23 @@ export function Reports() {
             </Card>
           )}
         </div>
+      )}
+
+      {/* FUEL PRICE HISTORY REPORT */}
+      {selectedReport === 'fuel-price-history' && fetchEnabled && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Fuel Price History</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">
+              Fuel price history report showing all price changes from {formatDate(startDate)} to {formatDate(endDate)}
+            </p>
+            <p className="text-sm text-muted-foreground mt-2">
+              <strong>Coming Soon:</strong> This report will show Date, Product (PMG/HSD), Old Price, New Price, Changed By
+            </p>
+          </CardContent>
+        </Card>
       )}
 
       {/* No report generated yet */}
