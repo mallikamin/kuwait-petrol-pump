@@ -4,6 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   Select,
   SelectContent,
@@ -40,6 +42,15 @@ export function BackdatedEntries() {
         return (branches.items[0] as any).dispensingUnits.flatMap((unit: any) => unit.nozzles || []);
       }
       return [];
+    },
+  });
+
+  // Fetch backdated entries history
+  const { data: entriesData, isLoading: entriesLoading } = useQuery({
+    queryKey: ['backdated-entries'],
+    queryFn: async () => {
+      const res = await apiClient.get('/api/backdated-entries');
+      return res.data;
     },
   });
 
@@ -138,6 +149,82 @@ export function BackdatedEntries() {
           Closing readings automatically become the next day's opening readings.
         </AlertDescription>
       </Alert>
+
+      {/* Transaction History - POS Style */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <History className="h-5 w-5" />
+            Transaction History
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {entriesLoading ? (
+            <div className="space-y-2">
+              {[...Array(5)].map((_, i) => (
+                <Skeleton key={i} className="h-12" />
+              ))}
+            </div>
+          ) : !entriesData?.items || entriesData.items.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <History className="mx-auto h-12 w-12 mb-3 opacity-30" />
+              <p>No backdated entries yet</p>
+              <p className="text-sm">Create your first entry below</p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Nozzle</TableHead>
+                  <TableHead>Opening</TableHead>
+                  <TableHead>Closing</TableHead>
+                  <TableHead>Sales (L)</TableHead>
+                  <TableHead>Cash</TableHead>
+                  <TableHead>Card Sales</TableHead>
+                  <TableHead>Total</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {entriesData.items.map((entry: any) => {
+                  const sales = entry.closingReading - entry.openingReading;
+                  const total = (entry.creditCardSales || 0) + (entry.bankCardSales || 0) + (entry.psoCardSales || 0);
+                  const cash = entry.totalAmount - total;
+                  const nozzle = nozzlesData?.find((n: any) => n.id === entry.nozzleId);
+
+                  return (
+                    <TableRow key={entry.id} className="font-mono text-sm">
+                      <TableCell className="font-normal">{format(new Date(entry.date), 'dd MMM yyyy')}</TableCell>
+                      <TableCell className="font-medium">
+                        {nozzle?.name || `Nozzle ${nozzle?.nozzleNumber || '?'}`}
+                        <span className="text-xs text-muted-foreground ml-1">
+                          ({nozzle?.fuelType?.code || '-'})
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-green-600">{entry.openingReading.toFixed(2)}</TableCell>
+                      <TableCell className="text-red-600">{entry.closingReading.toFixed(2)}</TableCell>
+                      <TableCell className="font-semibold">{sales.toFixed(2)} L</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="font-mono">
+                          {cash.toFixed(2)} KWD
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-xs space-y-1">
+                          {entry.creditCardSales > 0 && <div>CC: {entry.creditCardSales.toFixed(2)}</div>}
+                          {entry.bankCardSales > 0 && <div>Bank: {entry.bankCardSales.toFixed(2)}</div>}
+                          {entry.psoCardSales > 0 && <div>PSO: {entry.psoCardSales.toFixed(2)}</div>}
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-bold">{entry.totalAmount.toFixed(2)} KWD</TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Main Form */}
       <Card>

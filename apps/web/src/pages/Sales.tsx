@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Download, Filter, X, Camera, Image as ImageIcon, Fuel, Banknote, CreditCard, Wallet } from 'lucide-react';
+import { Download, Filter, X, Camera, Image as ImageIcon, Fuel, Banknote, CreditCard, Wallet, List, Users, ChevronDown, ChevronRight } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -25,6 +25,8 @@ export function Sales() {
   const [isFilterDialogOpen, setIsFilterDialogOpen] = useState(false);
   const [meterImageDialog, setMeterImageDialog] = useState<{ open: boolean; imageUrl: string; sale: any } | null>(null);
   const [saleDetailsDialog, setSaleDetailsDialog] = useState<{ open: boolean; sale: any } | null>(null);
+  const [viewMode, setViewMode] = useState<'list' | 'customer'>('list');
+  const [expandedCustomers, setExpandedCustomers] = useState<Set<string>>(new Set());
   const [filters, setFilters] = useState({
     startDate: '',
     endDate: '',
@@ -85,6 +87,45 @@ export function Sales() {
   };
 
   const hasActiveFilters = Object.values(appliedFilters).some(v => v !== '');
+
+  // Group sales by customer (for customer view mode)
+  const groupedByCustomer = () => {
+    const grouped = new Map<string, { customer: any; sales: any[]; vehicles: Map<string, any[]> }>();
+
+    sales.forEach((sale: any) => {
+      const customerId = sale.customer?.id || 'walk-in';
+      const customerName = sale.customer?.name || 'Walk-in Customer';
+      const vehicleNumber = sale.vehicleNumber || 'N/A';
+
+      if (!grouped.has(customerId)) {
+        grouped.set(customerId, {
+          customer: { id: customerId, name: customerName },
+          sales: [],
+          vehicles: new Map(),
+        });
+      }
+
+      const customerGroup = grouped.get(customerId)!;
+      customerGroup.sales.push(sale);
+
+      if (!customerGroup.vehicles.has(vehicleNumber)) {
+        customerGroup.vehicles.set(vehicleNumber, []);
+      }
+      customerGroup.vehicles.get(vehicleNumber)!.push(sale);
+    });
+
+    return Array.from(grouped.values());
+  };
+
+  const toggleCustomerExpand = (customerId: string) => {
+    const newExpanded = new Set(expandedCustomers);
+    if (newExpanded.has(customerId)) {
+      newExpanded.delete(customerId);
+    } else {
+      newExpanded.add(customerId);
+    }
+    setExpandedCustomers(newExpanded);
+  };
 
   const handleExport = () => {
     if (!sales || sales.length === 0) {
@@ -283,7 +324,27 @@ export function Sales() {
 
       <Card>
         <CardHeader>
-          <CardTitle>All Sales</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>All Sales</CardTitle>
+            <div className="flex gap-2">
+              <Button
+                variant={viewMode === 'list' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setViewMode('list')}
+              >
+                <List className="mr-2 h-4 w-4" />
+                List View
+              </Button>
+              <Button
+                variant={viewMode === 'customer' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setViewMode('customer')}
+              >
+                <Users className="mr-2 h-4 w-4" />
+                Customer View
+              </Button>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -299,6 +360,88 @@ export function Sales() {
           ) : sales.length === 0 ? (
             <div className="py-8 text-center text-muted-foreground">
               No sales found.
+            </div>
+          ) : viewMode === 'customer' ? (
+            <div className="space-y-4">
+              {groupedByCustomer().map((customerGroup) => {
+                const isExpanded = expandedCustomers.has(customerGroup.customer.id);
+                const totalAmount = customerGroup.sales.reduce((sum, sale) => sum + Number(sale.totalAmount || sale.net_amount || 0), 0);
+                const totalTransactions = customerGroup.sales.length;
+
+                return (
+                  <div key={customerGroup.customer.id} className="border rounded-lg overflow-hidden">
+                    {/* Customer Header */}
+                    <div
+                      className="flex items-center justify-between p-4 bg-muted/50 cursor-pointer hover:bg-muted/70 transition-colors"
+                      onClick={() => toggleCustomerExpand(customerGroup.customer.id)}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center justify-center w-10 h-10 rounded-full bg-primary/10">
+                          <Users className="h-5 w-5 text-primary" />
+                        </div>
+                        <div>
+                          <h3 className="font-semibold">{customerGroup.customer.name}</h3>
+                          <p className="text-sm text-muted-foreground">
+                            {totalTransactions} transaction{totalTransactions !== 1 ? 's' : ''} • {customerGroup.vehicles.size} vehicle{customerGroup.vehicles.size !== 1 ? 's' : ''}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <div className="text-2xl font-bold">{formatCurrency(totalAmount)}</div>
+                          <div className="text-xs text-muted-foreground">Total</div>
+                        </div>
+                        {isExpanded ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
+                      </div>
+                    </div>
+
+                    {/* Expanded Vehicle Groups */}
+                    {isExpanded && (
+                      <div className="divide-y">
+                        {Array.from(customerGroup.vehicles.entries()).map(([vehicleNumber, vehicleSales]) => {
+                          const vehicleTotal = vehicleSales.reduce((sum, sale) => sum + Number(sale.totalAmount || sale.net_amount || 0), 0);
+
+                          return (
+                            <div key={vehicleNumber} className="bg-background">
+                              {/* Vehicle Header */}
+                              <div className="flex items-center justify-between px-4 py-2 bg-muted/30">
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="outline" className="font-mono">{vehicleNumber}</Badge>
+                                  <span className="text-sm text-muted-foreground">{vehicleSales.length} transaction{vehicleSales.length !== 1 ? 's' : ''}</span>
+                                </div>
+                                <div className="font-semibold">{formatCurrency(vehicleTotal)}</div>
+                              </div>
+
+                              {/* Transaction List */}
+                              <Table>
+                                <TableBody>
+                                  {vehicleSales.map((sale: any) => (
+                                    <TableRow key={sale.id} className="text-sm">
+                                      <TableCell className="w-[140px]">{formatDateTime(sale.saleDate || sale.createdAt || sale.created_at)}</TableCell>
+                                      <TableCell>
+                                        <Badge variant={(sale.sale_type || sale.saleType) === 'fuel' ? 'default' : 'secondary'} className="text-xs">
+                                          {sale.sale_type || sale.saleType || '-'}
+                                        </Badge>
+                                      </TableCell>
+                                      <TableCell>
+                                        <Badge variant="outline" className="text-xs">{sale.payment_method || sale.paymentMethod || '-'}</Badge>
+                                      </TableCell>
+                                      <TableCell className="font-medium">{formatCurrency(Number(sale.totalAmount || sale.net_amount || 0))}</TableCell>
+                                      <TableCell className="w-[80px]">
+                                        <Badge variant="success" className="text-xs">{sale.status || 'completed'}</Badge>
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <Table>
