@@ -26,7 +26,7 @@ import { reportsApi, apiClient } from '@/api';
 import { useAuthStore } from '@/store/auth';
 import { formatCurrency } from '@/utils/format';
 
-type ReportType = 'daily-sales' | 'shift' | 'inventory' | 'customer-ledger' | 'variance' | 'fuel-price-history';
+type ReportType = 'daily-sales' | 'shift' | 'inventory' | 'customer-ledger' | 'variance' | 'fuel-price-history' | 'customer-wise-sales';
 
 function formatDate(date: string | Date): string {
   const d = new Date(date);
@@ -163,15 +163,40 @@ export function Reports() {
     enabled: fetchEnabled && selectedReport === 'fuel-price-history',
   });
 
-  // Get customers list for dropdown
+  // Customer-Wise Sales
+  const { data: customerWiseSales, isLoading: loadingCustomerWise, isError: errorCustomerWise } = useQuery({
+    queryKey: ['report-customer-wise-sales', branchId, startDate, endDate, selectedCustomerId],
+    queryFn: () => {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999); // Set to end of day
+      return reportsApi.getCustomerWiseSales(
+        branchId,
+        start.toISOString(),
+        end.toISOString(),
+        selectedCustomerId || undefined
+      );
+    },
+    enabled: fetchEnabled && selectedReport === 'customer-wise-sales' && !!branchId,
+  });
+
+  // Get customers list for dropdown (both ledger and customer-wise reports)
+  const [customerSearch, setCustomerSearch] = useState('');
   const { data: customersData } = useQuery({
     queryKey: ['customers-list'],
     queryFn: () => apiClient.get('/api/customers', { params: { page: 1, size: 100 } }).then(r => r.data.customers || []),
-    enabled: selectedReport === 'customer-ledger',
+    enabled: selectedReport === 'customer-ledger' || selectedReport === 'customer-wise-sales',
   });
 
-  const isLoading = loadingDaily || loadingShift || loadingInventory || loadingLedger || loadingVariance || loadingFuelPrice;
-  const isError = errorDaily || errorShift || errorInventory || errorLedger || errorVariance || errorFuelPrice;
+  // Filter customers by search
+  const filteredCustomers = (customersData || []).filter((c: any) =>
+    c.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
+    (c.phone && c.phone.includes(customerSearch)) ||
+    (c.email && c.email.toLowerCase().includes(customerSearch.toLowerCase()))
+  );
+
+  const isLoading = loadingDaily || loadingShift || loadingInventory || loadingLedger || loadingVariance || loadingFuelPrice || loadingCustomerWise;
+  const isError = errorDaily || errorShift || errorInventory || errorLedger || errorVariance || errorFuelPrice || errorCustomerWise;
 
   const handleGenerate = () => {
     setFetchEnabled(true);
@@ -183,6 +208,8 @@ export function Reports() {
     const summary = dailySales.summary || {};
     const payments = dailySales.paymentMethodBreakdown || [];
     const shifts = dailySales.shiftBreakdown || [];
+    const variantPayments = dailySales.variantPaymentBreakdown || [];
+    const fuelByType = summary.fuel?.byType || {};
 
     const headers = ['Category', 'Count', 'Amount'];
     const rows: (string | number)[][] = [
@@ -190,9 +217,19 @@ export function Reports() {
       ['Fuel Sales', summary.fuel?.count || 0, Number(summary.fuel?.amount || 0)],
       ['Non-Fuel Sales', summary.nonFuel?.count || 0, Number(summary.nonFuel?.amount || 0)],
       ['', '', ''],
+      ['Product Variant', 'Liters', 'Amount'],
+      ...Object.entries(fuelByType).map(([type, data]: [string, any]) => [
+        type,
+        Number(data.liters || 0).toFixed(2),
+        Number(data.amount || 0)
+      ]),
+      ['', '', ''],
       ['Payment Method', 'Count', 'Amount'],
       ...payments.map((p: any) => [p.paymentMethod || p.method, p.count || p._count || 0, Number(p.totalAmount || p.amount || 0)]),
       ['', '', ''],
+      ['Product Variant', 'Payment Type', 'Count', 'Amount'],
+      ...variantPayments.map((vp: any) => [vp.variant, vp.paymentMethod, vp.count, Number(vp.amount)]),
+      ['', '', '', ''],
       ['Shift', 'Cashier', 'Amount'],
       ...shifts.map((s: any) => [s.shiftNumber || s.name || '-', s.cashier?.fullName || s.cashier || '-', Number(s.totalAmount || s.amount || 0)]),
     ];
@@ -205,6 +242,7 @@ export function Reports() {
     const summary = dailySales.summary || {};
     const payments = dailySales.paymentMethodBreakdown || [];
     const shifts = dailySales.shiftBreakdown || [];
+    const variantPayments = dailySales.variantPaymentBreakdown || [];
 
     let html = `
       <h2>Summary - ${formatDate(reportDate)}</h2>
@@ -218,6 +256,11 @@ export function Reports() {
       <table>
         <tr><th>Method</th><th class="right">Count</th><th class="right">Amount</th></tr>
         ${payments.map((p: any) => `<tr><td>${p.paymentMethod || p.method || '-'}</td><td class="right">${p.count || p._count || 0}</td><td class="right">${formatCurrency(Number(p.totalAmount || p.amount || 0))}</td></tr>`).join('')}
+      </table>
+      <h2>Product Variant × Payment Type</h2>
+      <table>
+        <tr><th>Variant</th><th>Payment</th><th class="right">Count</th><th class="right">Amount</th><th class="right">Liters</th></tr>
+        ${variantPayments.map((vp: any) => `<tr><td>${vp.variant}</td><td>${vp.paymentMethod}</td><td class="right">${vp.count}</td><td class="right">${formatCurrency(Number(vp.amount))}</td><td class="right">${vp.liters ? Number(vp.liters).toFixed(2) + ' L' : '-'}</td></tr>`).join('')}
       </table>
       <h2>Shift Breakdown</h2>
       <table>
@@ -312,6 +355,7 @@ export function Reports() {
                   <SelectItem value="customer-ledger">Customer Ledger</SelectItem>
                   <SelectItem value="variance">Variance Report</SelectItem>
                   <SelectItem value="fuel-price-history">Fuel Price History</SelectItem>
+                  <SelectItem value="customer-wise-sales">Customer-Wise Sales</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -337,15 +381,31 @@ export function Reports() {
 
             {selectedReport === 'customer-ledger' && (
               <>
+                <div className="space-y-2 md:col-span-4">
+                  <Label>Search Customer</Label>
+                  <Input
+                    placeholder="🔍 Search by name, phone, or email..."
+                    value={customerSearch}
+                    onChange={(e) => setCustomerSearch(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {filteredCustomers.length} of {customersData?.length || 0} customers
+                  </p>
+                </div>
                 <div className="space-y-2">
-                  <Label>Customer</Label>
+                  <Label>Customer *</Label>
                   <Select value={selectedCustomerId} onValueChange={(v) => { setSelectedCustomerId(v); setFetchEnabled(false); }}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select customer" />
                     </SelectTrigger>
-                    <SelectContent>
-                      {(customersData || []).map((c: any) => (
-                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    <SelectContent className="max-h-[300px]">
+                      {filteredCustomers.map((c: any) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          <div className="flex flex-col">
+                            <span>{c.name}</span>
+                            {c.phone && <span className="text-xs text-muted-foreground">{c.phone}</span>}
+                          </div>
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -363,6 +423,49 @@ export function Reports() {
 
             {(selectedReport === 'variance' || selectedReport === 'fuel-price-history') && (
               <>
+                <div className="space-y-2">
+                  <Label>Start Date</Label>
+                  <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setFetchEnabled(false); }} />
+                </div>
+                <div className="space-y-2">
+                  <Label>End Date</Label>
+                  <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setFetchEnabled(false); }} />
+                </div>
+              </>
+            )}
+
+            {selectedReport === 'customer-wise-sales' && (
+              <>
+                <div className="space-y-2 md:col-span-4">
+                  <Label>Search Customer (Optional)</Label>
+                  <Input
+                    placeholder="🔍 Search by name, phone, or email..."
+                    value={customerSearch}
+                    onChange={(e) => setCustomerSearch(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {filteredCustomers.length} of {customersData?.length || 0} customers
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Customer (Optional)</Label>
+                  <Select value={selectedCustomerId || 'ALL'} onValueChange={(v) => { setSelectedCustomerId(v === 'ALL' ? '' : v); setFetchEnabled(false); }}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="All customers" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-[300px]">
+                      <SelectItem value="ALL">All Customers</SelectItem>
+                      {filteredCustomers.map((c: any) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          <div className="flex flex-col">
+                            <span>{c.name}</span>
+                            {c.phone && <span className="text-xs text-muted-foreground">{c.phone}</span>}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="space-y-2">
                   <Label>Start Date</Label>
                   <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setFetchEnabled(false); }} />
@@ -443,6 +546,24 @@ export function Reports() {
             </Card>
           </div>
 
+          {/* Product Variant Cards */}
+          {dailySales.summary?.fuel?.byType && Object.keys(dailySales.summary.fuel.byType).length > 0 && (
+            <div>
+              <h3 className="text-lg font-semibold mb-3">Product Variant Breakdown</h3>
+              <div className="grid gap-4 md:grid-cols-4">
+                {Object.entries(dailySales.summary.fuel.byType).map(([fuelType, data]: [string, any]) => (
+                  <Card key={fuelType}>
+                    <CardContent className="pt-6">
+                      <p className="text-sm text-muted-foreground">{fuelType}</p>
+                      <p className="text-2xl font-bold">{formatCurrency(Number(data.amount || 0))}</p>
+                      <p className="text-xs text-muted-foreground">{Number(data.liters || 0).toFixed(2)} liters</p>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Payment Breakdown */}
           {dailySales.paymentMethodBreakdown?.length > 0 && (
             <Card>
@@ -464,6 +585,45 @@ export function Reports() {
                         </TableCell>
                         <TableCell className="text-right">{p.count || p._count || 0}</TableCell>
                         <TableCell className="text-right font-medium">{formatCurrency(Number(p.totalAmount || p.amount || 0))}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Product Variant × Payment Type Breakdown */}
+          {dailySales.variantPaymentBreakdown?.length > 0 && (
+            <Card>
+              <CardHeader><CardTitle className="text-base">Product Variant × Payment Type Breakdown</CardTitle></CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Product Variant</TableHead>
+                      <TableHead>Payment Type</TableHead>
+                      <TableHead className="text-right">Count</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                      <TableHead className="text-right">Liters</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {dailySales.variantPaymentBreakdown
+                      .sort((a: any, b: any) => a.variant.localeCompare(b.variant))
+                      .map((vp: any, i: number) => (
+                      <TableRow key={i}>
+                        <TableCell>
+                          <Badge variant="outline">{vp.variant}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge>{vp.paymentMethod}</Badge>
+                        </TableCell>
+                        <TableCell className="text-right">{vp.count}</TableCell>
+                        <TableCell className="text-right font-medium">{formatCurrency(Number(vp.amount))}</TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {vp.liters ? `${Number(vp.liters).toFixed(2)} L` : '-'}
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -1036,6 +1196,145 @@ export function Reports() {
             <Card>
               <CardContent className="py-8 text-center text-muted-foreground">
                 No fuel price changes found for the selected date range.
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* CUSTOMER-WISE SALES REPORT */}
+      {selectedReport === 'customer-wise-sales' && customerWiseSales && !isLoading && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-semibold">
+              Customer-Wise Sales Report ({formatDate(startDate)} - {formatDate(endDate)})
+            </h2>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => {
+                if (!customerWiseSales) return;
+                const headers = ['Date', 'Customer Name', 'Product', 'Variant', 'Rate', 'Quantity', 'Amount', 'Payment Method', 'Vehicle#'];
+                const rows: (string | number)[][] = (customerWiseSales.saleDetails || []).map((detail: any) => [
+                  formatDate(detail.date),
+                  detail.customerName,
+                  detail.productName,
+                  detail.productVariant,
+                  detail.rate,
+                  detail.quantity,
+                  detail.amount,
+                  detail.paymentMethod,
+                  detail.vehicleNumber || '-',
+                ]);
+                downloadCSV(`customer-wise-sales-${startDate}-to-${endDate}.csv`, toCSV(headers, rows));
+              }}>
+                <Download className="mr-2 h-4 w-4" /> CSV
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground">Total Sales</p>
+                <p className="text-2xl font-bold">{customerWiseSales.totalSales || 0}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground">Total Amount</p>
+                <p className="text-2xl font-bold">{formatCurrency(customerWiseSales.totalAmount || 0)}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground">Total Customers</p>
+                <p className="text-2xl font-bold">{customerWiseSales.customerSummary?.length || 0}</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Customer Summary */}
+          {customerWiseSales.customerSummary?.length > 0 && (
+            <Card>
+              <CardHeader><CardTitle className="text-base">Customer Summary</CardTitle></CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Customer</TableHead>
+                      <TableHead className="text-right">Transactions</TableHead>
+                      <TableHead className="text-right">Total Amount</TableHead>
+                      <TableHead>Top Variant</TableHead>
+                      <TableHead>Top Payment</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {customerWiseSales.customerSummary.map((cust: any, i: number) => {
+                      const topVariant = Object.entries(cust.byVariant).sort((a: any, b: any) => b[1].amount - a[1].amount)[0];
+                      const topPayment = Object.entries(cust.byPaymentMethod).sort((a: any, b: any) => b[1].amount - a[1].amount)[0];
+                      return (
+                        <TableRow key={i}>
+                          <TableCell className="font-medium">{cust.name}</TableCell>
+                          <TableCell className="text-right">{cust.totalTransactions}</TableCell>
+                          <TableCell className="text-right font-medium">{formatCurrency(cust.totalAmount)}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{topVariant ? topVariant[0] : '-'}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge>{topPayment ? topPayment[0] : '-'}</Badge>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Detailed Transactions */}
+          {customerWiseSales.saleDetails?.length > 0 && (
+            <Card>
+              <CardHeader><CardTitle className="text-base">Transaction Details</CardTitle></CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Customer</TableHead>
+                      <TableHead>Product</TableHead>
+                      <TableHead>Variant</TableHead>
+                      <TableHead className="text-right">Rate</TableHead>
+                      <TableHead className="text-right">Qty</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                      <TableHead>Payment</TableHead>
+                      <TableHead>Vehicle#</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {customerWiseSales.saleDetails.slice(0, 100).map((detail: any, i: number) => (
+                      <TableRow key={i}>
+                        <TableCell>{formatDate(detail.date)}</TableCell>
+                        <TableCell>{detail.customerName}</TableCell>
+                        <TableCell>{detail.productName}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{detail.productVariant}</Badge>
+                        </TableCell>
+                        <TableCell className="text-right">{formatCurrency(detail.rate)}</TableCell>
+                        <TableCell className="text-right">{Number(detail.quantity).toFixed(2)}</TableCell>
+                        <TableCell className="text-right font-medium">{formatCurrency(detail.amount)}</TableCell>
+                        <TableCell>
+                          <Badge>{detail.paymentMethod}</Badge>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">{detail.vehicleNumber || '-'}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                {customerWiseSales.saleDetails.length > 100 && (
+                  <p className="text-xs text-muted-foreground mt-2 text-center">
+                    Showing first 100 of {customerWiseSales.saleDetails.length} transactions. Download CSV for full data.
+                  </p>
+                )}
               </CardContent>
             </Card>
           )}

@@ -54,7 +54,7 @@ export function Customers() {
 
   const { data, isLoading } = useQuery({
     queryKey: ['customers', page, search],
-    queryFn: () => customersApi.getAll({ page, size: 20, search: search || undefined }),
+    queryFn: () => customersApi.getAll({ page, size: 100, search: search || undefined }),
   });
 
   const createMutation = useMutation({
@@ -182,18 +182,17 @@ export function Customers() {
 
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>All Customers</CardTitle>
-            <div className="w-72">
-              <Input
-                placeholder="Search by name, phone, or email..."
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  setPage(1);
-                }}
-              />
-            </div>
+          <CardTitle>All Customers</CardTitle>
+          <div className="mt-3">
+            <Input
+              placeholder="🔍 Search by name, phone, email, or vehicle number..."
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+              className="w-full"
+            />
           </div>
         </CardHeader>
         <CardContent>
@@ -254,10 +253,10 @@ export function Customers() {
             </Table>
           )}
         </CardContent>
-        {data && data.total > 20 && (
+        {data && data.total > 100 && (
           <div className="flex items-center justify-between px-6 py-4 border-t">
             <div className="text-sm text-muted-foreground">
-              Showing {((page - 1) * 20) + 1} to {Math.min(page * 20, data.total)} of {data.total} customers
+              Showing {((page - 1) * 100) + 1} to {Math.min(page * 100, data.total)} of {data.total} customers
             </div>
             <div className="flex gap-2">
               <Button

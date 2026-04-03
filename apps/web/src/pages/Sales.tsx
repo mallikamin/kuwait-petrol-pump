@@ -22,6 +22,7 @@ import { formatCurrency, formatDateTime } from '@/utils/format';
 export function Sales() {
   const [isFilterDialogOpen, setIsFilterDialogOpen] = useState(false);
   const [meterImageDialog, setMeterImageDialog] = useState<{ open: boolean; imageUrl: string; sale: any } | null>(null);
+  const [saleDetailsDialog, setSaleDetailsDialog] = useState<{ open: boolean; sale: any } | null>(null);
   const [filters, setFilters] = useState({
     startDate: '',
     endDate: '',
@@ -62,8 +63,38 @@ export function Sales() {
   const hasActiveFilters = Object.values(appliedFilters).some(v => v !== '');
 
   const handleExport = () => {
-    // TODO: Implement CSV export
-    alert('Export functionality will be implemented');
+    if (!sales || sales.length === 0) {
+      alert('No sales data to export');
+      return;
+    }
+
+    // Prepare CSV data
+    const headers = ['Date', 'Type', 'Customer', 'Vehicle#', 'Payment Method', 'Amount', 'Status', 'Slip#'];
+    const rows = sales.map((sale: any) => [
+      formatDateTime(sale.saleDate || sale.createdAt || sale.created_at),
+      sale.sale_type || sale.saleType || '-',
+      sale.customer?.name || 'Walk-in',
+      sale.vehicleNumber || '-',
+      sale.payment_method || sale.paymentMethod || '-',
+      Number(sale.totalAmount || sale.net_amount || 0).toFixed(2),
+      sale.status || 'completed',
+      sale.slipNumber || '-',
+    ]);
+
+    // Generate CSV content
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')),
+    ].join('\n');
+
+    // Download CSV
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `sales-export-${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -256,7 +287,11 @@ export function Sales() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <Button variant="ghost" size="sm">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSaleDetailsDialog({ open: true, sale })}
+                      >
                         View
                       </Button>
                     </TableCell>
@@ -267,6 +302,153 @@ export function Sales() {
           )}
         </CardContent>
       </Card>
+
+      {/* Sale Details Dialog */}
+      {saleDetailsDialog && (
+        <Dialog open={saleDetailsDialog.open} onOpenChange={(open) => !open && setSaleDetailsDialog(null)}>
+          <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Sale Details</DialogTitle>
+              <DialogDescription>
+                Complete transaction information
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-6">
+              {/* Basic Info */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-xs text-muted-foreground">Sale ID</Label>
+                  <p className="font-mono text-sm">{saleDetailsDialog.sale.id}</p>
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Slip Number</Label>
+                  <p className="font-medium">{saleDetailsDialog.sale.slipNumber || '-'}</p>
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Date & Time</Label>
+                  <p>{formatDateTime(saleDetailsDialog.sale.saleDate || saleDetailsDialog.sale.createdAt)}</p>
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Type</Label>
+                  <Badge variant={(saleDetailsDialog.sale.sale_type || saleDetailsDialog.sale.saleType) === 'fuel' ? 'default' : 'secondary'}>
+                    {saleDetailsDialog.sale.sale_type || saleDetailsDialog.sale.saleType || '-'}
+                  </Badge>
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Customer</Label>
+                  <p>{saleDetailsDialog.sale.customer?.name || 'Walk-in'}</p>
+                  {saleDetailsDialog.sale.vehicleNumber && (
+                    <p className="text-xs text-muted-foreground">Vehicle: {saleDetailsDialog.sale.vehicleNumber}</p>
+                  )}
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Payment Method</Label>
+                  <Badge variant="outline">{saleDetailsDialog.sale.payment_method || saleDetailsDialog.sale.paymentMethod || '-'}</Badge>
+                </div>
+              </div>
+
+              {/* Fuel Sales Details */}
+              {(saleDetailsDialog.sale.sale_type || saleDetailsDialog.sale.saleType) === 'fuel' && saleDetailsDialog.sale.fuelSales?.length > 0 && (
+                <div>
+                  <h3 className="font-semibold mb-3">Fuel Sales</h3>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Fuel Type</TableHead>
+                        <TableHead className="text-right">Quantity (L)</TableHead>
+                        <TableHead className="text-right">Rate</TableHead>
+                        <TableHead className="text-right">Amount</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {saleDetailsDialog.sale.fuelSales.map((fs: any, i: number) => (
+                        <TableRow key={i}>
+                          <TableCell>{fs.fuelType?.name || '-'}</TableCell>
+                          <TableCell className="text-right">{Number(fs.quantityLiters || 0).toFixed(2)}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(fs.pricePerLiter || 0)}</TableCell>
+                          <TableCell className="text-right font-medium">{formatCurrency(fs.totalAmount || 0)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+
+              {/* Non-Fuel Sales Details */}
+              {(saleDetailsDialog.sale.sale_type || saleDetailsDialog.sale.saleType) === 'non_fuel' && saleDetailsDialog.sale.nonFuelSales?.length > 0 && (
+                <div>
+                  <h3 className="font-semibold mb-3">Non-Fuel Items</h3>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Product</TableHead>
+                        <TableHead className="text-right">Quantity</TableHead>
+                        <TableHead className="text-right">Unit Price</TableHead>
+                        <TableHead className="text-right">Amount</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {saleDetailsDialog.sale.nonFuelSales.map((item: any, i: number) => (
+                        <TableRow key={i}>
+                          <TableCell>{item.product?.name || '-'}</TableCell>
+                          <TableCell className="text-right">{item.quantity || 0}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(item.unitPrice || 0)}</TableCell>
+                          <TableCell className="text-right font-medium">{formatCurrency(item.totalAmount || 0)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+
+              {/* Total Amount */}
+              <div className="flex justify-between items-center p-4 bg-muted rounded-lg">
+                <span className="font-semibold">Total Amount</span>
+                <span className="text-2xl font-bold">{formatCurrency(Number(saleDetailsDialog.sale.totalAmount || saleDetailsDialog.sale.net_amount || 0))}</span>
+              </div>
+
+              {/* Additional Info */}
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                {saleDetailsDialog.sale.cashier && (
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Cashier</Label>
+                    <p>{saleDetailsDialog.sale.cashier.fullName || saleDetailsDialog.sale.cashier.username}</p>
+                  </div>
+                )}
+                {saleDetailsDialog.sale.shift && (
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Shift</Label>
+                    <p>{saleDetailsDialog.sale.shift.name}</p>
+                  </div>
+                )}
+                <div>
+                  <Label className="text-xs text-muted-foreground">Status</Label>
+                  <div className="mt-1">
+                    <Badge
+                      variant={
+                        saleDetailsDialog.sale.status === 'completed'
+                          ? 'default'
+                          : saleDetailsDialog.sale.status === 'pending'
+                          ? 'secondary'
+                          : 'destructive'
+                      }
+                    >
+                      {saleDetailsDialog.sale.status || 'completed'}
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setSaleDetailsDialog(null)}>
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Meter Image Dialog */}
       {meterImageDialog && (

@@ -42,4 +42,11 @@ export const reportsApi = {
     });
     return response.data.report || response.data;
   },
+
+  getCustomerWiseSales: async (branchId: string, startDate: string, endDate: string, customerId?: string): Promise<any> => {
+    const response = await apiClient.get('/api/reports/customer-wise-sales', {
+      params: { branchId, startDate, endDate, customerId },
+    });
+    return response.data.report || response.data;
+  },
 };
