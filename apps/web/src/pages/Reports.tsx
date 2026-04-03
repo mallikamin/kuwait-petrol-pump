@@ -128,12 +128,10 @@ export function Reports() {
   const { data: customerLedger, isLoading: loadingLedger, isError: errorLedger } = useQuery({
     queryKey: ['report-customer-ledger', selectedCustomerId, startDate, endDate],
     queryFn: () => {
-      console.log('[LEDGER DEBUG] Frontend calling API with:', {
-        customerId: selectedCustomerId,
-        startDate: new Date(startDate).toISOString(),
-        endDate: new Date(endDate).toISOString(),
-      });
-      return reportsApi.getCustomerLedger(selectedCustomerId, new Date(startDate).toISOString(), new Date(endDate).toISOString());
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999); // Set to end of day
+      return reportsApi.getCustomerLedger(selectedCustomerId, start.toISOString(), end.toISOString());
     },
     enabled: fetchEnabled && selectedReport === 'customer-ledger' && !!selectedCustomerId,
     staleTime: 0,
@@ -144,14 +142,24 @@ export function Reports() {
   // Variance
   const { data: variance, isLoading: loadingVariance, isError: errorVariance } = useQuery({
     queryKey: ['report-variance', branchId, startDate, endDate],
-    queryFn: () => reportsApi.getVarianceReport(branchId, new Date(startDate).toISOString(), new Date(endDate).toISOString()),
+    queryFn: () => {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999); // Set to end of day
+      return reportsApi.getVarianceReport(branchId, start.toISOString(), end.toISOString());
+    },
     enabled: fetchEnabled && selectedReport === 'variance' && !!branchId,
   });
 
   // Fuel Price History
   const { data: fuelPriceHistory, isLoading: loadingFuelPrice, isError: errorFuelPrice } = useQuery({
     queryKey: ['report-fuel-price-history', startDate, endDate],
-    queryFn: () => reportsApi.getFuelPriceHistory(new Date(startDate).toISOString(), new Date(endDate).toISOString()),
+    queryFn: () => {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999); // Set to end of day
+      return reportsApi.getFuelPriceHistory(start.toISOString(), end.toISOString());
+    },
     enabled: fetchEnabled && selectedReport === 'fuel-price-history',
   });
 
