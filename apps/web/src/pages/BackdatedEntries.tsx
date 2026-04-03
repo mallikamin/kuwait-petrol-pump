@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,433 +14,707 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Calendar, DollarSign, AlertCircle, CheckCircle, History } from 'lucide-react';
+import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle } from 'lucide-react';
 import { apiClient } from '@/api/client';
-import { branchesApi } from '@/api';
+import { branchesApi, customersApi } from '@/api';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 
+interface Transaction {
+  id?: string;
+  customerId?: string;
+  customerName?: string;
+  vehicleNumber?: string;
+  slipNumber?: string;
+  productName: string;
+  quantity: string;
+  unitPrice: string;
+  lineTotal: string;
+  paymentMethod: 'cash' | 'credit_card' | 'bank_card' | 'pso_card' | 'credit_customer';
+}
+
 export function BackdatedEntries() {
-  const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  // Entry fields
+  const [businessDate, setBusinessDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [selectedBranchId, setSelectedBranchId] = useState('');
   const [selectedNozzleId, setSelectedNozzleId] = useState('');
+  const [selectedShiftId, setSelectedShiftId] = useState('');
   const [openingReading, setOpeningReading] = useState('');
   const [closingReading, setClosingReading] = useState('');
-  const [creditCardSales, setCreditCardSales] = useState('0');
-  const [bankCardSales, setBankCardSales] = useState('0');
-  const [psoCardSales, setPsoCardSales] = useState('0');
   const [notes, setNotes] = useState('');
+
+  // Transaction fields
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [currentEntryId, setCurrentEntryId] = useState<string | null>(null);
 
   const queryClient = useQueryClient();
 
-  // Fetch nozzles
-  const { data: nozzlesData } = useQuery({
-    queryKey: ['branches', 'dispensing-units'],
+  // Fetch branches
+  const { data: branchesData } = useQuery({
+    queryKey: ['branches'],
     queryFn: async () => {
+      const res = await branchesApi.getAll();
+      return res.items;
+    },
+  });
+
+  // Fetch nozzles for selected branch
+  const { data: nozzlesData } = useQuery({
+    queryKey: ['branches', selectedBranchId, 'nozzles'],
+    queryFn: async () => {
+      if (!selectedBranchId) return [];
       const branches = await branchesApi.getAll();
-      if (branches.items.length > 0 && (branches.items[0] as any).dispensingUnits) {
-        return (branches.items[0] as any).dispensingUnits.flatMap((unit: any) => unit.nozzles || []);
+      const branch = branches.items.find((b: any) => b.id === selectedBranchId);
+      if (branch && (branch as any).dispensingUnits) {
+        return (branch as any).dispensingUnits.flatMap((unit: any) => unit.nozzles || []);
       }
       return [];
     },
+    enabled: !!selectedBranchId,
   });
 
-  // Fetch backdated entries history
-  const { data: entriesData, isLoading: entriesLoading } = useQuery({
-    queryKey: ['backdated-entries'],
+  // Fetch customers for autocomplete
+  const { data: customersData } = useQuery({
+    queryKey: ['customers'],
     queryFn: async () => {
-      const res = await apiClient.get('/api/backdated-entries');
-      return res.data;
+      const res = await customersApi.getAll();
+      return res.items;
     },
   });
 
-  // Fetch fuel prices to calculate total sales
+  // Get selected nozzle details
   const selectedNozzle = nozzlesData?.find((n: any) => n.id === selectedNozzleId);
+  const fuelTypeId = selectedNozzle?.fuelTypeId;
 
-  // Calculate values
-  const salesVolume = closingReading && openingReading
+  // Auto-fill unit price when nozzle selected (mock - replace with API call)
+  const defaultUnitPrice = selectedNozzle?.fuelType?.code === 'HSD' ? '287.33' : '290.50';
+
+  // Calculate meter variance
+  const meterLiters = closingReading && openingReading
     ? parseFloat(closingReading) - parseFloat(openingReading)
     : 0;
 
-  const fuelPrice = selectedNozzle?.fuelType?.code === 'HSD' ? 0.280 : 0.463; // TODO: Fetch from API
-  const totalSalesAmount = salesVolume * fuelPrice;
+  const transactionTotals = transactions.reduce(
+    (acc, txn) => {
+      const qty = parseFloat(txn.quantity || '0');
+      const total = parseFloat(txn.lineTotal || '0');
 
-  const totalCardSales =
-    parseFloat(creditCardSales || '0') +
-    parseFloat(bankCardSales || '0') +
-    parseFloat(psoCardSales || '0');
+      acc.liters += qty;
+      acc.amount += total;
 
-  const cashSales = totalSalesAmount - totalCardSales;
+      switch (txn.paymentMethod) {
+        case 'cash':
+          acc.cash += total;
+          break;
+        case 'credit_card':
+          acc.creditCard += total;
+          break;
+        case 'bank_card':
+          acc.bankCard += total;
+          break;
+        case 'pso_card':
+          acc.psoCard += total;
+          break;
+        case 'credit_customer':
+          acc.creditCustomer += total;
+          break;
+      }
 
-  // Create mutation
-  const createMutation = useMutation({
-    mutationFn: async (data: any) => {
-      const res = await apiClient.post('/api/backdated-entries', data);
-      return res.data;
+      return acc;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['backdated-entries'] });
-      toast.success('Backdated entry created successfully');
-      resetForm();
+    {
+      liters: 0,
+      amount: 0,
+      cash: 0,
+      creditCard: 0,
+      bankCard: 0,
+      psoCard: 0,
+      creditCustomer: 0,
+    }
+  );
+
+  const varianceLiters = meterLiters - transactionTotals.liters;
+  const varianceAmount = varianceLiters * parseFloat(defaultUnitPrice || '0');
+
+  // Add transaction row
+  const addTransaction = () => {
+    setTransactions([
+      ...transactions,
+      {
+        productName: selectedNozzle?.fuelType?.name || 'Fuel',
+        quantity: '',
+        unitPrice: defaultUnitPrice,
+        lineTotal: '0',
+        paymentMethod: 'cash',
+      },
+    ]);
+  };
+
+  // Remove transaction row
+  const removeTransaction = (index: number) => {
+    setTransactions(transactions.filter((_, i) => i !== index));
+  };
+
+  // Update transaction field
+  const updateTransaction = (index: number, field: keyof Transaction, value: any) => {
+    const updated = [...transactions];
+    updated[index] = { ...updated[index], [field]: value };
+
+    // Auto-calculate line total when quantity or unit price changes
+    if (field === 'quantity' || field === 'unitPrice') {
+      const qty = parseFloat(updated[index].quantity || '0');
+      const price = parseFloat(updated[index].unitPrice || '0');
+      updated[index].lineTotal = (qty * price).toFixed(2);
+    }
+
+    // Auto-fill customer name
+    if (field === 'customerId') {
+      const customer = customersData?.find((c: any) => c.id === value);
+      if (customer) {
+        updated[index].customerName = customer.name;
+      }
+    }
+
+    setTransactions(updated);
+  };
+
+  // Duplicate last row
+  const duplicateLastRow = () => {
+    if (transactions.length > 0) {
+      const lastRow = transactions[transactions.length - 1];
+      setTransactions([
+        ...transactions,
+        {
+          ...lastRow,
+          id: undefined,
+          quantity: '',
+          lineTotal: '0',
+        },
+      ]);
+    }
+  };
+
+  // Create backdated entry mutation
+  const createEntryMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedBranchId || !selectedNozzleId || !openingReading || !closingReading) {
+        throw new Error('Please fill in all required entry fields');
+      }
+
+      if (parseFloat(closingReading) <= parseFloat(openingReading)) {
+        throw new Error('Closing reading must be greater than opening reading');
+      }
+
+      const res = await apiClient.post('/api/backdated-entries', {
+        branchId: selectedBranchId,
+        businessDate,
+        nozzleId: selectedNozzleId,
+        shiftId: selectedShiftId || undefined,
+        openingReading: parseFloat(openingReading),
+        closingReading: parseFloat(closingReading),
+        notes,
+      });
+
+      return res.data.data;
+    },
+    onSuccess: (data) => {
+      setCurrentEntryId(data.id);
+      toast.success('Backdated entry created - now add transactions');
     },
     onError: (error: any) => {
-      const errorMsg = error?.response?.data?.error || 'Failed to create backdated entry';
+      const errorMsg = error?.response?.data?.error || error.message || 'Failed to create entry';
       toast.error(errorMsg);
     },
   });
 
-  const resetForm = () => {
-    setDate(format(new Date(), 'yyyy-MM-dd'));
-    setSelectedNozzleId('');
-    setOpeningReading('');
-    setClosingReading('');
-    setCreditCardSales('0');
-    setBankCardSales('0');
-    setPsoCardSales('0');
-    setNotes('');
+  // Create transaction mutation
+  const createTransactionMutation = useMutation({
+    mutationFn: async (transaction: Transaction) => {
+      if (!currentEntryId) {
+        throw new Error('Create entry first');
+      }
+
+      // Validate credit customer requirements
+      if (transaction.paymentMethod === 'credit_customer') {
+        if (!transaction.customerId || !transaction.vehicleNumber || !transaction.slipNumber) {
+          throw new Error('Credit customer requires customer, vehicle, and slip number');
+        }
+      }
+
+      const res = await apiClient.post(`/api/backdated-entries/${currentEntryId}/transactions`, {
+        customerId: transaction.customerId || undefined,
+        vehicleNumber: transaction.vehicleNumber || undefined,
+        slipNumber: transaction.slipNumber || undefined,
+        fuelTypeId: fuelTypeId || undefined,
+        productName: transaction.productName,
+        quantity: parseFloat(transaction.quantity),
+        unitPrice: parseFloat(transaction.unitPrice),
+        lineTotal: parseFloat(transaction.lineTotal),
+        paymentMethod: transaction.paymentMethod,
+        transactionDateTime: new Date(businessDate).toISOString(),
+      });
+
+      return res.data.data;
+    },
+    onSuccess: () => {
+      toast.success('Transaction added');
+    },
+    onError: (error: any) => {
+      const errorMsg = error?.response?.data?.error || error.message || 'Failed to create transaction';
+      toast.error(errorMsg);
+    },
+  });
+
+  // Save all transactions
+  const handleSaveAll = async () => {
+    if (!currentEntryId && transactions.length > 0) {
+      // Create entry first
+      await createEntryMutation.mutateAsync();
+    }
+
+    if (currentEntryId) {
+      // Create all transactions
+      for (const txn of transactions) {
+        if (!txn.id && parseFloat(txn.quantity || '0') > 0) {
+          await createTransactionMutation.mutateAsync(txn);
+        }
+      }
+
+      toast.success('All transactions saved!');
+      resetForm();
+      queryClient.invalidateQueries({ queryKey: ['backdated-entries'] });
+    }
   };
 
-  const handleSubmit = () => {
-    if (!selectedNozzleId || !openingReading || !closingReading) {
-      toast.error('Please fill in all required fields');
-      return;
-    }
-
-    if (parseFloat(closingReading) <= parseFloat(openingReading)) {
-      toast.error('Closing reading must be greater than opening reading');
-      return;
-    }
-
-    if (cashSales < 0) {
-      toast.error(`Card sales (${totalCardSales.toFixed(2)}) exceed total sales (${totalSalesAmount.toFixed(2)})`);
-      return;
-    }
-
-    createMutation.mutate({
-      date: new Date(date).toISOString(),
-      nozzleId: selectedNozzleId,
-      openingReading: parseFloat(openingReading),
-      closingReading: parseFloat(closingReading),
-      creditCardSales: parseFloat(creditCardSales || '0'),
-      bankCardSales: parseFloat(bankCardSales || '0'),
-      psoCardSales: parseFloat(psoCardSales || '0'),
-      notes,
-    });
+  const resetForm = () => {
+    setBusinessDate(format(new Date(), 'yyyy-MM-dd'));
+    setSelectedBranchId('');
+    setSelectedNozzleId('');
+    setSelectedShiftId('');
+    setOpeningReading('');
+    setClosingReading('');
+    setNotes('');
+    setTransactions([]);
+    setCurrentEntryId(null);
   };
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Backdated Entries</h1>
-          <p className="text-muted-foreground">Post historical meter readings and transactions</p>
+          <p className="text-muted-foreground">Transaction-level backfill for accountant processing</p>
         </div>
-        <div className="flex items-center gap-2">
-          <History className="h-5 w-5 text-orange-600" />
-          <span className="text-sm text-orange-600 font-medium">No Shift Required</span>
-        </div>
+        <Badge variant="outline" className="text-orange-600 border-orange-600">
+          PKR Only
+        </Badge>
       </div>
 
       {/* Info Alert */}
       <Alert className="border-orange-200 bg-orange-50">
         <AlertCircle className="h-4 w-4 text-orange-600" />
         <AlertDescription className="text-sm text-orange-900">
-          <strong>Note:</strong> Backdated entries bypass shift validation and are intended for accountant backlog processing only.
-          Closing readings automatically become the next day's opening readings.
+          <strong>Transaction-First Approach:</strong> Create daily entry (meter readings), then add individual customer transactions. Credit customers require vehicle# and slip#.
         </AlertDescription>
       </Alert>
 
-      {/* Transaction History - POS Style */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <History className="h-5 w-5" />
-            Transaction History
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {entriesLoading ? (
-            <div className="space-y-2">
-              {[...Array(5)].map((_, i) => (
-                <Skeleton key={i} className="h-12" />
-              ))}
-            </div>
-          ) : !entriesData?.items || entriesData.items.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <History className="mx-auto h-12 w-12 mb-3 opacity-30" />
-              <p>No backdated entries yet</p>
-              <p className="text-sm">Create your first entry below</p>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Nozzle</TableHead>
-                  <TableHead>Opening</TableHead>
-                  <TableHead>Closing</TableHead>
-                  <TableHead>Sales (L)</TableHead>
-                  <TableHead>Cash</TableHead>
-                  <TableHead>Card Sales</TableHead>
-                  <TableHead>Total</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {entriesData.items.map((entry: any) => {
-                  const sales = entry.closingReading - entry.openingReading;
-                  const total = (entry.creditCardSales || 0) + (entry.bankCardSales || 0) + (entry.psoCardSales || 0);
-                  const cash = entry.totalAmount - total;
-                  const nozzle = nozzlesData?.find((n: any) => n.id === entry.nozzleId);
-
-                  return (
-                    <TableRow key={entry.id} className="font-mono text-sm">
-                      <TableCell className="font-normal">{format(new Date(entry.date), 'dd MMM yyyy')}</TableCell>
-                      <TableCell className="font-medium">
-                        {nozzle?.name || `Nozzle ${nozzle?.nozzleNumber || '?'}`}
-                        <span className="text-xs text-muted-foreground ml-1">
-                          ({nozzle?.fuelType?.code || '-'})
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-green-600">{entry.openingReading.toFixed(2)}</TableCell>
-                      <TableCell className="text-red-600">{entry.closingReading.toFixed(2)}</TableCell>
-                      <TableCell className="font-semibold">{sales.toFixed(2)} L</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="font-mono">
-                          {cash.toFixed(2)} PKR
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="text-xs space-y-1">
-                          {entry.creditCardSales > 0 && <div>CC: {entry.creditCardSales.toFixed(2)}</div>}
-                          {entry.bankCardSales > 0 && <div>Bank: {entry.bankCardSales.toFixed(2)}</div>}
-                          {entry.psoCardSales > 0 && <div>PSO: {entry.psoCardSales.toFixed(2)}</div>}
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-bold">{entry.totalAmount.toFixed(2)} PKR</TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Main Form */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Calendar className="h-5 w-5" />
-            Meter Reading Entry
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Date and Nozzle Selection */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Date *</Label>
-              <Input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                max={format(new Date(), 'yyyy-MM-dd')}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Nozzle *</Label>
-              <Select value={selectedNozzleId} onValueChange={setSelectedNozzleId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select nozzle" />
-                </SelectTrigger>
-                <SelectContent>
-                  {nozzlesData?.map((nozzle: any) => (
-                    <SelectItem key={nozzle.id} value={nozzle.id}>
-                      {nozzle.name || `Nozzle ${nozzle.nozzleNumber}`} - {nozzle.fuelType?.name || 'Unknown'}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* Meter Readings */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <Label>Opening Reading *</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={openingReading}
-                onChange={(e) => setOpeningReading(e.target.value)}
-                placeholder="1000000"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Closing Reading *</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={closingReading}
-                onChange={(e) => setClosingReading(e.target.value)}
-                placeholder="1001250"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Sales (Auto-calculated)</Label>
-              <Input
-                type="number"
-                value={salesVolume.toFixed(2)}
-                readOnly
-                className="bg-muted font-semibold text-blue-600"
-              />
-            </div>
-          </div>
-
-          {/* Sales Summary */}
-          {salesVolume > 0 && selectedNozzle && (
-            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-                <div>
-                  <div className="text-xs text-blue-600 mb-1">Fuel Type</div>
-                  <div className="font-semibold">{selectedNozzle.fuelType?.name}</div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left: Entry Form + Transactions */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Entry Details */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Calendar className="h-5 w-5" />
+                Daily Entry (Meter Readings)
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Business Date *</Label>
+                  <Input
+                    type="date"
+                    value={businessDate}
+                    onChange={(e) => setBusinessDate(e.target.value)}
+                    max={format(new Date(), 'yyyy-MM-dd')}
+                  />
                 </div>
-                <div>
-                  <div className="text-xs text-blue-600 mb-1">Volume</div>
-                  <div className="font-semibold">{salesVolume.toFixed(2)} L</div>
-                </div>
-                <div>
-                  <div className="text-xs text-blue-600 mb-1">Price/Liter</div>
-                  <div className="font-semibold">PKR {fuelPrice.toFixed(3)}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-blue-600 mb-1">Total Sales</div>
-                  <div className="font-semibold text-lg">PKR {totalSalesAmount.toFixed(2)}</div>
+
+                <div className="space-y-2">
+                  <Label>Branch *</Label>
+                  <Select value={selectedBranchId} onValueChange={setSelectedBranchId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select branch" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {branchesData?.map((branch: any) => (
+                        <SelectItem key={branch.id} value={branch.id}>
+                          {branch.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
-      {/* Payment Bifurcation */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <DollarSign className="h-5 w-5" />
-            Payment Bifurcation
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="space-y-2">
-              <Label>Credit Card Sales</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={creditCardSales}
-                onChange={(e) => setCreditCardSales(e.target.value)}
-                placeholder="0.00"
-              />
-            </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Nozzle *</Label>
+                  <Select value={selectedNozzleId} onValueChange={setSelectedNozzleId} disabled={!selectedBranchId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select nozzle" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {nozzlesData?.map((nozzle: any) => (
+                        <SelectItem key={nozzle.id} value={nozzle.id}>
+                          {nozzle.name || `Nozzle ${nozzle.nozzleNumber}`} - {nozzle.fuelType?.code || 'Unknown'}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-            <div className="space-y-2">
-              <Label>Bank Card Sales</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={bankCardSales}
-                onChange={(e) => setBankCardSales(e.target.value)}
-                placeholder="0.00"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>PSO Card Sales</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={psoCardSales}
-                onChange={(e) => setPsoCardSales(e.target.value)}
-                placeholder="0.00"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Cash Sales (Auto)</Label>
-              <Input
-                type="number"
-                value={cashSales.toFixed(2)}
-                readOnly
-                className={`font-semibold ${cashSales < 0 ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}
-              />
-            </div>
-          </div>
-
-          {/* Bifurcation Summary */}
-          {totalSalesAmount > 0 && (
-            <div className="p-4 bg-muted rounded-lg">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-sm font-medium">Total Sales Amount:</span>
-                <span className="text-lg font-bold">PKR {totalSalesAmount.toFixed(2)}</span>
+                <div className="space-y-2">
+                  <Label>Shift (Optional)</Label>
+                  <Select value={selectedShiftId} onValueChange={setSelectedShiftId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Any shift" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">Any shift</SelectItem>
+                      {/* TODO: Fetch shifts from API */}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-sm">Total Card Sales:</span>
-                <span className="font-semibold">PKR {totalCardSales.toFixed(2)}</span>
+
+              <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label>Opening Reading *</Label>
+                  <Input
+                    type="number"
+                    step="0.001"
+                    value={openingReading}
+                    onChange={(e) => setOpeningReading(e.target.value)}
+                    placeholder="1234567"
+                    className="font-mono"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Closing Reading *</Label>
+                  <Input
+                    type="number"
+                    step="0.001"
+                    value={closingReading}
+                    onChange={(e) => setClosingReading(e.target.value)}
+                    placeholder="1235000"
+                    className="font-mono"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Meter Liters</Label>
+                  <Input
+                    value={meterLiters.toFixed(3)}
+                    readOnly
+                    className="bg-blue-50 font-semibold text-blue-700 font-mono"
+                  />
+                </div>
               </div>
-              <div className="flex justify-between items-center pt-2 border-t">
-                <span className="text-sm font-medium">Cash Sales:</span>
-                <span className={`text-lg font-bold ${cashSales < 0 ? 'text-red-600' : 'text-green-600'}`}>
-                  PKR {cashSales.toFixed(2)}
-                </span>
+
+              <div className="space-y-2">
+                <Label>Notes</Label>
+                <Input
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Optional notes"
+                />
               </div>
-            </div>
-          )}
+            </CardContent>
+          </Card>
 
-          {cashSales < 0 && (
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>
-                Card sales exceed total sales. Please verify the amounts.
-              </AlertDescription>
-            </Alert>
-          )}
+          {/* Transactions Table */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <DollarSign className="h-5 w-5" />
+                  Transactions ({transactions.length})
+                </CardTitle>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={duplicateLastRow} disabled={transactions.length === 0}>
+                    Duplicate Last
+                  </Button>
+                  <Button size="sm" onClick={addTransaction}>
+                    <Plus className="h-4 w-4 mr-1" />
+                    Add Transaction
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {transactions.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <DollarSign className="mx-auto h-12 w-12 mb-3 opacity-30" />
+                  <p>No transactions yet</p>
+                  <p className="text-sm">Click "+ Add Transaction" to start</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[150px]">Customer</TableHead>
+                        <TableHead className="w-[100px]">Vehicle#</TableHead>
+                        <TableHead className="w-[80px]">Slip#</TableHead>
+                        <TableHead className="w-[120px]">Product</TableHead>
+                        <TableHead className="w-[100px]">Qty (L)</TableHead>
+                        <TableHead className="w-[100px]">Price (PKR/L)</TableHead>
+                        <TableHead className="w-[120px]">Total (PKR)</TableHead>
+                        <TableHead className="w-[140px]">Payment</TableHead>
+                        <TableHead className="w-[60px]"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {transactions.map((txn, index) => (
+                        <TableRow key={index}>
+                          <TableCell>
+                            <Select
+                              value={txn.customerId || ''}
+                              onValueChange={(value) => updateTransaction(index, 'customerId', value)}
+                            >
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue placeholder="Walk-in" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="">Walk-in (Cash)</SelectItem>
+                                {customersData?.map((customer: any) => (
+                                  <SelectItem key={customer.id} value={customer.id}>
+                                    {customer.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </TableCell>
 
-          {/* Notes */}
-          <div className="space-y-2">
-            <Label>Notes (Optional)</Label>
-            <Textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Add any additional notes about this entry..."
-              rows={3}
-            />
-          </div>
-        </CardContent>
-      </Card>
+                          <TableCell>
+                            <Input
+                              className="h-8 text-xs font-mono"
+                              value={txn.vehicleNumber || ''}
+                              onChange={(e) => updateTransaction(index, 'vehicleNumber', e.target.value)}
+                              placeholder="ABC-123"
+                            />
+                          </TableCell>
 
-      {/* Action Buttons */}
-      <div className="flex justify-end gap-3">
-        <Button variant="outline" onClick={resetForm}>
-          Reset Form
-        </Button>
-        <Button
-          onClick={handleSubmit}
-          disabled={createMutation.isPending || !selectedNozzleId || !openingReading || !closingReading || cashSales < 0}
-          className="bg-orange-600 hover:bg-orange-700"
-        >
-          {createMutation.isPending ? (
-            <>Processing...</>
-          ) : (
-            <>
-              <CheckCircle className="mr-2 h-4 w-4" />
-              Post Backdated Entry
-            </>
-          )}
-        </Button>
+                          <TableCell>
+                            <Input
+                              className="h-8 text-xs font-mono"
+                              value={txn.slipNumber || ''}
+                              onChange={(e) => updateTransaction(index, 'slipNumber', e.target.value)}
+                              placeholder="SLP-001"
+                            />
+                          </TableCell>
+
+                          <TableCell>
+                            <Input
+                              className="h-8 text-xs"
+                              value={txn.productName}
+                              onChange={(e) => updateTransaction(index, 'productName', e.target.value)}
+                              readOnly
+                            />
+                          </TableCell>
+
+                          <TableCell>
+                            <Input
+                              className="h-8 text-xs font-mono text-right"
+                              type="number"
+                              step="0.001"
+                              value={txn.quantity}
+                              onChange={(e) => updateTransaction(index, 'quantity', e.target.value)}
+                              placeholder="0.000"
+                            />
+                          </TableCell>
+
+                          <TableCell>
+                            <Input
+                              className="h-8 text-xs font-mono text-right"
+                              type="number"
+                              step="0.01"
+                              value={txn.unitPrice}
+                              onChange={(e) => updateTransaction(index, 'unitPrice', e.target.value)}
+                            />
+                          </TableCell>
+
+                          <TableCell>
+                            <Input
+                              className="h-8 text-xs font-mono text-right font-semibold"
+                              value={txn.lineTotal}
+                              readOnly
+                            />
+                          </TableCell>
+
+                          <TableCell>
+                            <Select
+                              value={txn.paymentMethod}
+                              onValueChange={(value: any) => updateTransaction(index, 'paymentMethod', value)}
+                            >
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="cash">Cash</SelectItem>
+                                <SelectItem value="credit_card">Credit Card</SelectItem>
+                                <SelectItem value="bank_card">Bank Card</SelectItem>
+                                <SelectItem value="pso_card">PSO Card</SelectItem>
+                                <SelectItem value="credit_customer">Credit Customer</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </TableCell>
+
+                          <TableCell>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => removeTransaction(index)}
+                              className="h-8 w-8 p-0"
+                            >
+                              <Trash2 className="h-4 w-4 text-red-600" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+
+              {transactions.length > 0 && (
+                <div className="flex justify-end gap-2 mt-4 pt-4 border-t">
+                  <Button variant="outline" onClick={resetForm}>
+                    Cancel
+                  </Button>
+                  <Button onClick={handleSaveAll} disabled={createEntryMutation.isPending || createTransactionMutation.isPending}>
+                    <Save className="h-4 w-4 mr-2" />
+                    {currentEntryId ? 'Save Transactions' : 'Create Entry & Save Transactions'}
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Right: Reconciliation Panel */}
+        <div className="space-y-6">
+          <Card className="sticky top-6">
+            <CardHeader>
+              <CardTitle className="text-base">Reconciliation</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm">
+              {/* Meter Readings */}
+              <div>
+                <div className="font-semibold mb-2">Meter Readings</div>
+                <div className="space-y-1 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Opening:</span>
+                    <span className="font-mono">{openingReading || '-'} L</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Closing:</span>
+                    <span className="font-mono">{closingReading || '-'} L</span>
+                  </div>
+                  <div className="flex justify-between font-semibold pt-1 border-t">
+                    <span>Liters:</span>
+                    <span className="font-mono text-blue-600">{meterLiters.toFixed(3)} L</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Transaction Totals */}
+              <div className="pt-2 border-t">
+                <div className="font-semibold mb-2">Transaction Totals</div>
+                <div className="space-y-1 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Liters:</span>
+                    <span className="font-mono">{transactionTotals.liters.toFixed(3)} L</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Amount:</span>
+                    <span className="font-mono font-semibold">{transactionTotals.amount.toFixed(2)} PKR</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Payment Breakdown */}
+              <div className="pt-2 border-t">
+                <div className="font-semibold mb-2">Payment Breakdown</div>
+                <div className="space-y-1 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Cash:</span>
+                    <span className="font-mono">{transactionTotals.cash.toFixed(2)} PKR</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Credit Card:</span>
+                    <span className="font-mono">{transactionTotals.creditCard.toFixed(2)} PKR</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Bank Card:</span>
+                    <span className="font-mono">{transactionTotals.bankCard.toFixed(2)} PKR</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">PSO Card:</span>
+                    <span className="font-mono">{transactionTotals.psoCard.toFixed(2)} PKR</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Credit Customer:</span>
+                    <span className="font-mono">{transactionTotals.creditCustomer.toFixed(2)} PKR</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Variance */}
+              <div className="pt-2 border-t">
+                <div className="font-semibold mb-2">Variance</div>
+                <div className="space-y-1 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Liters:</span>
+                    <span className={`font-mono font-semibold ${varianceLiters > 0 ? 'text-orange-600' : varianceLiters < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                      {varianceLiters > 0 ? '+' : ''}{varianceLiters.toFixed(3)} L
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Amount:</span>
+                    <span className={`font-mono font-semibold ${varianceAmount > 0 ? 'text-orange-600' : varianceAmount < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                      {varianceAmount > 0 ? '+' : ''}{varianceAmount.toFixed(2)} PKR
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Status */}
+              {transactions.length > 0 && Math.abs(varianceLiters) < 1 && (
+                <div className="pt-2 border-t">
+                  <Badge variant="outline" className="w-full justify-center text-green-600 border-green-600">
+                    <CheckCircle className="h-3 w-3 mr-1" />
+                    Balanced
+                  </Badge>
+                </div>
+              )}
+
+              {Math.abs(varianceLiters) >= 1 && transactions.length > 0 && (
+                <div className="pt-2 border-t">
+                  <Badge variant="outline" className="w-full justify-center text-orange-600 border-orange-600">
+                    <AlertCircle className="h-3 w-3 mr-1" />
+                    Variance Detected
+                  </Badge>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );
