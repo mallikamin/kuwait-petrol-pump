@@ -16,6 +16,7 @@ import {
   Link2,
   Truck,
   ShoppingCart as ShoppingBag,
+  CalendarClock,
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { useAuthStore } from '@/store/auth';
@@ -36,6 +37,7 @@ const navItems: NavItem[] = [
   { title: 'Nozzles', href: '/nozzles', icon: <Gauge className="h-5 w-5" />, roles: ['admin', 'manager'] },
   { title: 'Shifts', href: '/shifts', icon: <Clock className="h-5 w-5" /> },
   { title: 'Meter Readings', href: '/meter-readings', icon: <Gauge className="h-5 w-5" /> },
+  { title: 'Backdated Entries', href: '/backdated-entries', icon: <CalendarClock className="h-5 w-5" />, roles: ['admin', 'manager'] },
   { title: 'Sales', href: '/sales', icon: <ShoppingCart className="h-5 w-5" /> },
   { title: 'Customers', href: '/customers', icon: <Users className="h-5 w-5" /> },
   { title: 'Products', href: '/products', icon: <Package className="h-5 w-5" /> },
