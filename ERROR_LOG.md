@@ -16,6 +16,21 @@ Each entry follows:
 
 ---
 
+## 2026-04-03 — Frontend Bundle Not Updating Despite Hard Refresh
+
+- **Error**: User sees old build hash (44068cc) in browser despite new bundle (e110254) deployed to server. Hard refresh (Ctrl+Shift+R) doesn't load new code.
+- **Context**: Deployed 3 frontend updates in sequence (reconciliation, shift name fix, nozzle name fix). Server had correct bundles but browser showed stale version.
+- **Root Cause**: nginx.conf cached JS files for 30 days with `Cache-Control: "public, immutable"` header. The "immutable" flag tells browsers to NEVER revalidate cached files, even on hard refresh. Standard practice for production CDNs but wrong for active development.
+- **Fix**: RESOLVED
+  - Split nginx static asset caching into two blocks:
+    1. JS/CSS: 1 hour cache with `must-revalidate` (allows hard refresh to work)
+    2. Images/fonts: 30 day cache (rarely change)
+  - Removed "immutable" flag entirely from both
+  - Committed as 04cddf2
+- **Rule**: During active development, NEVER use `Cache-Control: immutable` for JS/CSS bundles. Use short cache times (1 hour) with `must-revalidate` to allow hard refresh. After project stabilizes, can increase to 24 hours but keep `must-revalidate`. Reserve 30-day immutable caching for production-only deployments with CDN.
+
+---
+
 ## 2026-03-30 — Backend 500 Error on Health Endpoint
 
 - **Error**: `HTTP/1.1 500 Internal Server Error` when accessing `http://localhost:3000/api/health`
