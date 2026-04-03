@@ -207,7 +207,7 @@ export function BackdatedEntries() {
                       <TableCell className="font-semibold">{sales.toFixed(2)} L</TableCell>
                       <TableCell>
                         <Badge variant="outline" className="font-mono">
-                          {cash.toFixed(2)} KWD
+                          {cash.toFixed(2)} PKR
                         </Badge>
                       </TableCell>
                       <TableCell>
@@ -217,7 +217,7 @@ export function BackdatedEntries() {
                           {entry.psoCardSales > 0 && <div>PSO: {entry.psoCardSales.toFixed(2)}</div>}
                         </div>
                       </TableCell>
-                      <TableCell className="font-bold">{entry.totalAmount.toFixed(2)} KWD</TableCell>
+                      <TableCell className="font-bold">{entry.totalAmount.toFixed(2)} PKR</TableCell>
                     </TableRow>
                   );
                 })}
@@ -314,11 +314,11 @@ export function BackdatedEntries() {
                 </div>
                 <div>
                   <div className="text-xs text-blue-600 mb-1">Price/Liter</div>
-                  <div className="font-semibold">KWD {fuelPrice.toFixed(3)}</div>
+                  <div className="font-semibold">PKR {fuelPrice.toFixed(3)}</div>
                 </div>
                 <div>
                   <div className="text-xs text-blue-600 mb-1">Total Sales</div>
-                  <div className="font-semibold text-lg">KWD {totalSalesAmount.toFixed(2)}</div>
+                  <div className="font-semibold text-lg">PKR {totalSalesAmount.toFixed(2)}</div>
                 </div>
               </div>
             </div>
@@ -385,16 +385,16 @@ export function BackdatedEntries() {
             <div className="p-4 bg-muted rounded-lg">
               <div className="flex justify-between items-center mb-2">
                 <span className="text-sm font-medium">Total Sales Amount:</span>
-                <span className="text-lg font-bold">KWD {totalSalesAmount.toFixed(2)}</span>
+                <span className="text-lg font-bold">PKR {totalSalesAmount.toFixed(2)}</span>
               </div>
               <div className="flex justify-between items-center mb-2">
                 <span className="text-sm">Total Card Sales:</span>
-                <span className="font-semibold">KWD {totalCardSales.toFixed(2)}</span>
+                <span className="font-semibold">PKR {totalCardSales.toFixed(2)}</span>
               </div>
               <div className="flex justify-between items-center pt-2 border-t">
                 <span className="text-sm font-medium">Cash Sales:</span>
                 <span className={`text-lg font-bold ${cashSales < 0 ? 'text-red-600' : 'text-green-600'}`}>
-                  KWD {cashSales.toFixed(2)}
+                  PKR {cashSales.toFixed(2)}
                 </span>
               </div>
             </div>

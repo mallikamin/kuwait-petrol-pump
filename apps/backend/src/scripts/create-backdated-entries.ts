@@ -30,10 +30,10 @@ interface BackdatedEntry {
   notes: string;
 }
 
-// Realistic Kuwait fuel prices (KWD per liter)
+// Realistic Pakistan fuel prices (PKR per liter) - Lahore deployment
 const FUEL_PRICES = {
-  PMG: 0.463, // Petrol
-  HSD: 0.280, // Diesel
+  PMG: 290.50, // Petrol (Pakistani Rupees per liter)
+  HSD: 287.33, // Diesel (Pakistani Rupees per liter)
 };
 
 // Test nozzle IDs (from check-nozzles-prices.ts output)
@@ -70,11 +70,11 @@ function generateBackdatedEntries(): BackdatedEntry[] {
         closingReading: baseReading + 350, // 350 liters sold
         salesLiters: 350,
         pricePerLiter: FUEL_PRICES.HSD,
-        totalSalesAmount: 350 * FUEL_PRICES.HSD, // 98 KWD
-        creditCardSales: 30,
-        bankCardSales: 20,
-        psoCardSales: 15,
-        cashSales: (350 * FUEL_PRICES.HSD) - 30 - 20 - 15, // 33 KWD
+        totalSalesAmount: 350 * FUEL_PRICES.HSD, // ~100,566 PKR
+        creditCardSales: 30000,
+        bankCardSales: 25000,
+        psoCardSales: 20000,
+        cashSales: (350 * FUEL_PRICES.HSD) - 30000 - 25000 - 20000, // ~25,566 PKR
         notes: `Backdated entry for ${date.toISOString().split('T')[0]} - HSD Unit 1`,
       },
       // PMG Nozzle 1 (Unit 1)
@@ -87,11 +87,11 @@ function generateBackdatedEntries(): BackdatedEntry[] {
         closingReading: baseReading + 500 + 420, // 420 liters sold
         salesLiters: 420,
         pricePerLiter: FUEL_PRICES.PMG,
-        totalSalesAmount: 420 * FUEL_PRICES.PMG, // 194.46 KWD
-        creditCardSales: 50,
-        bankCardSales: 40,
-        psoCardSales: 30,
-        cashSales: (420 * FUEL_PRICES.PMG) - 50 - 40 - 30, // 74.46 KWD
+        totalSalesAmount: 420 * FUEL_PRICES.PMG, // ~122,010 PKR
+        creditCardSales: 40000,
+        bankCardSales: 35000,
+        psoCardSales: 28000,
+        cashSales: (420 * FUEL_PRICES.PMG) - 40000 - 35000 - 28000, // ~19,010 PKR
         notes: `Backdated entry for ${date.toISOString().split('T')[0]} - PMG Unit 1`,
       },
       // HSD Nozzle 2 (Unit 2)
@@ -104,11 +104,11 @@ function generateBackdatedEntries(): BackdatedEntry[] {
         closingReading: baseReading + 1000 + 280, // 280 liters sold
         salesLiters: 280,
         pricePerLiter: FUEL_PRICES.HSD,
-        totalSalesAmount: 280 * FUEL_PRICES.HSD, // 78.4 KWD
-        creditCardSales: 25,
-        bankCardSales: 15,
-        psoCardSales: 10,
-        cashSales: (280 * FUEL_PRICES.HSD) - 25 - 15 - 10, // 28.4 KWD
+        totalSalesAmount: 280 * FUEL_PRICES.HSD, // ~80,452 PKR
+        creditCardSales: 25000,
+        bankCardSales: 18000,
+        psoCardSales: 15000,
+        cashSales: (280 * FUEL_PRICES.HSD) - 25000 - 18000 - 15000, // ~22,452 PKR
         notes: `Backdated entry for ${date.toISOString().split('T')[0]} - HSD Unit 2`,
       },
       // PMG Nozzle 2 (Unit 3)
@@ -121,11 +121,11 @@ function generateBackdatedEntries(): BackdatedEntry[] {
         closingReading: baseReading + 1500 + 390, // 390 liters sold
         salesLiters: 390,
         pricePerLiter: FUEL_PRICES.PMG,
-        totalSalesAmount: 390 * FUEL_PRICES.PMG, // 180.57 KWD
-        creditCardSales: 45,
-        bankCardSales: 35,
-        psoCardSales: 25,
-        cashSales: (390 * FUEL_PRICES.PMG) - 45 - 35 - 25, // 75.57 KWD
+        totalSalesAmount: 390 * FUEL_PRICES.PMG, // ~113,295 PKR
+        creditCardSales: 38000,
+        bankCardSales: 32000,
+        psoCardSales: 25000,
+        cashSales: (390 * FUEL_PRICES.PMG) - 38000 - 32000 - 25000, // ~18,295 PKR
         notes: `Backdated entry for ${date.toISOString().split('T')[0]} - PMG Unit 3`,
       },
     ];
@@ -187,8 +187,8 @@ async function createBackdatedEntries() {
       `;
 
       console.log(`✅ Created ${entry.date.toISOString().split('T')[0]} ${entry.nozzleName}`);
-      console.log(`   Sales: ${entry.salesLiters}L × ${entry.pricePerLiter} = ${entry.totalSalesAmount.toFixed(2)} KWD`);
-      console.log(`   Payment: Credit=${entry.creditCardSales} | Bank=${entry.bankCardSales} | PSO=${entry.psoCardSales} | Cash=${entry.cashSales.toFixed(2)} KWD\n`);
+      console.log(`   Sales: ${entry.salesLiters}L × ${entry.pricePerLiter} = ${entry.totalSalesAmount.toFixed(2)} PKR`);
+      console.log(`   Payment: Credit=${entry.creditCardSales} | Bank=${entry.bankCardSales} | PSO=${entry.psoCardSales} | Cash=${entry.cashSales.toFixed(2)} PKR\n`);
 
       created++;
     } catch (error: any) {
@@ -223,9 +223,9 @@ async function createBackdatedEntries() {
     const totalCash = dayEntries.reduce((sum, e) => sum + e.cashSales, 0);
 
     console.log(`\n  ${date}:`);
-    console.log(`    HSD: ${hsdLiters}L = ${hsdTotal.toFixed(2)} KWD`);
-    console.log(`    PMG: ${pmgLiters}L = ${pmgTotal.toFixed(2)} KWD`);
-    console.log(`    Total: ${(hsdTotal + pmgTotal).toFixed(2)} KWD`);
+    console.log(`    HSD: ${hsdLiters}L = ${hsdTotal.toFixed(2)} PKR`);
+    console.log(`    PMG: ${pmgLiters}L = ${pmgTotal.toFixed(2)} PKR`);
+    console.log(`    Total: ${(hsdTotal + pmgTotal).toFixed(2)} PKR`);
     console.log(`    Bifurcation: Credit=${totalCredit} | Bank=${totalBank} | PSO=${totalPSO} | Cash=${totalCash.toFixed(2)}`);
   }
 

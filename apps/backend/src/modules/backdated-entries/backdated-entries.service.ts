@@ -1,288 +1,515 @@
 import { prisma } from '../../config/database';
+import { Prisma } from '@prisma/client';
 import { AppError } from '../../middleware/error.middleware';
-import { Decimal } from '@prisma/client/runtime/library';
-import { CreateBackdatedEntryInput } from './backdated-entries.schema';
+
+export interface CreateBackdatedEntryDto {
+  branchId: string;
+  businessDate: string; // YYYY-MM-DD
+  nozzleId: string;
+  shiftId?: string;
+  openingReading: number;
+  closingReading: number;
+  notes?: string;
+  createdBy?: string;
+}
+
+export interface CreateBackdatedTransactionDto {
+  backdatedEntryId: string;
+  customerId?: string;
+  vehicleNumber?: string;
+  slipNumber?: string;
+  productId?: string;
+  fuelTypeId?: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+  paymentMethod: 'cash' | 'credit_card' | 'bank_card' | 'pso_card' | 'credit_customer';
+  transactionDateTime: string; // ISO timestamp
+  notes?: string;
+  createdBy?: string;
+}
+
+export interface ReconcileBackdatedEntryDto {
+  id: string;
+  isReconciled: boolean;
+  varianceLiters?: number;
+  varianceAmount?: number;
+}
 
 export class BackdatedEntriesService {
   /**
-   * Create a backdated entry (meter readings + bifurcation)
-   * NO SHIFT REQUIRED - for accountant backlog processing
+   * Get all backdated entries with optional filters
    */
-  async createBackdatedEntry(
-    data: CreateBackdatedEntryInput,
-    userId: string,
-    organizationId: string
-  ) {
-    const {
-      date,
-      nozzleId,
-      openingReading,
-      closingReading,
-      creditCardSales,
-      bankCardSales,
-      psoCardSales,
-      notes,
-    } = data;
+  async getAllEntries(filters?: {
+    branchId?: string;
+    businessDateFrom?: string;
+    businessDateTo?: string;
+    nozzleId?: string;
+    shiftId?: string;
+    isReconciled?: boolean;
+  }) {
+    const where: Prisma.BackdatedEntryWhereInput = {};
 
-    // Validate date is not in the future
-    if (date > new Date()) {
-      throw new AppError(400, 'Cannot create backdated entry for future date');
+    if (filters?.branchId) {
+      where.branchId = filters.branchId;
     }
 
-    // Verify nozzle exists and belongs to organization
+    if (filters?.businessDateFrom || filters?.businessDateTo) {
+      where.businessDate = {};
+      if (filters.businessDateFrom) {
+        where.businessDate.gte = new Date(filters.businessDateFrom);
+      }
+      if (filters.businessDateTo) {
+        where.businessDate.lte = new Date(filters.businessDateTo);
+      }
+    }
+
+    if (filters?.nozzleId) {
+      where.nozzleId = filters.nozzleId;
+    }
+
+    if (filters?.shiftId) {
+      where.shiftId = filters.shiftId;
+    }
+
+    if (filters?.isReconciled !== undefined) {
+      where.isReconciled = filters.isReconciled;
+    }
+
+    return prisma.backdatedEntry.findMany({
+      where,
+      include: {
+        branch: true,
+        nozzle: {
+          include: {
+            fuelType: true,
+            dispensingUnit: true,
+          },
+        },
+        shift: true,
+        transactions: {
+          include: {
+            customer: true,
+            product: true,
+            fuelType: true,
+          },
+          orderBy: {
+            transactionDateTime: 'asc',
+          },
+        },
+      },
+      orderBy: [
+        { businessDate: 'desc' },
+        { createdAt: 'asc' },
+      ],
+    });
+  }
+
+  /**
+   * Get a single backdated entry by ID
+   */
+  async getEntryById(id: string) {
+    return prisma.backdatedEntry.findUnique({
+      where: { id },
+      include: {
+        branch: true,
+        nozzle: {
+          include: {
+            fuelType: true,
+            dispensingUnit: true,
+          },
+        },
+        shift: true,
+        transactions: {
+          include: {
+            customer: true,
+            product: true,
+            fuelType: true,
+          },
+          orderBy: {
+            transactionDateTime: 'asc',
+          },
+        },
+      },
+    });
+  }
+
+  /**
+   * Create a new backdated entry
+   */
+  async createEntry(data: CreateBackdatedEntryDto, organizationId: string) {
+    // Validate nozzle belongs to organization
     const nozzle = await prisma.nozzle.findFirst({
       where: {
-        id: nozzleId,
+        id: data.nozzleId,
         dispensingUnit: {
           branch: {
             organizationId,
           },
         },
       },
+    });
+
+    if (!nozzle) {
+      throw new AppError(404, 'Nozzle not found or does not belong to organization');
+    }
+
+    // Validate branch belongs to organization
+    const branch = await prisma.branch.findFirst({
+      where: {
+        id: data.branchId,
+        organizationId,
+      },
+    });
+
+    if (!branch) {
+      throw new AppError(404, 'Branch not found or does not belong to organization');
+    }
+
+    // Check for duplicate (same nozzle + date + shift)
+    const existing = await prisma.backdatedEntry.findFirst({
+      where: {
+        nozzleId: data.nozzleId,
+        businessDate: new Date(data.businessDate),
+        shiftId: data.shiftId || null,
+      },
+    });
+
+    if (existing) {
+      throw new AppError(400, 'Backdated entry already exists for this nozzle/date/shift combination');
+    }
+
+    return prisma.backdatedEntry.create({
+      data: {
+        branchId: data.branchId,
+        businessDate: new Date(data.businessDate),
+        nozzleId: data.nozzleId,
+        shiftId: data.shiftId,
+        openingReading: new Prisma.Decimal(data.openingReading),
+        closingReading: new Prisma.Decimal(data.closingReading),
+        notes: data.notes,
+        createdBy: data.createdBy,
+      },
       include: {
-        fuelType: true,
-        dispensingUnit: {
+        branch: true,
+        nozzle: {
           include: {
-            branch: true,
+            fuelType: true,
           },
         },
+        shift: true,
+        transactions: true,
       },
     });
-
-    if (!nozzle || !nozzle.isActive) {
-      throw new AppError(404, 'Nozzle not found or inactive');
-    }
-
-    // Get or create a shift instance for this date
-    // For backdated entries, we create a "backdated" shift instance
-    const dateOnly = new Date(date);
-    dateOnly.setHours(0, 0, 0, 0);
-
-    // Get the default shift for this branch (Day Shift)
-    const defaultShift = await prisma.shift.findFirst({
-      where: {
-        branchId: nozzle.dispensingUnit.branchId,
-        isActive: true,
-      },
-      orderBy: {
-        shiftNumber: 'asc',
-      },
-    });
-
-    if (!defaultShift) {
-      throw new AppError(404, 'No shift template found for this branch');
-    }
-
-    // Find or create shift instance for this date
-    let shiftInstance = await prisma.shiftInstance.findUnique({
-      where: {
-        shiftId_date: {
-          shiftId: defaultShift.id,
-          date: dateOnly,
-        },
-      },
-    });
-
-    if (!shiftInstance) {
-      // Create a backdated shift instance (status: closed since it's historical)
-      shiftInstance = await prisma.shiftInstance.create({
-        data: {
-          shiftId: defaultShift.id,
-          branchId: nozzle.dispensingUnit.branchId,
-          date: dateOnly,
-          openedAt: dateOnly,
-          openedBy: userId,
-          closedAt: new Date(dateOnly.getTime() + 12 * 60 * 60 * 1000), // 12 hours later
-          closedBy: userId,
-          status: 'closed', // Backdated entries are always closed
-          notes: `Backdated entry created by ${userId}`,
-        },
-      });
-    }
-
-    // Check if readings already exist for this nozzle + date
-    const existingOpening = await prisma.meterReading.findFirst({
-      where: {
-        nozzleId,
-        shiftInstanceId: shiftInstance.id,
-        readingType: 'opening',
-      },
-    });
-
-    const existingClosing = await prisma.meterReading.findFirst({
-      where: {
-        nozzleId,
-        shiftInstanceId: shiftInstance.id,
-        readingType: 'closing',
-      },
-    });
-
-    if (existingOpening || existingClosing) {
-      throw new AppError(400, 'Meter readings already exist for this nozzle on this date');
-    }
-
-    // Calculate sales volume (in liters)
-    const salesVolume = closingReading - openingReading;
-
-    // Get fuel price for this date
-    const fuelPrice = await prisma.fuelPrice.findFirst({
-      where: {
-        fuelTypeId: nozzle.fuelTypeId,
-        effectiveFrom: {
-          lte: dateOnly,
-        },
-      },
-      orderBy: {
-        effectiveFrom: 'desc',
-      },
-    });
-
-    if (!fuelPrice) {
-      throw new AppError(404, `No fuel price found for ${nozzle.fuelType.name} on ${dateOnly.toISOString().split('T')[0]}`);
-    }
-
-    // Calculate total sales amount
-    const totalSalesAmount = salesVolume * parseFloat(fuelPrice.pricePerLiter.toString());
-
-    // Calculate cash sales (total - card sales)
-    const totalCardSales = (creditCardSales || 0) + (bankCardSales || 0) + (psoCardSales || 0);
-    const cashSales = totalSalesAmount - totalCardSales;
-
-    if (cashSales < 0) {
-      throw new AppError(400, `Card sales (${totalCardSales.toFixed(2)}) exceed total sales (${totalSalesAmount.toFixed(2)})`);
-    }
-
-    // Use transaction to ensure atomicity
-    const result = await prisma.$transaction(async (tx) => {
-      // 1. Create opening reading
-      const openingMeterReading = await tx.meterReading.create({
-        data: {
-          nozzleId,
-          shiftInstanceId: shiftInstance.id,
-          readingType: 'opening',
-          meterValue: new Decimal(openingReading),
-          recordedAt: dateOnly, // Use backdated timestamp
-          recordedBy: userId,
-          isManualOverride: true,
-          isOcr: false,
-        },
-      });
-
-      // 2. Create closing reading
-      const closingMeterReading = await tx.meterReading.create({
-        data: {
-          nozzleId,
-          shiftInstanceId: shiftInstance.id,
-          readingType: 'closing',
-          meterValue: new Decimal(closingReading),
-          recordedAt: new Date(dateOnly.getTime() + 12 * 60 * 60 * 1000), // 12 hours after opening
-          recordedBy: userId,
-          isManualOverride: true,
-          isOcr: false,
-        },
-      });
-
-      // 3. Create bifurcation entry (payment breakdown)
-      // Determine fuel type - map to PMG or HSD
-      const fuelTypeName = nozzle.fuelType.name.toUpperCase();
-      const isPMG = fuelTypeName.includes('PMG') || fuelTypeName.includes('PETROL') || fuelTypeName.includes('GASOLINE');
-
-      const bifurcationData: any = {
-        date: dateOnly,
-        shiftInstanceId: shiftInstance.id,
-        branchId: nozzle.dispensingUnit.branchId,
-        // Fuel-specific fields
-        ...(isPMG ? {
-          pmgTotalLiters: new Decimal(salesVolume),
-          pmgTotalAmount: new Decimal(totalSalesAmount),
-        } : {
-          hsdTotalLiters: new Decimal(salesVolume),
-          hsdTotalAmount: new Decimal(totalSalesAmount),
-        }),
-        // Payment breakdown
-        cashAmount: new Decimal(cashSales),
-        creditAmount: new Decimal(0), // Customer credit not tracked in backdated entries
-        cardAmount: new Decimal((creditCardSales || 0) + (bankCardSales || 0)),
-        psoCardAmount: new Decimal(psoCardSales || 0),
-        // Totals
-        expectedTotal: new Decimal(totalSalesAmount),
-        actualTotal: new Decimal(totalSalesAmount), // Assume perfect match for backdated
-        variance: new Decimal(0),
-        varianceNotes: notes || `Backdated entry for ${dateOnly.toISOString().split('T')[0]}`,
-        // Metadata
-        bifurcatedBy: userId,
-        bifurcatedAt: new Date(),
-        status: 'completed',
-      };
-
-      const bifurcation = await tx.bifurcation.create({
-        data: bifurcationData,
-      });
-
-      return {
-        openingMeterReading,
-        closingMeterReading,
-        bifurcation,
-        shiftInstance,
-        calculatedValues: {
-          salesVolume,
-          totalSalesAmount,
-          cashSales,
-          totalCardSales,
-        },
-      };
-    });
-
-    return result;
   }
 
   /**
-   * Get backdated entries summary
+   * Update a backdated entry
    */
-  async getBackdatedEntries(
-    organizationId: string,
-    startDate?: Date,
-    endDate?: Date,
-    limit: number = 50
-  ) {
-    const where: any = {
-      branch: {
-        organizationId,
-      },
-      notes: {
-        contains: 'Backdated entry',
-      },
-    };
+  async updateEntry(id: string, data: Partial<CreateBackdatedEntryDto>) {
+    const updateData: Prisma.BackdatedEntryUpdateInput = {};
 
-    if (startDate || endDate) {
-      where.date = {};
-      if (startDate) where.date.gte = startDate;
-      if (endDate) where.date.lte = endDate;
+    if (data.openingReading !== undefined) {
+      updateData.openingReading = new Prisma.Decimal(data.openingReading);
+    }
+    if (data.closingReading !== undefined) {
+      updateData.closingReading = new Prisma.Decimal(data.closingReading);
+    }
+    if (data.notes !== undefined) {
+      updateData.notes = data.notes;
     }
 
-    const entries = await prisma.shiftInstance.findMany({
-      where,
+    return prisma.backdatedEntry.update({
+      where: { id },
+      data: updateData,
       include: {
-        shift: true,
         branch: true,
-        bifurcations: true,
-        meterReadings: {
+        nozzle: {
           include: {
-            nozzle: {
-              include: {
-                fuelType: true,
-                dispensingUnit: true,
-              },
-            },
+            fuelType: true,
+          },
+        },
+        shift: true,
+        transactions: {
+          include: {
+            customer: true,
+            product: true,
+            fuelType: true,
           },
         },
       },
-      orderBy: {
-        date: 'desc',
+    });
+  }
+
+  /**
+   * Delete a backdated entry (cascade deletes transactions)
+   */
+  async deleteEntry(id: string) {
+    return prisma.backdatedEntry.delete({
+      where: { id },
+    });
+  }
+
+  /**
+   * Create a backdated transaction
+   */
+  async createTransaction(data: CreateBackdatedTransactionDto, organizationId: string) {
+    // Validate backdated entry exists
+    const entry = await prisma.backdatedEntry.findFirst({
+      where: {
+        id: data.backdatedEntryId,
+        branch: {
+          organizationId,
+        },
       },
-      take: limit,
     });
 
-    return entries;
+    if (!entry) {
+      throw new AppError(404, 'Backdated entry not found');
+    }
+
+    // Validate credit customer transactions require customer + vehicle + slip
+    if (data.paymentMethod === 'credit_customer') {
+      if (!data.customerId || !data.vehicleNumber || !data.slipNumber) {
+        throw new AppError(
+          400,
+          'Credit customer transactions require customerId, vehicleNumber, and slipNumber'
+        );
+      }
+    }
+
+    // Validate customer belongs to organization if provided
+    if (data.customerId) {
+      const customer = await prisma.customer.findFirst({
+        where: {
+          id: data.customerId,
+          organizationId,
+        },
+      });
+
+      if (!customer) {
+        throw new AppError(404, 'Customer not found or does not belong to organization');
+      }
+    }
+
+    return prisma.backdatedTransaction.create({
+      data: {
+        backdatedEntryId: data.backdatedEntryId,
+        customerId: data.customerId,
+        vehicleNumber: data.vehicleNumber,
+        slipNumber: data.slipNumber,
+        productId: data.productId,
+        fuelTypeId: data.fuelTypeId,
+        productName: data.productName,
+        quantity: new Prisma.Decimal(data.quantity),
+        unitPrice: new Prisma.Decimal(data.unitPrice),
+        lineTotal: new Prisma.Decimal(data.lineTotal),
+        paymentMethod: data.paymentMethod,
+        transactionDateTime: new Date(data.transactionDateTime),
+        notes: data.notes,
+        createdBy: data.createdBy,
+      },
+      include: {
+        backdatedEntry: true,
+        customer: true,
+        product: true,
+        fuelType: true,
+      },
+    });
+  }
+
+  /**
+   * Get transactions for a backdated entry
+   */
+  async getTransactions(backdatedEntryId: string) {
+    return prisma.backdatedTransaction.findMany({
+      where: { backdatedEntryId },
+      include: {
+        customer: true,
+        product: true,
+        fuelType: true,
+      },
+      orderBy: {
+        transactionDateTime: 'asc',
+      },
+    });
+  }
+
+  /**
+   * Update a backdated transaction
+   */
+  async updateTransaction(id: string, data: Partial<CreateBackdatedTransactionDto>) {
+    const updateData: Prisma.BackdatedTransactionUpdateInput = {};
+
+    if (data.customerId !== undefined) updateData.customerId = data.customerId;
+    if (data.vehicleNumber !== undefined) updateData.vehicleNumber = data.vehicleNumber;
+    if (data.slipNumber !== undefined) updateData.slipNumber = data.slipNumber;
+    if (data.productName !== undefined) updateData.productName = data.productName;
+    if (data.quantity !== undefined) updateData.quantity = new Prisma.Decimal(data.quantity);
+    if (data.unitPrice !== undefined) updateData.unitPrice = new Prisma.Decimal(data.unitPrice);
+    if (data.lineTotal !== undefined) updateData.lineTotal = new Prisma.Decimal(data.lineTotal);
+    if (data.paymentMethod !== undefined) updateData.paymentMethod = data.paymentMethod;
+    if (data.transactionDateTime !== undefined) {
+      updateData.transactionDateTime = new Date(data.transactionDateTime);
+    }
+    if (data.notes !== undefined) updateData.notes = data.notes;
+
+    return prisma.backdatedTransaction.update({
+      where: { id },
+      data: updateData,
+      include: {
+        customer: true,
+        product: true,
+        fuelType: true,
+      },
+    });
+  }
+
+  /**
+   * Delete a backdated transaction
+   */
+  async deleteTransaction(id: string) {
+    return prisma.backdatedTransaction.delete({
+      where: { id },
+    });
+  }
+
+  /**
+   * Reconcile a backdated entry
+   */
+  async reconcileEntry(data: ReconcileBackdatedEntryDto) {
+    return prisma.backdatedEntry.update({
+      where: { id: data.id },
+      data: {
+        isReconciled: data.isReconciled,
+        varianceLiters: data.varianceLiters ? new Prisma.Decimal(data.varianceLiters) : null,
+        varianceAmount: data.varianceAmount ? new Prisma.Decimal(data.varianceAmount) : null,
+      },
+      include: {
+        transactions: {
+          include: {
+            customer: true,
+            product: true,
+            fuelType: true,
+          },
+        },
+      },
+    });
+  }
+
+  /**
+   * Get daily reconciliation summary
+   */
+  async getDailyReconciliation(branchId: string, businessDate: string, organizationId: string) {
+    // Validate branch belongs to organization
+    const branch = await prisma.branch.findFirst({
+      where: {
+        id: branchId,
+        organizationId,
+      },
+    });
+
+    if (!branch) {
+      throw new AppError(404, 'Branch not found');
+    }
+
+    const entries = await prisma.backdatedEntry.findMany({
+      where: {
+        branchId,
+        businessDate: new Date(businessDate),
+      },
+      include: {
+        nozzle: {
+          include: {
+            fuelType: true,
+            dispensingUnit: true,
+          },
+        },
+        shift: true,
+        transactions: {
+          include: {
+            customer: true,
+            fuelType: true,
+          },
+        },
+      },
+    });
+
+    // Aggregate totals per entry
+    const reconciliation = entries.map((entry) => {
+      const meterLiters =
+        parseFloat(entry.closingReading.toString()) - parseFloat(entry.openingReading.toString());
+
+      const transactionTotals = entry.transactions.reduce(
+        (acc, txn) => {
+          const qty = parseFloat(txn.quantity.toString());
+          const total = parseFloat(txn.lineTotal.toString());
+
+          acc.liters += qty;
+          acc.amount += total;
+
+          // Payment method breakdown
+          switch (txn.paymentMethod) {
+            case 'cash':
+              acc.cash += total;
+              break;
+            case 'credit_card':
+              acc.creditCard += total;
+              break;
+            case 'bank_card':
+              acc.bankCard += total;
+              break;
+            case 'pso_card':
+              acc.psoCard += total;
+              break;
+            case 'credit_customer':
+              acc.creditCustomer += total;
+              break;
+          }
+
+          return acc;
+        },
+        {
+          liters: 0,
+          amount: 0,
+          cash: 0,
+          creditCard: 0,
+          bankCard: 0,
+          psoCard: 0,
+          creditCustomer: 0,
+        }
+      );
+
+      const varianceLiters = meterLiters - transactionTotals.liters;
+      const unitPrice = entry.transactions[0]
+        ? parseFloat(entry.transactions[0].unitPrice.toString())
+        : 0;
+      const varianceAmount = varianceLiters * unitPrice;
+
+      return {
+        entryId: entry.id,
+        businessDate: entry.businessDate,
+        nozzle: {
+          id: entry.nozzle.id,
+          name: entry.nozzle.name,
+          fuelType: entry.nozzle.fuelType.code,
+        },
+        shift: entry.shift ? { id: entry.shift.id, name: entry.shift.name } : null,
+        meterReadings: {
+          opening: parseFloat(entry.openingReading.toString()),
+          closing: parseFloat(entry.closingReading.toString()),
+          liters: meterLiters,
+        },
+        transactions: transactionTotals,
+        variance: {
+          liters: varianceLiters,
+          amount: varianceAmount,
+        },
+        isReconciled: entry.isReconciled,
+      };
+    });
+
+    return reconciliation;
   }
 }

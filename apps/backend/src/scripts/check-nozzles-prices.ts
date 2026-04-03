@@ -37,7 +37,7 @@ async function checkData() {
   });
 
   for (const price of prices) {
-    console.log(`${price.fuelType.code}: ${price.pricePerLiter} KWD/L (effective from ${price.effectiveFrom})`);
+    console.log(`${price.fuelType.code}: ${price.pricePerLiter} PKR/L (effective from ${price.effectiveFrom})`);
   }
 
   await prisma.$disconnect();

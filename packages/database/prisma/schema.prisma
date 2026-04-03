@@ -50,16 +50,17 @@ model Branch {
   updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
-  organization    Organization     @relation(fields: [organizationId], references: [id])
-  dispensingUnits DispensingUnit[]
-  users           User[]
-  shifts          Shift[]
-  shiftInstances  ShiftInstance[]
-  sales           Sale[]
-  stockLevels     StockLevel[]
-  bifurcations    Bifurcation[]
-  purchaseOrders  PurchaseOrder[]
-  fuelInventory   FuelInventory[]
+  organization      Organization      @relation(fields: [organizationId], references: [id])
+  dispensingUnits   DispensingUnit[]
+  users             User[]
+  shifts            Shift[]
+  shiftInstances    ShiftInstance[]
+  sales             Sale[]
+  stockLevels       StockLevel[]
+  bifurcations      Bifurcation[]
+  purchaseOrders    PurchaseOrder[]
+  fuelInventory     FuelInventory[]
+  backdatedEntries  BackdatedEntry[]
 
   @@map("branches")
 }
@@ -77,11 +78,12 @@ model FuelType {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   // Relations
-  prices              FuelPrice[]
-  nozzles             Nozzle[]
-  fuelSales           FuelSale[]
-  purchaseOrderItems  PurchaseOrderItem[]
-  fuelInventory       FuelInventory[]
+  prices                  FuelPrice[]
+  nozzles                 Nozzle[]
+  fuelSales               FuelSale[]
+  purchaseOrderItems      PurchaseOrderItem[]
+  fuelInventory           FuelInventory[]
+  backdatedTransactions   BackdatedTransaction[]
 
   @@map("fuel_types")
 }
@@ -134,10 +136,11 @@ model Nozzle {
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   // Relations
-  dispensingUnit DispensingUnit @relation(fields: [dispensingUnitId], references: [id])
-  fuelType       FuelType       @relation(fields: [fuelTypeId], references: [id])
-  meterReadings  MeterReading[]
-  fuelSales      FuelSale[]
+  dispensingUnit    DispensingUnit    @relation(fields: [dispensingUnitId], references: [id])
+  fuelType          FuelType          @relation(fields: [fuelTypeId], references: [id])
+  meterReadings     MeterReading[]
+  fuelSales         FuelSale[]
+  backdatedEntries  BackdatedEntry[]
 
   @@unique([dispensingUnitId, nozzleNumber])
   @@map("nozzles")
@@ -195,8 +198,9 @@ model Shift {
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   // Relations
-  branch         Branch          @relation(fields: [branchId], references: [id])
-  shiftInstances ShiftInstance[]
+  branch            Branch              @relation(fields: [branchId], references: [id])
+  shiftInstances    ShiftInstance[]
+  backdatedEntries  BackdatedEntry[]
 
   @@map("shifts")
 }
@@ -284,8 +288,9 @@ model Customer {
   updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
-  organization Organization @relation(fields: [organizationId], references: [id])
-  sales        Sale[]
+  organization          Organization          @relation(fields: [organizationId], references: [id])
+  sales                 Sale[]
+  backdatedTransactions BackdatedTransaction[]
 
   @@index([organizationId], name: "idx_customers_org")
   @@map("customers")
@@ -574,11 +579,12 @@ model Product {
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
-  organization        Organization  @relation(fields: [organizationId], references: [id])
-  stockLevels         StockLevel[]
-  nonFuelSales        NonFuelSale[]
-  qbSyncLogs          QBSyncLog[]
-  purchaseOrderItems  PurchaseOrderItem[]
+  organization          Organization          @relation(fields: [organizationId], references: [id])
+  stockLevels           StockLevel[]
+  nonFuelSales          NonFuelSale[]
+  qbSyncLogs            QBSyncLog[]
+  purchaseOrderItems    PurchaseOrderItem[]
+  backdatedTransactions BackdatedTransaction[]
 
   @@unique([organizationId, sku])
   @@index([organizationId], name: "idx_products_org")
@@ -981,20 +987,77 @@ model AuditLog {
 /// Backdated Entry (Historical meter readings without shift validation)
 model BackdatedEntry {
   id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  date              DateTime @db.Date
+  branchId          String   @map("branch_id") @db.Uuid
+  businessDate      DateTime @map("business_date") @db.Date
   nozzleId          String   @map("nozzle_id") @db.Uuid
+  shiftId           String?  @map("shift_id") @db.Uuid
   openingReading    Decimal  @map("opening_reading") @db.Decimal(12, 2)
   closingReading    Decimal  @map("closing_reading") @db.Decimal(12, 2)
-  creditCardSales   Decimal  @default(0) @map("credit_card_sales") @db.Decimal(12, 2)
-  bankCardSales     Decimal  @default(0) @map("bank_card_sales") @db.Decimal(12, 2)
-  psoCardSales      Decimal  @default(0) @map("pso_card_sales") @db.Decimal(12, 2)
-  totalAmount       Decimal  @map("total_amount") @db.Decimal(12, 2)
+
+  // Reconciliation status
+  isReconciled      Boolean  @default(false) @map("is_reconciled")
+  varianceLiters    Decimal? @map("variance_liters") @db.Decimal(12, 3)
+  varianceAmount    Decimal? @map("variance_amount") @db.Decimal(12, 2) // PKR
+
   notes             String?  @db.Text
+  createdBy         String?  @map("created_by") @db.Uuid
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  @@unique([nozzleId, date], name: "unique_nozzle_date")
-  @@index([date], name: "idx_backdated_entries_date")
+  // Relations
+  branch            Branch                   @relation(fields: [branchId], references: [id])
+  nozzle            Nozzle                   @relation(fields: [nozzleId], references: [id])
+  shift             Shift?                   @relation(fields: [shiftId], references: [id])
+  transactions      BackdatedTransaction[]
+
+  @@unique([nozzleId, businessDate, shiftId], name: "unique_nozzle_date_shift")
+  @@index([businessDate], name: "idx_backdated_entries_date")
+  @@index([branchId, businessDate], name: "idx_backdated_entries_branch_date")
   @@index([nozzleId], name: "idx_backdated_entries_nozzle")
+  @@index([isReconciled], name: "idx_backdated_entries_reconciled")
   @@map("backdated_entries")
+}
+
+/// BackdatedTransaction (Transaction-level detail under daily/nozzle context)
+model BackdatedTransaction {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  backdatedEntryId    String   @map("backdated_entry_id") @db.Uuid
+
+  // Customer details (nullable for walk-in cash)
+  customerId          String?  @map("customer_id") @db.Uuid
+  vehicleNumber       String?  @map("vehicle_number") @db.VarChar(50)
+  slipNumber          String?  @map("slip_number") @db.VarChar(100)
+
+  // Product details
+  productId           String?  @map("product_id") @db.Uuid
+  fuelTypeId          String?  @map("fuel_type_id") @db.Uuid
+  productName         String   @map("product_name") @db.VarChar(255) // Denormalized for history
+
+  // Quantity and pricing (all in PKR)
+  quantity            Decimal  @db.Decimal(12, 3) // Liters
+  unitPrice           Decimal  @map("unit_price") @db.Decimal(12, 2) // PKR per liter
+  lineTotal           Decimal  @map("line_total") @db.Decimal(12, 2) // PKR
+
+  // Payment method
+  paymentMethod       String   @map("payment_method") @db.VarChar(50) // 'cash', 'credit_card', 'bank_card', 'pso_card', 'credit_customer'
+
+  // Transaction timestamp (backdated)
+  transactionDateTime DateTime @map("transaction_datetime") @db.Timestamptz
+
+  notes               String?  @db.Text
+  createdBy           String?  @map("created_by") @db.Uuid
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  backdatedEntry      BackdatedEntry @relation(fields: [backdatedEntryId], references: [id], onDelete: Cascade)
+  customer            Customer?      @relation(fields: [customerId], references: [id])
+  product             Product?       @relation(fields: [productId], references: [id])
+  fuelType            FuelType?      @relation(fields: [fuelTypeId], references: [id])
+
+  @@index([backdatedEntryId], name: "idx_backdated_txn_entry")
+  @@index([customerId], name: "idx_backdated_txn_customer")
+  @@index([transactionDateTime], name: "idx_backdated_txn_datetime")
+  @@index([paymentMethod], name: "idx_backdated_txn_payment")
+  @@map("backdated_transactions")
 }
