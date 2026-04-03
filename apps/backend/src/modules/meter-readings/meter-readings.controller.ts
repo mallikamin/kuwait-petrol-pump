@@ -52,6 +52,12 @@ export class MeterReadingsController {
   /**
    * GET /api/meter-readings
    * Get all meter readings for the organization
+   *
+   * Query params:
+   * - page: Page number (default: 1)
+   * - size: Page size (default: 20)
+   * - is_ocr: Filter by OCR readings (optional)
+   * - date: Filter by business date YYYY-MM-DD (optional) - filters by shift_instance.date
    */
   getAllReadings = async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -63,11 +69,13 @@ export class MeterReadingsController {
       const size = req.query.size ? parseInt(req.query.size as string) : 20;
       const limit = req.query.limit ? parseInt(req.query.limit as string) : size;
       const isOcr = req.query.is_ocr ? req.query.is_ocr === 'true' : undefined;
+      const businessDate = req.query.date as string | undefined; // YYYY-MM-DD format
 
       const allReadings = await this.meterReadingsService.getAllReadings(
         req.user.organizationId,
         limit * page, // Get enough for pagination
-        isOcr
+        isOcr,
+        businessDate // Pass business date filter
       );
 
       // Paginate

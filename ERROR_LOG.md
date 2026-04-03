@@ -16,6 +16,43 @@ Each entry follows:
 
 ---
 
+## 2026-04-04 — Meter Readings Date Boundary Bug (P0)
+
+- **Error**: Page header shows Apr 04, 2026 but shift cards show April 3 data. Active Day Shift opened shows "03 Apr" when it should be "04 Apr". POS PMG/HSD header totals out of sync.
+- **Context**: User viewing meter readings page at 4am Asia/Karachi (11pm UTC previous day). Server in UTC, business in Asia/Karachi.
+- **Root Cause**: Multiple timezone issues:
+  1. **Frontend**: UI displayed dates from `openedAt` UTC timestamps instead of `shift_instance.date` business date field
+  2. **Backend service**: `meter-readings.service.ts` used `new Date()` (server system time) instead of `getBusinessDate(organizationId)` for shift instance creation and validation
+  3. **Backend query**: No filtering by `shift_instance.date` (business date), allowing UTC date overlaps
+  4. **Sorting**: Shifts sorted by `openedAt` timestamp instead of business `date` field
+- **Fix**: RESOLVED
+  1. **Frontend** (`apps/web/src/pages/MeterReadings.tsx`):
+     - Line 951: Changed from `openedAt` fallback to ONLY use `shift_instance.date` for display
+     - Lines 1077-1098: Added business date display in shift section headers, format times separately
+     - Lines 440-451: Sort shifts by `date` field first, then `openedAt` as secondary
+  2. **Backend service** (`apps/backend/src/modules/meter-readings/meter-readings.service.ts`):
+     - Added `businessDate` parameter to `getAllReadings()` for date filtering
+     - Line 94-95: Replace `new Date()` with `await getBusinessDate(organizationId)` in shift instance creation
+     - Lines 175-177: Replace `new Date()` with `await getBusinessDate(organizationId)` in opening validation
+     - Updated yesterday's closing validation to query by `shift_instance.date` instead of `recordedAt` timestamp range
+     - Added Prisma filter for `shiftInstance.date` when businessDate parameter provided
+  3. **Backend controller** (`apps/backend/src/modules/meter-readings/meter-readings.controller.ts`):
+     - Added `date` query parameter support (format: YYYY-MM-DD)
+     - Pass `businessDate` to service for filtering
+  4. **Backfill script** (`apps/backend/src/scripts/backfill-shift-business-dates.ts`):
+     - Created migration script to recalculate business dates for existing shift instances
+     - Converts `openedAt` UTC timestamp to business timezone, extracts date
+     - Usage: `npx ts-node src/scripts/backfill-shift-business-dates.ts --dry-run`
+- **Rule**:
+  1. **ALWAYS use `shift_instance.date`** (business date) for date display/filtering, NEVER derive dates from UTC timestamps
+  2. **ALWAYS use `getBusinessDate(organizationId)`** instead of `new Date()` when creating or querying business dates
+  3. **Backend date queries**: Filter by `shift_instance.date` (business date field), NOT by timestamp ranges
+  4. **Sort by business date first**: Primary sort on `date`, secondary on `openedAt` timestamp
+  5. **Timestamp display**: Format `openedAt`/`closedAt` in organization timezone for time-of-day, but use `date` field for date display
+  6. **Run backfill after deployment**: Execute `backfill-shift-business-dates.ts` to fix any existing data
+
+---
+
 ## 2026-04-03 — Frontend Bundle Not Updating Despite Hard Refresh
 
 - **Error**: User sees old build hash (44068cc) in browser despite new bundle (e110254) deployed to server. Hard refresh (Ctrl+Shift+R) doesn't load new code.

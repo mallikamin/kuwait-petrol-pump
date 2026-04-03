@@ -437,8 +437,15 @@ export function MeterReadings() {
       shiftGroups[shiftKey].rows.push(row);
     }
 
-    // Sort shift groups by opened_at (most recent first)
+    // Sort shift groups by business date + opened_at (most recent first)
+    // Use shift_instance.date (business date) as primary sort, openedAt as secondary
     return Object.entries(shiftGroups).sort((a, b) => {
+      const aDate = a[1].shiftInfo?.date || '';
+      const bDate = b[1].shiftInfo?.date || '';
+      const dateCompare = String(bDate).localeCompare(String(aDate));
+      if (dateCompare !== 0) return dateCompare;
+
+      // If same date, sort by opened_at time
       const aTime = a[1].shiftInfo?.opened_at || '';
       const bTime = b[1].shiftInfo?.opened_at || '';
       return bTime.localeCompare(aTime);
@@ -948,7 +955,8 @@ export function MeterReadings() {
                     <span className="flex items-center gap-1">
                       <Calendar className="h-3 w-3" />
                       {(() => {
-                        const dateValue = (currentShift as any).date || (currentShift as any).openedAt;
+                        // ALWAYS use shift_instance.date (business date), NOT openedAt (UTC timestamp)
+                        const dateValue = (currentShift as any).date;
                         if (!dateValue) return 'N/A';
                         try {
                           return format(new Date(dateValue), 'dd MMM yyyy');
@@ -1081,16 +1089,25 @@ export function MeterReadings() {
                             {openedBy}
                           </span>
                         )}
+                        {/* Show business date from shift_instance.date, NOT from openedAt timestamp */}
+                        {si?.date && (
+                          <span className="flex items-center gap-1">
+                            <Calendar className="h-3 w-3" />
+                            {(() => {
+                              try { return format(new Date(si.date), 'dd MMM yyyy'); } catch { return ''; }
+                            })()}
+                          </span>
+                        )}
                         {openedAt && (
                           <span>
-                            {(() => {
-                              try { return format(new Date(openedAt), 'dd MMM HH:mm'); } catch { return ''; }
+                            Open: {(() => {
+                              try { return format(new Date(openedAt), 'HH:mm'); } catch { return ''; }
                             })()}
                           </span>
                         )}
                         {closedAt && (
                           <span>
-                            {' - '}
+                            {' | Close: '}
                             {(() => {
                               try { return format(new Date(closedAt), 'HH:mm'); } catch { return ''; }
                             })()}

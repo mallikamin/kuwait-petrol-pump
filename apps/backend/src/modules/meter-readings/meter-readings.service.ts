@@ -2,14 +2,24 @@ import { prisma } from '../../config/database';
 import { AppError } from '../../middleware/error.middleware';
 import { Decimal } from '@prisma/client/runtime/library';
 import { CreateMeterReadingInput } from './meter-readings.schema';
+import { getBusinessDate } from '../../utils/timezone';
 
 type CreateMeterReadingData = CreateMeterReadingInput;
 
 export class MeterReadingsService {
   /**
    * Get all meter readings for an organization
+   *
+   * @param businessDate - Optional business date filter (YYYY-MM-DD string or Date object)
+   *                       Filters by shift_instance.date (business date), NOT by timestamps
    */
-  async getAllReadings(organizationId: string, limit: number = 100, isOcr?: boolean) {
+  async getAllReadings(organizationId: string, limit: number = 100, isOcr?: boolean, businessDate?: string | Date) {
+    // Convert businessDate string to Date if provided
+    const dateFilter = businessDate ? new Date(businessDate) : undefined;
+    if (dateFilter) {
+      dateFilter.setUTCHours(0, 0, 0, 0); // Normalize to start of day
+    }
+
     const readings = await prisma.meterReading.findMany({
       where: {
         nozzle: {
@@ -20,6 +30,12 @@ export class MeterReadingsService {
           },
         },
         ...(isOcr !== undefined && { isOcr }),
+        // CRITICAL: Filter by shift_instance.date (business date), NOT recordedAt timestamp
+        ...(dateFilter && {
+          shiftInstance: {
+            date: dateFilter,
+          },
+        }),
       },
       include: {
         nozzle: {
@@ -91,8 +107,8 @@ export class MeterReadingsService {
 
     // If shiftId provided instead of shiftInstanceId, get/create today's shift instance
     if (!resolvedShiftInstanceId && shiftId) {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      // CRITICAL: Use business timezone, NOT server system timezone
+      const today = await getBusinessDate(organizationId);
 
       // Verify shift exists and belongs to organization
       const shift = await prisma.shift.findFirst({
@@ -125,8 +141,8 @@ export class MeterReadingsService {
           data: {
             shiftId,
             branchId: shift.branchId,
-            date: today,
-            openedAt: new Date(),
+            date: today, // Business date from organization timezone
+            openedAt: new Date(), // UTC timestamp
             openedBy: userId,
             status: 'open',
           },
@@ -172,17 +188,19 @@ export class MeterReadingsService {
     // VALIDATION: Closing → Opening Continuity
     // When submitting an OPENING reading, check if yesterday's CLOSING exists and matches
     if (readingType === 'opening') {
-      const yesterday = new Date();
+      // CRITICAL: Calculate yesterday using BUSINESS DATE, not server system time
+      const today = await getBusinessDate(organizationId);
+      const yesterday = new Date(today);
       yesterday.setDate(yesterday.getDate() - 1);
-      yesterday.setHours(0, 0, 0, 0);
+      yesterday.setUTCHours(0, 0, 0, 0);
 
+      // Query by shift_instance.date (business date), NOT by recordedAt timestamp
       const yesterdayClosing = await prisma.meterReading.findFirst({
         where: {
           nozzleId,
           readingType: 'closing',
-          recordedAt: {
-            gte: yesterday,
-            lt: new Date(yesterday.getTime() + 24 * 60 * 60 * 1000), // Within yesterday
+          shiftInstance: {
+            date: yesterday,
           },
         },
         orderBy: { recordedAt: 'desc' },
