@@ -27,10 +27,19 @@ export function Login() {
       });
       navigate('/');
     },
-    onError: (error: { response?: { data?: { detail?: string } } }) => {
+    onError: (error: { response?: { status?: number; data?: { detail?: string; error?: string; message?: string } }; message?: string }) => {
+      const status = error.response?.status;
+      const apiMessage =
+        error.response?.data?.detail ||
+        error.response?.data?.error ||
+        error.response?.data?.message;
+      const description =
+        status === 429
+          ? 'Too many login attempts. Wait 60 seconds and try again.'
+          : apiMessage || error.message || 'Invalid credentials';
       toast({
         title: 'Login failed',
-        description: error.response?.data?.detail || 'Invalid credentials',
+        description,
         variant: 'destructive',
       });
     },

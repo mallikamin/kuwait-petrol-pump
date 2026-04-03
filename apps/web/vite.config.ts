@@ -27,12 +27,20 @@ export default defineConfig({
     '__BUILD_ID__': JSON.stringify(getBuildId()),
   },
   server: {
-    port: 3000,
+    port: 3001,
+    strictPort: true,
     host: true,
     proxy: {
       '/api': {
-        target: process.env.VITE_API_URL || 'http://localhost:8001',
+        // Direct tunnel to backend container (bypasses nginx rate limits)
+        target: 'http://127.0.0.1:38000',
         changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq) => {
+            // Remove Origin header to avoid CORS check (direct backend tunnel)
+            proxyReq.removeHeader('origin');
+          });
+        },
       },
     },
   },

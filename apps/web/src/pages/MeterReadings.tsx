@@ -775,6 +775,21 @@ export function MeterReadings() {
                         <TableCell className="font-mono">
                           {row.closing ? (
                             <span className="text-red-600 font-semibold">{row.closing.reading_value} L</span>
+                          ) : row.opening ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-auto p-1 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                              onClick={() => {
+                                setSelectedNozzleId(row.nozzle_id);
+                                setReadingType('closing');
+                                setStep('form');
+                                setIsDialogOpen(true);
+                              }}
+                              title="Click to add closing reading"
+                            >
+                              + Add Closing
+                            </Button>
                           ) : <span className="text-muted-foreground">-</span>}
                         </TableCell>
                         <TableCell className="text-sm">
