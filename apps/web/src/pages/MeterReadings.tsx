@@ -1044,7 +1044,7 @@ export function MeterReadings() {
                 const si = group.shiftInfo;
                 // Handle both snake_case (API) and camelCase (local) for shift_number
                 const shiftNumber = si?.shift?.shift_number || si?.shift?.shiftNumber;
-                const shiftName = si?.shift?.name || (shiftNumber ? `Shift #${shiftNumber}` : `Shift ${shiftKey}`);
+                const shiftName = si?.shift?.name || (shiftNumber ? `Shift #${shiftNumber}` : 'Shift');
                 const timeRange = formatShiftTimeRange(si);
                 const shiftStatus = si?.status || 'unknown';
                 const openedAt = si?.opened_at;
