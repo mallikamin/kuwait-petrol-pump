@@ -81,7 +81,13 @@ export class MeterReadingsController {
         nozzle_id: reading.nozzleId,
         nozzle: reading.nozzle ? {
           id: reading.nozzle.id,
+          name: reading.nozzle.name || null,
           nozzle_number: reading.nozzle.nozzleNumber,
+          dispensing_unit: reading.nozzle.dispensingUnit ? {
+            id: reading.nozzle.dispensingUnit.id,
+            unit_number: reading.nozzle.dispensingUnit.unitNumber,
+            name: reading.nozzle.dispensingUnit.name || null,
+          } : null,
           fuel_type: reading.nozzle.fuelType ? {
             id: reading.nozzle.fuelType.id,
             name: reading.nozzle.fuelType.name,
@@ -89,6 +95,24 @@ export class MeterReadingsController {
           } : null,
         } : null,
         shift_id: reading.shiftInstanceId,
+        shift_instance: reading.shiftInstance ? {
+          id: reading.shiftInstance.id,
+          date: reading.shiftInstance.date,
+          status: reading.shiftInstance.status,
+          opened_at: reading.shiftInstance.openedAt?.toISOString() || null,
+          closed_at: reading.shiftInstance.closedAt?.toISOString() || null,
+          opened_by: (reading.shiftInstance as any).openedByUser ? {
+            full_name: (reading.shiftInstance as any).openedByUser.fullName,
+            username: (reading.shiftInstance as any).openedByUser.username,
+          } : null,
+          shift: reading.shiftInstance.shift ? {
+            id: reading.shiftInstance.shift.id,
+            name: reading.shiftInstance.shift.name || null,
+            shift_number: reading.shiftInstance.shift.shiftNumber,
+            start_time: reading.shiftInstance.shift.startTime?.toISOString() || null,
+            end_time: reading.shiftInstance.shift.endTime?.toISOString() || null,
+          } : null,
+        } : null,
         reading_type: reading.readingType,
         reading_value: parseFloat(reading.meterValue.toString()),
         meter_value: parseFloat(reading.meterValue.toString()),

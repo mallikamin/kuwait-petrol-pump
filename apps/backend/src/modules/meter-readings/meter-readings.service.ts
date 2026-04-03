@@ -31,6 +31,13 @@ export class MeterReadingsService {
         shiftInstance: {
           include: {
             shift: true,
+            openedByUser: {
+              select: {
+                id: true,
+                fullName: true,
+                username: true,
+              },
+            },
           },
         },
         recordedByUser: {

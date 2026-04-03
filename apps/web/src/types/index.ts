@@ -36,8 +36,10 @@ export interface Nozzle {
   id: string;
   dispensingUnitId: string;
   nozzleNumber: number;
+  name?: string;
   fuelTypeId: string;
   fuelType?: FuelType;
+  dispensingUnit?: { id: string; unitNumber: number; name?: string };
   meterType: string;
   isActive: boolean;
   createdAt: string;

@@ -50,9 +50,9 @@ export const meterReadingsApi = {
     return response.data;
   },
 
-  verify: async (id: string, data: { reading_value: number; is_verified: boolean }): Promise<MeterReading> => {
-    const response = await apiClient.patch<MeterReading>(`/api/meter-readings/${id}`, data);
-    return response.data;
+  verify: async (id: string, data: { verifiedValue: number; isManualOverride: boolean }): Promise<MeterReading> => {
+    const response = await apiClient.put<{ reading: MeterReading }>(`/api/meter-readings/${id}/verify`, data);
+    return response.data.reading;
   },
 
   getVarianceReport: async (shiftId: string): Promise<Record<string, unknown>> => {

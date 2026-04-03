@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Plus, Gauge, AlertCircle, Filter, Camera, Upload, Edit2, CheckCircle, Loader2, X, Eye, Clock, User, Calendar } from 'lucide-react';
+import { Plus, Gauge, AlertCircle, Filter, Camera, Upload, Edit2, CheckCircle, Loader2, X, Eye, Clock, User, Calendar, Pencil } from 'lucide-react';
 import { meterReadingsApi, branchesApi, shiftsApi } from '@/api';
 import { apiClient } from '@/api/client';
 import { toast } from 'sonner';
@@ -32,13 +32,44 @@ import { useAuthStore } from '@/store/auth';
 
 type Step = 'choose' | 'camera' | 'processing' | 'review' | 'form';
 
+// Parse Prisma TIME field (comes as ISO datetime like "1970-01-01T08:00:00.000Z")
+function formatShiftTime(timeValue: unknown): string {
+  if (!timeValue) return '';
+  try {
+    const str = String(timeValue);
+    // Handle ISO datetime string
+    const date = new Date(str);
+    if (!isNaN(date.getTime())) {
+      return `${date.getUTCHours().toString().padStart(2, '0')}:${date.getUTCMinutes().toString().padStart(2, '0')}`;
+    }
+    // Handle plain time string (HH:MM:SS or HH:MM)
+    const match = str.match(/^(\d{2}):(\d{2})/);
+    if (match) return `${match[1]}:${match[2]}`;
+    return '';
+  } catch {
+    return '';
+  }
+}
+
+// Format nozzle display name
+function formatNozzleName(nozzle: any): string {
+  if (!nozzle) return '-';
+  const name = nozzle.name || nozzle.nozzle_number;
+  const unitName = nozzle.dispensing_unit?.name || (nozzle.dispensing_unit?.unit_number ? `Unit ${nozzle.dispensing_unit.unit_number}` : '');
+  const fuelName = nozzle.fuel_type?.name || '';
+  if (unitName && fuelName) return `${unitName} N${nozzle.nozzle_number} - ${fuelName}`;
+  if (name && fuelName) return `Nozzle ${name} - ${fuelName}`;
+  if (fuelName) return `Nozzle ${nozzle.nozzle_number} - ${fuelName}`;
+  return nozzle.name || `Nozzle ${nozzle.nozzle_number}`;
+}
+
 export function MeterReadings() {
   const [page, setPage] = useState(1);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [filterDate, setFilterDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [showFilters, setShowFilters] = useState(false);
 
-  // New OCR flow state
+  // OCR flow state
   const [step, setStep] = useState<Step>('choose');
   const [selectedNozzleId, setSelectedNozzleId] = useState('');
   const [readingType, setReadingType] = useState<'opening' | 'closing'>('opening');
@@ -50,6 +81,11 @@ export function MeterReadings() {
   const [captureError, setCaptureError] = useState<string | null>(null);
   const [isOcrReading, setIsOcrReading] = useState(false);
   const [ocrConfidence, setOcrConfidence] = useState<number | undefined>(undefined);
+
+  // Closing entry lock state (Tasks 5 & 6)
+  const [lockedNozzleId, setLockedNozzleId] = useState<string | null>(null);
+  const [lockedReadingType, setLockedReadingType] = useState<boolean>(false);
+  const [editingReadingId, setEditingReadingId] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -80,15 +116,10 @@ export function MeterReadings() {
 
   // Filter available nozzles based on existing readings for today
   const availableNozzles = (nozzlesData || []).filter((nozzle: any) => {
-    // Find readings for this nozzle in today's data
     const nozzleReadings = (data?.items || []).filter((r: any) => r.nozzle_id === nozzle.id);
-
-    // Check if readings exist for the selected reading type
     if (readingType === 'opening') {
-      // Don't show if opening already exists
       return !nozzleReadings.some((r: any) => r.reading_type === 'opening');
     } else {
-      // For closing: don't show if closing already exists
       return !nozzleReadings.some((r: any) => r.reading_type === 'closing');
     }
   });
@@ -139,6 +170,21 @@ export function MeterReadings() {
     },
   });
 
+  // Edit closing mutation (uses verify endpoint)
+  const editClosingMutation = useMutation({
+    mutationFn: ({ id, value }: { id: string; value: number }) =>
+      meterReadingsApi.verify(id, { verifiedValue: value, isManualOverride: true }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['meterReadings'] });
+      toast.success('Closing reading updated successfully');
+      closeDialog();
+    },
+    onError: (error: any) => {
+      const errorMsg = error?.response?.data?.error || error?.response?.data?.message || 'Failed to update closing reading';
+      toast.error(errorMsg, { duration: 5000 });
+    },
+  });
+
   const resetForm = () => {
     setStep('choose');
     setSelectedNozzleId('');
@@ -151,6 +197,9 @@ export function MeterReadings() {
     setCaptureError(null);
     setIsOcrReading(false);
     setOcrConfidence(undefined);
+    setLockedNozzleId(null);
+    setLockedReadingType(false);
+    setEditingReadingId(null);
   };
 
   const closeDialog = () => {
@@ -253,14 +302,12 @@ export function MeterReadings() {
     try {
       const compressed = await compressImage(dataUrl);
 
-      // Upload image
       const uploadRes = await apiClient.post<{ success: boolean; imageUrl: string; size: number }>(
         '/api/meter-readings/upload',
         { imageBase64: compressed }
       );
       setServerImageUrl(uploadRes.data.imageUrl);
 
-      // Call OCR
       const ocrRes = await apiClient.post<{ extractedValue: number | null; confidence: number; rawText: string; error?: string; quota?: any }>(
         '/api/meter-readings/ocr',
         { imageBase64: compressed }
@@ -285,20 +332,18 @@ export function MeterReadings() {
     }
   };
 
-  // Approve OCR result → go to form
   const approveReading = () => {
     setStep('form');
   };
 
-  // Revise → allow manual edit then go to form
   const reviseReading = () => {
     setIsOcrReading(false);
     setStep('form');
   };
 
-  // Submit
+  // Submit (create or edit)
   const handleSubmit = () => {
-    if (!selectedNozzleId || !meterValue || !currentShift) {
+    if (!selectedNozzleId || !meterValue) {
       toast.error('Please fill all required fields');
       return;
     }
@@ -309,27 +354,94 @@ export function MeterReadings() {
       return;
     }
 
+    // Edit existing closing
+    if (editingReadingId) {
+      editClosingMutation.mutate({ id: editingReadingId, value: reading });
+      return;
+    }
+
+    if (!currentShift) {
+      toast.error('No active shift');
+      return;
+    }
+
     createMutation.mutate({
       nozzleId: selectedNozzleId,
       shiftInstanceId: currentShift.id,
       readingType,
-      meterValue: parseFloat(meterValue),
+      meterValue: reading,
       imageUrl: serverImageUrl || undefined,
     });
   };
 
-  // Group readings by nozzle + shift
-  const groupedReadings = (data?.items || []).reduce((acc: any, reading: any) => {
-    const key = `${reading.nozzle_id}_${reading.shift_id || 'unknown'}`;
-    if (!acc[key]) {
-      acc[key] = { nozzle: reading.nozzle, nozzle_id: reading.nozzle_id, shift_id: reading.shift_id, opening: null, closing: null, date: reading.created_at };
-    }
-    if (reading.reading_type === 'opening') acc[key].opening = reading;
-    else acc[key].closing = reading;
-    return acc;
-  }, {});
+  // Open "Add Closing" with locked context (Task 5)
+  const openAddClosing = (nozzleId: string) => {
+    setSelectedNozzleId(nozzleId);
+    setReadingType('closing');
+    setLockedNozzleId(nozzleId);
+    setLockedReadingType(true);
+    setEditingReadingId(null);
+    setStep('choose');
+    setIsDialogOpen(true);
+  };
 
-  const consolidatedReadings = Object.values(groupedReadings);
+  // Open "Edit Closing" with existing value (Task 6)
+  const openEditClosing = (readingId: string, nozzleId: string, currentValue: number) => {
+    setSelectedNozzleId(nozzleId);
+    setReadingType('closing');
+    setLockedNozzleId(nozzleId);
+    setLockedReadingType(true);
+    setEditingReadingId(readingId);
+    setMeterValue(currentValue.toString());
+    setStep('form');
+    setIsDialogOpen(true);
+  };
+
+  // Group readings by shift instance, then by nozzle within each shift (Task 3)
+  const groupReadingsByShift = () => {
+    const items = data?.items || [];
+    // First, group by nozzle+shift for opening/closing pairing
+    const paired: Record<string, any> = {};
+    for (const reading of items) {
+      const key = `${reading.nozzle_id}_${reading.shift_id || 'unknown'}`;
+      if (!paired[key]) {
+        paired[key] = {
+          nozzle: reading.nozzle,
+          nozzle_id: reading.nozzle_id,
+          shift_id: reading.shift_id,
+          shift_instance: (reading as any).shift_instance || null,
+          opening: null,
+          closing: null,
+          date: reading.created_at,
+        };
+      }
+      if (reading.reading_type === 'opening') paired[key].opening = reading;
+      else paired[key].closing = reading;
+    }
+
+    // Now group paired readings by shift_id
+    const shiftGroups: Record<string, { shiftInfo: any; rows: any[] }> = {};
+    for (const row of Object.values(paired)) {
+      const shiftKey = row.shift_id || 'unknown';
+      if (!shiftGroups[shiftKey]) {
+        shiftGroups[shiftKey] = {
+          shiftInfo: row.shift_instance,
+          rows: [],
+        };
+      }
+      shiftGroups[shiftKey].rows.push(row);
+    }
+
+    // Sort shift groups by opened_at (most recent first)
+    return Object.entries(shiftGroups).sort((a, b) => {
+      const aTime = a[1].shiftInfo?.opened_at || '';
+      const bTime = b[1].shiftInfo?.opened_at || '';
+      return bTime.localeCompare(aTime);
+    });
+  };
+
+  const shiftGroups = groupReadingsByShift();
+  const hasReadings = shiftGroups.some(([, g]) => g.rows.length > 0);
 
   // Render dialog content by step
   const renderDialogContent = () => {
@@ -338,10 +450,10 @@ export function MeterReadings() {
       return (
         <>
           <DialogHeader>
-            <DialogTitle>Record Meter Reading</DialogTitle>
+            <DialogTitle>{editingReadingId ? 'Edit Closing Reading' : 'Record Meter Reading'}</DialogTitle>
             <DialogDescription>
-              Take a photo for automatic OCR reading or enter manually.
-              {ocrQuota && (
+              {lockedReadingType ? 'Add closing reading for this nozzle.' : 'Take a photo for automatic OCR reading or enter manually.'}
+              {ocrQuota && !editingReadingId && (
                 <span className="block mt-1 text-xs">
                   OCR quota: {ocrQuota.remaining}/{ocrQuota.total} remaining today
                 </span>
@@ -444,7 +556,7 @@ export function MeterReadings() {
       );
     }
 
-    // Step 4: Review OCR result - approve or revise
+    // Step 4: Review OCR result
     if (step === 'review') {
       return (
         <>
@@ -454,14 +566,12 @@ export function MeterReadings() {
           </DialogHeader>
 
           <div className="space-y-4 py-4">
-            {/* Image preview */}
             {imageDataUrl && (
               <div className="relative w-full">
                 <img src={imageDataUrl} alt="Meter" className="w-full max-h-48 object-contain rounded-lg border" />
               </div>
             )}
 
-            {/* OCR Result */}
             {ocrResult?.extractedValue && !captureError ? (
               <div className="space-y-3">
                 <div className="flex items-center justify-between p-4 bg-primary/10 rounded-lg">
@@ -481,7 +591,6 @@ export function MeterReadings() {
                   </Alert>
                 )}
 
-                {/* Editable value */}
                 <div className="space-y-2">
                   <Label>Reading Value (edit if needed)</Label>
                   <Input
@@ -538,36 +647,54 @@ export function MeterReadings() {
       );
     }
 
-    // Step 5: Entry form - select nozzle, shift, type
+    // Step 5: Entry form
     if (step === 'form') {
+      const isEditing = !!editingReadingId;
+      const isLocked = !!lockedNozzleId;
+      const isPending = createMutation.isPending || editClosingMutation.isPending;
+
+      // Find nozzle name for locked display
+      const lockedNozzle = isLocked
+        ? (nozzlesData || []).find((n: any) => n.id === lockedNozzleId)
+        : null;
+
       return (
         <>
           <DialogHeader>
-            <DialogTitle>Submit Meter Reading</DialogTitle>
+            <DialogTitle>{isEditing ? 'Edit Closing Reading' : 'Submit Meter Reading'}</DialogTitle>
             <DialogDescription>
-              {isOcrReading ? `OCR reading: ${meterValue} (${Math.round((ocrConfidence || 0) * 100)}% confidence)` : 'Manual entry'}
+              {isEditing
+                ? 'Update the closing meter value.'
+                : isOcrReading
+                  ? `OCR reading: ${meterValue} (${Math.round((ocrConfidence || 0) * 100)}% confidence)`
+                  : 'Manual entry'}
               {serverImageUrl && ' - Photo attached'}
             </DialogDescription>
           </DialogHeader>
 
           <div className="grid gap-4 py-4">
-            {/* Reading value (read-only summary or editable) */}
+            {/* Reading value summary */}
             <div className="flex items-center justify-between p-3 bg-primary/10 rounded-lg">
               <div>
-                <p className="text-xs text-muted-foreground">Reading Value</p>
+                <p className="text-xs text-muted-foreground">{isEditing ? 'Updated Value' : 'Reading Value'}</p>
                 <p className="text-2xl font-bold">{parseFloat(meterValue || '0').toFixed(2)}</p>
               </div>
-              {isOcrReading && (
+              {isEditing && (
+                <Badge variant="warning">
+                  <Pencil className="mr-1 h-3 w-3" /> Editing
+                </Badge>
+              )}
+              {!isEditing && isOcrReading && (
                 <Badge variant="default">
                   <Camera className="mr-1 h-3 w-3" /> OCR
                 </Badge>
               )}
-              {!isOcrReading && serverImageUrl && (
+              {!isEditing && !isOcrReading && serverImageUrl && (
                 <Badge variant="secondary">
                   <Eye className="mr-1 h-3 w-3" /> Photo + Manual
                 </Badge>
               )}
-              {!isOcrReading && !serverImageUrl && (
+              {!isEditing && !isOcrReading && !serverImageUrl && (
                 <Badge variant="outline">
                   <Edit2 className="mr-1 h-3 w-3" /> Manual
                 </Badge>
@@ -586,65 +713,83 @@ export function MeterReadings() {
               />
             </div>
 
-            {/* Shift */}
+            {/* Shift (not shown for edit) */}
+            {!isEditing && (
+              <div className="grid gap-2">
+                <Label>Active Shift *</Label>
+                {!currentShift ? (
+                  <Alert>
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>No active shift. Please open a shift first.</AlertDescription>
+                  </Alert>
+                ) : (
+                  <div className="p-3 rounded-lg border bg-muted/50">
+                    <p className="text-sm font-medium">
+                      {(currentShift as any).shift?.name || `Shift #${(currentShift as any).shift?.shiftNumber}`}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Opened by {(currentShift as any).openedByUser?.fullName || (currentShift as any).openedByUser?.username || 'Unknown'}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Nozzle - locked or selectable */}
             <div className="grid gap-2">
-              <Label>Active Shift *</Label>
-              {!currentShift ? (
-                <Alert>
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>No active shift. Please open a shift first.</AlertDescription>
-                </Alert>
-              ) : (
+              <Label>Nozzle *</Label>
+              {isLocked && lockedNozzle ? (
                 <div className="p-3 rounded-lg border bg-muted/50">
                   <p className="text-sm font-medium">
-                    {(currentShift as any).shift?.name || `Shift #${(currentShift as any).shift?.shiftNumber}`}
+                    {lockedNozzle.name || `Nozzle ${lockedNozzle.nozzleNumber}`} - {lockedNozzle.fuelType?.name || 'Unknown'}
                   </p>
-                  <p className="text-xs text-muted-foreground">
-                    Opened by {(currentShift as any).openedByUser?.fullName || (currentShift as any).openedByUser?.username || 'Unknown'}
-                  </p>
+                  <p className="text-xs text-muted-foreground">Nozzle pre-selected (locked)</p>
                 </div>
+              ) : (
+                <Select value={selectedNozzleId} onValueChange={setSelectedNozzleId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select nozzle" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableNozzles.length === 0 ? (
+                      <div className="p-3 text-sm text-muted-foreground text-center">
+                        All nozzles have {readingType} readings for today
+                      </div>
+                    ) : (
+                      availableNozzles.map((nozzle: any) => (
+                        <SelectItem key={nozzle.id} value={nozzle.id}>
+                          {nozzle.name || `Nozzle ${nozzle.nozzleNumber}`} - {nozzle.fuelType?.name || 'Unknown'}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
               )}
             </div>
 
-            {/* Nozzle */}
-            <div className="grid gap-2">
-              <Label>Nozzle *</Label>
-              <Select value={selectedNozzleId} onValueChange={setSelectedNozzleId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select nozzle" />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableNozzles.length === 0 ? (
-                    <div className="p-3 text-sm text-muted-foreground text-center">
-                      All nozzles have {readingType} readings for today
-                    </div>
-                  ) : (
-                    availableNozzles.map((nozzle: any) => (
-                      <SelectItem key={nozzle.id} value={nozzle.id}>
-                        {nozzle.name || `Nozzle ${nozzle.nozzleNumber}`} - {nozzle.fuelType?.name || 'Unknown'}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Reading Type */}
+            {/* Reading Type - locked or selectable */}
             <div className="grid gap-2">
               <Label>Reading Type *</Label>
-              <Select value={readingType} onValueChange={(v: 'opening' | 'closing') => setReadingType(v)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="opening">Opening</SelectItem>
-                  <SelectItem value="closing">Closing</SelectItem>
-                </SelectContent>
-              </Select>
+              {lockedReadingType ? (
+                <div className="p-3 rounded-lg border bg-muted/50">
+                  <p className="text-sm font-medium capitalize">{readingType}</p>
+                  <p className="text-xs text-muted-foreground">Type pre-selected (locked)</p>
+                </div>
+              ) : (
+                <Select value={readingType} onValueChange={(v: 'opening' | 'closing') => setReadingType(v)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="opening">Opening</SelectItem>
+                    <SelectItem value="closing">Closing</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
             </div>
 
-            {/* Optional Photo Attachment */}
-            {!isOcrReading && (
+            {/* Optional Photo Attachment (not for editing) */}
+            {!isOcrReading && !isEditing && (
               <div className="grid gap-2">
                 <Label>Photo Attachment (Optional)</Label>
                 <div className="flex items-center gap-2">
@@ -660,8 +805,6 @@ export function MeterReadings() {
                           const dataUrl = event.target?.result as string;
                           compressImage(dataUrl).then((compressed) => {
                             setImageDataUrl(compressed);
-                            // TODO: Implement server upload
-                            // uploadImageToServer(compressed);
                           }).catch(() => {
                             toast.error('Failed to compress image');
                           });
@@ -698,7 +841,7 @@ export function MeterReadings() {
               <p className="text-xs font-medium text-muted-foreground uppercase">Audit Trail</p>
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <User className="h-3 w-3" />
-                <span>Entered by: {user?.full_name || user?.username || (user as any)?.fullName || 'Current User'}</span>
+                <span>{isEditing ? 'Updated' : 'Entered'} by: {user?.full_name || user?.username || (user as any)?.fullName || 'Current User'}</span>
               </div>
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Clock className="h-3 w-3" />
@@ -713,7 +856,7 @@ export function MeterReadings() {
               {!isOcrReading && (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Edit2 className="h-3 w-3" />
-                  <span>Method: Manual entry</span>
+                  <span>Method: {isEditing ? 'Manual correction' : 'Manual entry'}</span>
                 </div>
               )}
             </div>
@@ -723,9 +866,9 @@ export function MeterReadings() {
             <Button variant="outline" onClick={closeDialog}>Cancel</Button>
             <Button
               onClick={handleSubmit}
-              disabled={createMutation.isPending || !selectedNozzleId || !meterValue || !currentShift}
+              disabled={isPending || !selectedNozzleId || !meterValue || (!isEditing && !currentShift)}
             >
-              {createMutation.isPending ? 'Submitting...' : 'Submit Reading'}
+              {isPending ? 'Submitting...' : isEditing ? 'Update Reading' : 'Submit Reading'}
             </Button>
           </DialogFooter>
         </>
@@ -733,6 +876,16 @@ export function MeterReadings() {
     }
 
     return null;
+  };
+
+  // Format shift time range for section headers
+  const formatShiftTimeRange = (shiftInfo: any): string => {
+    if (!shiftInfo?.shift) return '';
+    const start = formatShiftTime(shiftInfo.shift.start_time);
+    const end = formatShiftTime(shiftInfo.shift.end_time);
+    if (start && end) return `${start} - ${end}`;
+    if (start) return `From ${start}`;
+    return 'Time not configured';
   };
 
   return (
@@ -748,7 +901,7 @@ export function MeterReadings() {
         </Button>
       </div>
 
-      {/* Current Shift Info */}
+      {/* Current Shift Info (Task 1: Fixed time display) */}
       {currentShift ? (
         <Card className="border-green-200 bg-green-50">
           <CardContent className="pt-6">
@@ -768,15 +921,11 @@ export function MeterReadings() {
                     <span className="flex items-center gap-1">
                       <Clock className="h-3 w-3" />
                       {(() => {
-                        try {
-                          const start = (currentShift as any).shift?.startTime;
-                          const end = (currentShift as any).shift?.endTime;
-                          const startFormatted = start ? format(new Date(`2000-01-01T${start}`), 'HH:mm') : 'N/A';
-                          const endFormatted = end ? format(new Date(`2000-01-01T${end}`), 'HH:mm') : 'N/A';
-                          return `${startFormatted} - ${endFormatted}`;
-                        } catch {
-                          return 'N/A - N/A';
-                        }
+                        const start = formatShiftTime((currentShift as any).shift?.startTime);
+                        const end = formatShiftTime((currentShift as any).shift?.endTime);
+                        if (start && end) return `${start} - ${end}`;
+                        if (start) return `From ${start}`;
+                        return 'Time not configured';
                       })()}
                     </span>
                     <span className="flex items-center gap-1">
@@ -855,7 +1004,7 @@ export function MeterReadings() {
         )}
       </Card>
 
-      {/* Readings Table */}
+      {/* Readings Table (Task 3: Grouped by shift) */}
       <Card>
         <CardHeader>
           <CardTitle>Meter Readings - {filterDate ? (() => {
@@ -866,7 +1015,7 @@ export function MeterReadings() {
               return 'All Dates';
             }
           })() : 'All Dates'}</CardTitle>
-          <p className="text-sm text-muted-foreground">Opening and closing readings grouped by nozzle</p>
+          <p className="text-sm text-muted-foreground">Opening and closing readings grouped by shift</p>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -875,123 +1024,187 @@ export function MeterReadings() {
                 <Skeleton key={i} className="h-16" />
               ))}
             </div>
-          ) : consolidatedReadings.length === 0 ? (
+          ) : !hasReadings ? (
             <div className="text-center py-12 text-muted-foreground">
               <Gauge className="mx-auto h-12 w-12 mb-4 opacity-50" />
               <p>No meter readings found</p>
               <p className="text-sm">Record your first meter reading to get started</p>
             </div>
           ) : (
-            <>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Nozzle</TableHead>
-                    <TableHead>Fuel Type</TableHead>
-                    <TableHead>Opening</TableHead>
-                    <TableHead>Time</TableHead>
-                    <TableHead>Closing</TableHead>
-                    <TableHead>Time</TableHead>
-                    <TableHead>Sales (L)</TableHead>
-                    <TableHead>Method</TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {consolidatedReadings.map((row: any, idx) => {
-                    const sales = row.opening && row.closing
-                      ? row.closing.reading_value - row.opening.reading_value
-                      : null;
-                    const isMismatch = sales !== null && sales < 0;
+            <div className="space-y-6">
+              {shiftGroups.map(([shiftKey, group]) => {
+                const si = group.shiftInfo;
+                const shiftName = si?.shift?.name || (si?.shift?.shift_number ? `Shift #${si.shift.shift_number}` : 'Unknown Shift');
+                const timeRange = formatShiftTimeRange(si);
+                const shiftStatus = si?.status || 'unknown';
+                const openedAt = si?.opened_at;
+                const closedAt = si?.closed_at;
+                const openedBy = si?.opened_by?.full_name || si?.opened_by?.username || '';
 
-                    return (
-                      <TableRow key={idx} className={isMismatch ? 'bg-destructive/10' : ''}>
-                        <TableCell className="font-medium">
-                          <div className="flex items-center">
-                            <Gauge className="mr-2 h-4 w-4 text-muted-foreground" />
-                            {row.nozzle?.name || row.nozzle?.nozzle_number || '-'}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{row.nozzle?.fuel_type?.name || '-'}</Badge>
-                        </TableCell>
-                        <TableCell className="font-mono">
-                          {row.opening ? (
-                            <span className="text-green-600 font-semibold">{row.opening.reading_value} L</span>
-                          ) : <span className="text-muted-foreground">-</span>}
-                        </TableCell>
-                        <TableCell className="text-sm">
-                          {row.opening?.created_at ? (() => {
-                            try {
-                              return format(new Date(row.opening.created_at), 'HH:mm');
-                            } catch {
-                              return '-';
-                            }
-                          })() : '-'}
-                        </TableCell>
-                        <TableCell className="font-mono">
-                          {row.closing ? (
-                            <span className="text-red-600 font-semibold">{row.closing.reading_value} L</span>
-                          ) : row.opening ? (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-auto p-1 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                              onClick={() => {
-                                setSelectedNozzleId(row.nozzle_id);
-                                setReadingType('closing');
-                                setStep('form');
-                                setIsDialogOpen(true);
-                              }}
-                              title="Click to add closing reading"
-                            >
-                              + Add Closing
-                            </Button>
-                          ) : <span className="text-muted-foreground">-</span>}
-                        </TableCell>
-                        <TableCell className="text-sm">
-                          {row.closing?.created_at ? (() => {
-                            try {
-                              return format(new Date(row.closing.created_at), 'HH:mm');
-                            } catch {
-                              return '-';
-                            }
-                          })() : '-'}
-                        </TableCell>
-                        <TableCell className="font-mono">
-                          {sales !== null ? (
-                            <span className={sales < 0 ? 'text-destructive font-semibold' : ''}>{sales.toFixed(2)} L</span>
-                          ) : <span className="text-muted-foreground">-</span>}
-                        </TableCell>
-                        <TableCell>
-                          {(row.opening?.image_url || row.closing?.image_url) ? (
-                            <Badge variant="secondary" className="text-xs">
-                              <Camera className="mr-1 h-3 w-3" /> OCR
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline" className="text-xs">
-                              <Edit2 className="mr-1 h-3 w-3" /> Manual
-                            </Badge>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {!row.opening && !row.closing ? (
-                            <Badge variant="secondary">No Data</Badge>
-                          ) : !row.opening ? (
-                            <Badge variant="destructive">Missing Opening</Badge>
-                          ) : !row.closing ? (
-                            <Badge variant="default">Open</Badge>
-                          ) : isMismatch ? (
-                            <Badge variant="destructive">Error</Badge>
-                          ) : (
-                            <Badge variant="default">Complete</Badge>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+                return (
+                  <div key={shiftKey}>
+                    {/* Shift section header (Task 3) */}
+                    <div className="flex items-center justify-between px-3 py-2 rounded-t-lg bg-muted/60 border border-b-0">
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-sm font-semibold">{shiftName}</h4>
+                          <Badge variant={shiftStatus === 'open' ? 'warning' : shiftStatus === 'closed' ? 'success' : 'secondary'}>
+                            {shiftStatus === 'open' ? 'Open' : shiftStatus === 'closed' ? 'Completed' : shiftStatus}
+                          </Badge>
+                        </div>
+                        {timeRange && (
+                          <span className="text-xs text-muted-foreground flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            {timeRange}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                        {openedBy && (
+                          <span className="flex items-center gap-1">
+                            <User className="h-3 w-3" />
+                            {openedBy}
+                          </span>
+                        )}
+                        {openedAt && (
+                          <span>
+                            {(() => {
+                              try { return format(new Date(openedAt), 'dd MMM HH:mm'); } catch { return ''; }
+                            })()}
+                          </span>
+                        )}
+                        {closedAt && (
+                          <span>
+                            {' - '}
+                            {(() => {
+                              try { return format(new Date(closedAt), 'HH:mm'); } catch { return ''; }
+                            })()}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Table for this shift */}
+                    <Table className="border border-t-0 rounded-b-lg">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Nozzle</TableHead>
+                          <TableHead>Opening</TableHead>
+                          <TableHead>Time</TableHead>
+                          <TableHead>Closing</TableHead>
+                          <TableHead>Time</TableHead>
+                          <TableHead>Sales (L)</TableHead>
+                          <TableHead>Method</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead className="w-[80px]">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {group.rows.map((row: any, idx: number) => {
+                          const sales = row.opening && row.closing
+                            ? row.closing.reading_value - row.opening.reading_value
+                            : null;
+                          const isMismatch = sales !== null && sales < 0;
+
+                          return (
+                            <TableRow key={idx} className={isMismatch ? 'bg-destructive/10' : ''}>
+                              {/* Task 2: Nozzle display name */}
+                              <TableCell className="font-medium">
+                                <div className="flex items-center">
+                                  <Gauge className="mr-2 h-4 w-4 text-muted-foreground" />
+                                  {formatNozzleName(row.nozzle)}
+                                </div>
+                              </TableCell>
+                              <TableCell className="font-mono">
+                                {row.opening ? (
+                                  <span className="text-green-600 font-semibold">{row.opening.reading_value} L</span>
+                                ) : <span className="text-muted-foreground">-</span>}
+                              </TableCell>
+                              <TableCell className="text-sm">
+                                {row.opening?.created_at ? (() => {
+                                  try {
+                                    return format(new Date(row.opening.created_at), 'HH:mm');
+                                  } catch {
+                                    return '-';
+                                  }
+                                })() : '-'}
+                              </TableCell>
+                              <TableCell className="font-mono">
+                                {row.closing ? (
+                                  <span className="text-red-600 font-semibold">{row.closing.reading_value} L</span>
+                                ) : row.opening ? (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-auto p-1 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                    onClick={() => openAddClosing(row.nozzle_id)}
+                                    title="Click to add closing reading"
+                                  >
+                                    + Add Closing
+                                  </Button>
+                                ) : <span className="text-muted-foreground">-</span>}
+                              </TableCell>
+                              <TableCell className="text-sm">
+                                {row.closing?.created_at ? (() => {
+                                  try {
+                                    return format(new Date(row.closing.created_at), 'HH:mm');
+                                  } catch {
+                                    return '-';
+                                  }
+                                })() : '-'}
+                              </TableCell>
+                              <TableCell className="font-mono">
+                                {sales !== null ? (
+                                  <span className={sales < 0 ? 'text-destructive font-semibold' : ''}>{sales.toFixed(2)} L</span>
+                                ) : <span className="text-muted-foreground">-</span>}
+                              </TableCell>
+                              <TableCell>
+                                {(row.opening?.image_url || row.closing?.image_url) ? (
+                                  <Badge variant="secondary" className="text-xs">
+                                    <Camera className="mr-1 h-3 w-3" /> OCR
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="text-xs">
+                                    <Edit2 className="mr-1 h-3 w-3" /> Manual
+                                  </Badge>
+                                )}
+                              </TableCell>
+                              {/* Task 4: Status badge colors */}
+                              <TableCell>
+                                {!row.opening && !row.closing ? (
+                                  <Badge variant="secondary">No Data</Badge>
+                                ) : !row.opening ? (
+                                  <Badge variant="destructive">Missing Opening</Badge>
+                                ) : !row.closing ? (
+                                  <Badge variant="warning">Open</Badge>
+                                ) : isMismatch ? (
+                                  <Badge variant="destructive">Error</Badge>
+                                ) : (
+                                  <Badge variant="success">Complete</Badge>
+                                )}
+                              </TableCell>
+                              {/* Task 6: Edit Closing action */}
+                              <TableCell>
+                                {row.closing && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-auto p-1"
+                                    onClick={() => openEditClosing(row.closing.id, row.nozzle_id, row.closing.reading_value)}
+                                    title="Edit closing reading"
+                                  >
+                                    <Pencil className="h-3 w-3" />
+                                  </Button>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                );
+              })}
 
               {data && data.pages > 1 && (
                 <div className="flex items-center justify-between mt-4">
@@ -1006,7 +1219,7 @@ export function MeterReadings() {
                   </div>
                 </div>
               )}
-            </>
+            </div>
           )}
         </CardContent>
       </Card>
