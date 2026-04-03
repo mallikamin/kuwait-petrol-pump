@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
@@ -22,11 +23,13 @@ import { useToast } from '@/components/ui/use-toast';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { formatCurrency, formatDate } from '@/utils/format';
 import { bifurcationsApi } from '@/api/bifurcations';
+import { shiftsApi } from '@/api/shifts';
 import { useAuthStore } from '@/store/auth';
 
 interface BifurcationFormData {
   branchId: string;
   date: string;
+  shiftInstanceId?: string;
   pmgTotalLiters: number;
   pmgTotalAmount: number;
   hsdTotalLiters: number;
@@ -56,6 +59,7 @@ export function Reconciliation() {
   const [formData, setFormData] = useState<BifurcationFormData>({
     branchId: '',
     date: new Date().toISOString().split('T')[0],
+    shiftInstanceId: undefined,
     pmgTotalLiters: 0,
     pmgTotalAmount: 0,
     hsdTotalLiters: 0,
@@ -86,6 +90,21 @@ export function Reconciliation() {
       return response;
     },
     enabled: !!user?.branch_id,
+  });
+
+  // Fetch closed shifts for reconciliation
+  const { data: closedShifts } = useQuery({
+    queryKey: ['shifts', 'closed', user?.branch_id],
+    queryFn: async () => {
+      if (!user?.branch_id) return { items: [], total: 0 };
+      const response = await shiftsApi.getHistory({
+        branchId: user.branch_id,
+        status: 'closed',
+        limit: 50,
+      });
+      return response;
+    },
+    enabled: !!user?.branch_id && isWizardOpen,
   });
 
   // Load daily summary when wizard opens
@@ -159,6 +178,7 @@ export function Reconciliation() {
       const response = await bifurcationsApi.create({
         branchId: data.branchId,
         date: new Date(data.date).toISOString(),
+        shiftInstanceId: data.shiftInstanceId,
         pmgTotalLiters: data.pmgTotalLiters,
         pmgTotalAmount: data.pmgTotalAmount,
         hsdTotalLiters: data.hsdTotalLiters,
@@ -195,6 +215,7 @@ export function Reconciliation() {
     setFormData({
       branchId: user?.branch_id || '',
       date: new Date().toISOString().split('T')[0],
+      shiftInstanceId: undefined,
       pmgTotalLiters: 0,
       pmgTotalAmount: 0,
       hsdTotalLiters: 0,
@@ -449,6 +470,38 @@ export function Reconciliation() {
             {/* Step 1: Auto-Load Summary */}
             {currentStep === 1 && (
               <div className="space-y-4">
+                <div className="space-y-4">
+                  {/* Shift Selector */}
+                  <div className="space-y-2">
+                    <Label htmlFor="shift">Select Closed Shift (Optional)</Label>
+                    <Select
+                      value={formData.shiftInstanceId || 'no-shift'}
+                      onValueChange={(value) => {
+                        setFormData(prev => ({
+                          ...prev,
+                          shiftInstanceId: value === 'no-shift' ? undefined : value,
+                        }));
+                      }}
+                    >
+                      <SelectTrigger id="shift">
+                        <SelectValue placeholder="Select a closed shift or end-of-day" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="no-shift">End-of-Day (No specific shift)</SelectItem>
+                        {closedShifts?.items?.map((shift: any) => (
+                          <SelectItem key={shift.id} value={shift.id}>
+                            {shift.shift?.name || `Shift #${shift.shift?.shiftNumber}`} - {formatDate(shift.openedAt)}
+                            {shift.closedAt && ` (Closed: ${formatDate(shift.closedAt)})`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-sm text-muted-foreground">
+                      Link this reconciliation to a specific closed shift, or leave as end-of-day for manual reconciliation
+                    </p>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="date">Reconciliation Date</Label>
