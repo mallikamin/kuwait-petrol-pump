@@ -767,7 +767,17 @@ export function MeterReadings() {
                   <div className="flex items-center gap-4 mt-1 text-sm text-green-700">
                     <span className="flex items-center gap-1">
                       <Clock className="h-3 w-3" />
-                      {(currentShift as any).shift?.startTime ? format(new Date(`2000-01-01T${(currentShift as any).shift.startTime}`), 'HH:mm') : 'N/A'} - {(currentShift as any).shift?.endTime ? format(new Date(`2000-01-01T${(currentShift as any).shift.endTime}`), 'HH:mm') : 'N/A'}
+                      {(() => {
+                        try {
+                          const start = (currentShift as any).shift?.startTime;
+                          const end = (currentShift as any).shift?.endTime;
+                          const startFormatted = start ? format(new Date(`2000-01-01T${start}`), 'HH:mm') : 'N/A';
+                          const endFormatted = end ? format(new Date(`2000-01-01T${end}`), 'HH:mm') : 'N/A';
+                          return `${startFormatted} - ${endFormatted}`;
+                        } catch {
+                          return 'N/A - N/A';
+                        }
+                      })()}
                     </span>
                     <span className="flex items-center gap-1">
                       <User className="h-3 w-3" />
@@ -848,7 +858,14 @@ export function MeterReadings() {
       {/* Readings Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Meter Readings - {filterDate ? format(new Date(filterDate), 'MMM dd, yyyy') : 'All Dates'}</CardTitle>
+          <CardTitle>Meter Readings - {filterDate ? (() => {
+            try {
+              const date = new Date(filterDate);
+              return isNaN(date.getTime()) ? 'All Dates' : format(date, 'MMM dd, yyyy');
+            } catch {
+              return 'All Dates';
+            }
+          })() : 'All Dates'}</CardTitle>
           <p className="text-sm text-muted-foreground">Opening and closing readings grouped by nozzle</p>
         </CardHeader>
         <CardContent>
@@ -904,7 +921,13 @@ export function MeterReadings() {
                           ) : <span className="text-muted-foreground">-</span>}
                         </TableCell>
                         <TableCell className="text-sm">
-                          {row.opening?.created_at ? format(new Date(row.opening.created_at), 'HH:mm') : '-'}
+                          {row.opening?.created_at ? (() => {
+                            try {
+                              return format(new Date(row.opening.created_at), 'HH:mm');
+                            } catch {
+                              return '-';
+                            }
+                          })() : '-'}
                         </TableCell>
                         <TableCell className="font-mono">
                           {row.closing ? (
@@ -927,7 +950,13 @@ export function MeterReadings() {
                           ) : <span className="text-muted-foreground">-</span>}
                         </TableCell>
                         <TableCell className="text-sm">
-                          {row.closing?.created_at ? format(new Date(row.closing.created_at), 'HH:mm') : '-'}
+                          {row.closing?.created_at ? (() => {
+                            try {
+                              return format(new Date(row.closing.created_at), 'HH:mm');
+                            } catch {
+                              return '-';
+                            }
+                          })() : '-'}
                         </TableCell>
                         <TableCell className="font-mono">
                           {sales !== null ? (
