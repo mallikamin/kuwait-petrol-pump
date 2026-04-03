@@ -51,16 +51,16 @@ function formatShiftTime(timeValue: unknown): string {
   }
 }
 
-// Format nozzle display name
+// Format nozzle display name - prioritize custom name from nozzles setup
 function formatNozzleName(nozzle: any): string {
   if (!nozzle) return '-';
-  const name = nozzle.name || nozzle.nozzle_number;
-  const unitName = nozzle.dispensing_unit?.name || (nozzle.dispensing_unit?.unit_number ? `Unit ${nozzle.dispensing_unit.unit_number}` : '');
+  // If custom name exists (like "D1N1-HSD"), use it directly
+  if (nozzle.name) {
+    return nozzle.name;
+  }
+  // Fallback to constructed name
   const fuelName = nozzle.fuel_type?.name || '';
-  if (unitName && fuelName) return `${unitName} N${nozzle.nozzle_number} - ${fuelName}`;
-  if (name && fuelName) return `Nozzle ${name} - ${fuelName}`;
-  if (fuelName) return `Nozzle ${nozzle.nozzle_number} - ${fuelName}`;
-  return nozzle.name || `Nozzle ${nozzle.nozzle_number}`;
+  return fuelName ? `Nozzle ${nozzle.nozzle_number} - ${fuelName}` : `Nozzle ${nozzle.nozzle_number}`;
 }
 
 export function MeterReadings() {
@@ -725,7 +725,11 @@ export function MeterReadings() {
                 ) : (
                   <div className="p-3 rounded-lg border bg-muted/50">
                     <p className="text-sm font-medium">
-                      {(currentShift as any).shift?.name || `Shift #${(currentShift as any).shift?.shiftNumber}`}
+                      {(() => {
+                        const shift = (currentShift as any).shift;
+                        const shiftNum = shift?.shiftNumber || shift?.shift_number;
+                        return shift?.name || (shiftNum ? `Shift #${shiftNum}` : 'Active Shift');
+                      })()}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       Opened by {(currentShift as any).openedByUser?.fullName || (currentShift as any).openedByUser?.username || 'Unknown'}
@@ -913,7 +917,11 @@ export function MeterReadings() {
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="text-lg font-semibold text-green-900">
-                      {(currentShift as any).shift?.name || `Shift #${(currentShift as any).shift?.shiftNumber}`}
+                      {(() => {
+                        const shift = (currentShift as any).shift;
+                        const shiftNum = shift?.shiftNumber || shift?.shift_number;
+                        return shift?.name || (shiftNum ? `Shift #${shiftNum}` : 'Active Shift');
+                      })()}
                     </h3>
                     <Badge className="bg-green-600 text-white">Active</Badge>
                   </div>
@@ -1034,7 +1042,9 @@ export function MeterReadings() {
             <div className="space-y-6">
               {shiftGroups.map(([shiftKey, group]) => {
                 const si = group.shiftInfo;
-                const shiftName = si?.shift?.name || (si?.shift?.shift_number ? `Shift #${si.shift.shift_number}` : 'Unknown Shift');
+                // Handle both snake_case (API) and camelCase (local) for shift_number
+                const shiftNumber = si?.shift?.shift_number || si?.shift?.shiftNumber;
+                const shiftName = si?.shift?.name || (shiftNumber ? `Shift #${shiftNumber}` : `Shift ${shiftKey}`);
                 const timeRange = formatShiftTimeRange(si);
                 const shiftStatus = si?.status || 'unknown';
                 const openedAt = si?.opened_at;
