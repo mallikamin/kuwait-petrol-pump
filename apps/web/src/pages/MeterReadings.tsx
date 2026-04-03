@@ -78,6 +78,21 @@ export function MeterReadings() {
     },
   });
 
+  // Filter available nozzles based on existing readings for today
+  const availableNozzles = (nozzlesData || []).filter((nozzle: any) => {
+    // Find readings for this nozzle in today's data
+    const nozzleReadings = (data?.items || []).filter((r: any) => r.nozzle_id === nozzle.id);
+
+    // Check if readings exist for the selected reading type
+    if (readingType === 'opening') {
+      // Don't show if opening already exists
+      return !nozzleReadings.some((r: any) => r.reading_type === 'opening');
+    } else {
+      // For closing: don't show if closing already exists
+      return !nozzleReadings.some((r: any) => r.reading_type === 'closing');
+    }
+  });
+
   // Fetch current shift
   const { data: currentShift } = useQuery({
     queryKey: ['shifts', 'current', branchId],
@@ -599,11 +614,17 @@ export function MeterReadings() {
                   <SelectValue placeholder="Select nozzle" />
                 </SelectTrigger>
                 <SelectContent>
-                  {nozzlesData?.map((nozzle: any) => (
-                    <SelectItem key={nozzle.id} value={nozzle.id}>
-                      {nozzle.name || `Nozzle ${nozzle.nozzleNumber}`} - {nozzle.fuelType?.name || 'Unknown'}
-                    </SelectItem>
-                  ))}
+                  {availableNozzles.length === 0 ? (
+                    <div className="p-3 text-sm text-muted-foreground text-center">
+                      All nozzles have {readingType} readings for today
+                    </div>
+                  ) : (
+                    availableNozzles.map((nozzle: any) => (
+                      <SelectItem key={nozzle.id} value={nozzle.id}>
+                        {nozzle.name || `Nozzle ${nozzle.nozzleNumber}`} - {nozzle.fuelType?.name || 'Unknown'}
+                      </SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -621,6 +642,55 @@ export function MeterReadings() {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Optional Photo Attachment */}
+            {!isOcrReading && (
+              <div className="grid gap-2">
+                <Label>Photo Attachment (Optional)</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onload = (event) => {
+                          const dataUrl = event.target?.result as string;
+                          compressImage(dataUrl).then((compressed) => {
+                            setImageDataUrl(compressed);
+                            uploadImageToServer(compressed);
+                          }).catch(() => {
+                            toast.error('Failed to compress image');
+                          });
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                    className="flex-1"
+                  />
+                  {imageDataUrl && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setImageDataUrl(null);
+                        setServerImageUrl(null);
+                        if (fileInputRef.current) fileInputRef.current.value = '';
+                      }}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+                {imageDataUrl && (
+                  <div className="relative w-32 h-32 border rounded-lg overflow-hidden">
+                    <img src={imageDataUrl} alt="Attachment" className="w-full h-full object-cover" />
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Audit info */}
             <div className="p-3 rounded-lg border bg-muted/30 space-y-1">
@@ -741,17 +811,17 @@ export function MeterReadings() {
                     <TableHead>Time</TableHead>
                     <TableHead>Closing</TableHead>
                     <TableHead>Time</TableHead>
-                    <TableHead>Variance (L)</TableHead>
+                    <TableHead>Sales (L)</TableHead>
                     <TableHead>Method</TableHead>
                     <TableHead>Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {consolidatedReadings.map((row: any, idx) => {
-                    const variance = row.opening && row.closing
+                    const sales = row.opening && row.closing
                       ? row.closing.reading_value - row.opening.reading_value
                       : null;
-                    const isMismatch = variance !== null && variance < 0;
+                    const isMismatch = sales !== null && sales < 0;
 
                     return (
                       <TableRow key={idx} className={isMismatch ? 'bg-destructive/10' : ''}>
@@ -796,8 +866,8 @@ export function MeterReadings() {
                           {row.closing?.created_at ? format(new Date(row.closing.created_at), 'HH:mm') : '-'}
                         </TableCell>
                         <TableCell className="font-mono">
-                          {variance !== null ? (
-                            <span className={variance < 0 ? 'text-destructive font-semibold' : ''}>{variance.toFixed(2)} L</span>
+                          {sales !== null ? (
+                            <span className={sales < 0 ? 'text-destructive font-semibold' : ''}>{sales.toFixed(2)} L</span>
                           ) : <span className="text-muted-foreground">-</span>}
                         </TableCell>
                         <TableCell>

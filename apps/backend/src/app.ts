@@ -24,6 +24,7 @@ import usersRoutes from './modules/users/users.routes';
 import syncRoutes from './modules/sync/sync.routes';
 import quickbooksRoutes from './services/quickbooks/routes';
 import { validateQuickBooksConfig } from './services/quickbooks/startup-validation';
+import backdatedEntriesRoutes from './modules/backdated-entries/backdated-entries.routes';
 
 // Validate QB config on startup (P0: fail fast if missing)
 validateQuickBooksConfig();
@@ -96,6 +97,7 @@ export function createApp() {
   app.use('/api/dashboard', dashboardRoutes);
   app.use('/api/sync', syncRoutes); // Sprint 1: Offline Foundation
   app.use('/api/quickbooks', quickbooksRoutes); // QuickBooks OAuth & sync
+  app.use('/api/backdated-entries', backdatedEntriesRoutes); // Backdated entries for accountant backlog
 
   app.use('/api/users', usersRoutes);
 
