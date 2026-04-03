@@ -608,19 +608,19 @@ export function Reports() {
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={() => {
                 if (!customerLedger) return;
-                const vehicleNumbers = (customerLedger.customer?.vehicleNumbers || []).join(', ') || 'N/A';
                 const headers = ['Date', 'Customer Name', 'Vehicle#', 'Slip#', 'Product/Fuel', 'Rate', 'Quantity', 'Price', 'Payment Method', 'Balance'];
                 const rows: (string | number)[][] = (customerLedger.transactions || []).map((t: any) => {
                   const isFuel = t.type === 'fuel';
                   const fuelSales = t.details?.fuelSales || [];
                   const items = t.details?.items || [];
+                  const vehicleNumber = t.vehicleNumber || '-'; // Use per-transaction vehicle number
 
                   if (isFuel && fuelSales.length > 0) {
                     // For fuel sales, create one row per fuel type
                     return fuelSales.map((fs: any) => [
                       formatDate(t.date || new Date()),
                       customerLedger.customer?.name || '-',
-                      vehicleNumbers,
+                      vehicleNumber,
                       t.slipNumber || t.id?.substring(0, 8) || '-',
                       fs.fuelType || '-',
                       fs.pricePerLiter || 0,
@@ -634,7 +634,7 @@ export function Reports() {
                     return items.map((item: any) => [
                       formatDate(t.date || new Date()),
                       customerLedger.customer?.name || '-',
-                      vehicleNumbers,
+                      vehicleNumber,
                       t.slipNumber || t.id?.substring(0, 8) || '-',
                       item.productName || '-',
                       item.unitPrice || 0,
@@ -648,7 +648,7 @@ export function Reports() {
                   return [[
                     formatDate(t.date || new Date()),
                     customerLedger.customer?.name || '-',
-                    vehicleNumbers,
+                    vehicleNumber,
                     t.slipNumber || '-',
                     '-',
                     0,

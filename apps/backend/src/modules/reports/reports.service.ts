@@ -581,6 +581,7 @@ export class ReportsService {
         type: sale.saleType,
         amount: saleAmount,
         paymentMethod: sale.paymentMethod,
+        vehicleNumber: sale.vehicleNumber || null, // Include vehicle number for each transaction
         runningBalance,
         branch: {
           id: sale.branch.id,
