@@ -26,6 +26,12 @@ export const reportsApi = {
     const response = await apiClient.get('/api/reports/customer-ledger', {
       params: { customerId, startDate, endDate },
     });
+    // TEMP LOGGING
+    console.log('[LEDGER DEBUG] API response received:', {
+      hasReport: !!response.data.report,
+      totalTransactions: response.data.report?.summary?.totalTransactions,
+      transactionsLength: response.data.report?.transactions?.length,
+    });
     return response.data.report || response.data;
   },
 

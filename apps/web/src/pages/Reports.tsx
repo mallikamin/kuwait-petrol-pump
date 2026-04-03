@@ -125,10 +125,20 @@ export function Reports() {
   });
 
   // Customer Ledger
-  const { data: customerLedger, isLoading: loadingLedger, isError: errorLedger } = useQuery({
+  const { data: customerLedger, isLoading: loadingLedger, isError: errorLedger, refetch: refetchLedger } = useQuery({
     queryKey: ['report-customer-ledger', selectedCustomerId, startDate, endDate],
-    queryFn: () => reportsApi.getCustomerLedger(selectedCustomerId, new Date(startDate).toISOString(), new Date(endDate).toISOString()),
+    queryFn: () => {
+      console.log('[LEDGER DEBUG] Frontend calling API with:', {
+        customerId: selectedCustomerId,
+        startDate: new Date(startDate).toISOString(),
+        endDate: new Date(endDate).toISOString(),
+      });
+      return reportsApi.getCustomerLedger(selectedCustomerId, new Date(startDate).toISOString(), new Date(endDate).toISOString());
+    },
     enabled: fetchEnabled && selectedReport === 'customer-ledger' && !!selectedCustomerId,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
   });
 
   // Variance

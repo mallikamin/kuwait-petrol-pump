@@ -182,12 +182,27 @@ export class ReportsController {
         return res.status(400).json({ error: 'Start date must be before end date' });
       }
 
+      // TEMP LOGGING
+      console.log('[LEDGER DEBUG] Request received:', {
+        customerId: query.customerId,
+        startDate: query.startDate.toISOString(),
+        endDate: query.endDate.toISOString(),
+        organizationId: req.user.organizationId,
+      });
+
       const report = await this.reportsService.getCustomerLedgerReport(
         query.customerId,
         query.startDate,
         query.endDate,
         req.user.organizationId
       );
+
+      // TEMP LOGGING
+      console.log('[LEDGER DEBUG] Report generated:', {
+        totalTransactions: report.summary.totalTransactions,
+        totalAmount: report.summary.totalAmount,
+        transactionsReturned: report.transactions.length,
+      });
 
       res.json({
         report,
