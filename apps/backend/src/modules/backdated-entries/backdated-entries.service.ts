@@ -128,12 +128,12 @@ export class BackdatedEntriesService {
     const fuelPrice = await prisma.fuelPrice.findFirst({
       where: {
         fuelTypeId: nozzle.fuelTypeId,
-        effectiveDate: {
+        effectiveFrom: {
           lte: dateOnly,
         },
       },
       orderBy: {
-        effectiveDate: 'desc',
+        effectiveFrom: 'desc',
       },
     });
 
@@ -142,7 +142,7 @@ export class BackdatedEntriesService {
     }
 
     // Calculate total sales amount
-    const totalSalesAmount = salesVolume * parseFloat(fuelPrice.price.toString());
+    const totalSalesAmount = salesVolume * parseFloat(fuelPrice.pricePerLiter.toString());
 
     // Calculate cash sales (total - card sales)
     const totalCardSales = (creditCardSales || 0) + (bankCardSales || 0) + (psoCardSales || 0);
@@ -183,20 +183,40 @@ export class BackdatedEntriesService {
       });
 
       // 3. Create bifurcation entry (payment breakdown)
+      // Determine fuel type - map to PMG or HSD
+      const fuelTypeName = nozzle.fuelType.name.toUpperCase();
+      const isPMG = fuelTypeName.includes('PMG') || fuelTypeName.includes('PETROL') || fuelTypeName.includes('GASOLINE');
+
+      const bifurcationData: any = {
+        date: dateOnly,
+        shiftInstanceId: shiftInstance.id,
+        branchId: nozzle.dispensingUnit.branchId,
+        // Fuel-specific fields
+        ...(isPMG ? {
+          pmgTotalLiters: new Decimal(salesVolume),
+          pmgTotalAmount: new Decimal(totalSalesAmount),
+        } : {
+          hsdTotalLiters: new Decimal(salesVolume),
+          hsdTotalAmount: new Decimal(totalSalesAmount),
+        }),
+        // Payment breakdown
+        cashAmount: new Decimal(cashSales),
+        creditAmount: new Decimal(0), // Customer credit not tracked in backdated entries
+        cardAmount: new Decimal((creditCardSales || 0) + (bankCardSales || 0)),
+        psoCardAmount: new Decimal(psoCardSales || 0),
+        // Totals
+        expectedTotal: new Decimal(totalSalesAmount),
+        actualTotal: new Decimal(totalSalesAmount), // Assume perfect match for backdated
+        variance: new Decimal(0),
+        varianceNotes: notes || `Backdated entry for ${dateOnly.toISOString().split('T')[0]}`,
+        // Metadata
+        bifurcatedBy: userId,
+        bifurcatedAt: new Date(),
+        status: 'completed',
+      };
+
       const bifurcation = await tx.bifurcation.create({
-        data: {
-          shiftInstanceId: shiftInstance.id,
-          branchId: nozzle.dispensingUnit.branchId,
-          totalSales: new Decimal(totalSalesAmount),
-          cashSales: new Decimal(cashSales),
-          creditCardSales: new Decimal(creditCardSales || 0),
-          bankCardSales: new Decimal(bankCardSales || 0),
-          psoCardSales: new Decimal(psoCardSales || 0),
-          actualCashInHand: new Decimal(cashSales), // Assume it matches for backdated entries
-          shortageOrExcess: new Decimal(0),
-          notes: notes || `Backdated entry for ${dateOnly.toISOString().split('T')[0]}`,
-          createdBy: userId,
-        },
+        data: bifurcationData,
       });
 
       return {
