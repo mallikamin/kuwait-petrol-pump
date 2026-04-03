@@ -57,4 +57,29 @@ export const salesApi = {
     const response = await apiClient.get<{ sales: any[]; count: number }>('/api/sales/today');
     return response.data;
   },
+
+  getSummary: async (branchId: string, filters?: { shiftInstanceId?: string; startDate?: string; endDate?: string }): Promise<{
+    summary: {
+      totalSales: number;
+      totalAmount: number;
+      fuelSales: {
+        totalLiters: number;
+        totalAmount: number;
+      };
+      nonFuelSales: {
+        totalItems: number;
+        totalAmount: number;
+      };
+      paymentBreakdown: Array<{
+        method: string;
+        count: number;
+        amount: number;
+      }>;
+    };
+  }> => {
+    const response = await apiClient.get<any>('/api/sales/summary', {
+      params: { branchId, ...filters },
+    });
+    return response.data;
+  },
 };

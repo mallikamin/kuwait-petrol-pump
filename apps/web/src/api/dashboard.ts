@@ -38,8 +38,8 @@ export const dashboardApi = {
     return response.data;
   },
 
-  getLitersAvailable: async (): Promise<{ pmg: number; hsd: number; note?: string }> => {
-    const response = await apiClient.get<{ pmg: number; hsd: number; note?: string }>('/api/dashboard/liters-available');
+  getLitersSold: async (): Promise<{ pmg_sold: number; hsd_sold: number }> => {
+    const response = await apiClient.get<{ pmg_sold: number; hsd_sold: number }>('/api/dashboard/liters-sold');
     return response.data;
   },
 };

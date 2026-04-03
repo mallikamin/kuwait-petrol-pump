@@ -12,7 +12,7 @@ import { Nozzles } from '@/pages/Nozzles';
 import { Sales } from '@/pages/Sales';
 import { Customers } from '@/pages/Customers';
 import { Products } from '@/pages/Products';
-import { Bifurcation } from '@/pages/Bifurcation';
+import { Reconciliation } from '@/pages/Reconciliation';
 import { Reports } from '@/pages/Reports';
 import { Users } from '@/pages/Users';
 import { POS } from '@/pages/POS';
@@ -76,7 +76,7 @@ function App() {
             <Route path="products" element={<Products />} />
             <Route path="suppliers" element={<Suppliers />} />
             <Route path="purchase-orders" element={<PurchaseOrders />} />
-            <Route path="bifurcation" element={<Bifurcation />} />
+            <Route path="reconciliation" element={<Reconciliation />} />
             <Route path="reports" element={<Reports />} />
             <Route path="quickbooks" element={<QuickBooks />} />
             <Route path="users" element={<Users />} />

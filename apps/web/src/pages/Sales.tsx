@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Download, Filter, X, Camera, Image as ImageIcon } from 'lucide-react';
+import { Download, Filter, X, Camera, Image as ImageIcon, Fuel, Banknote, CreditCard, Wallet } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -18,8 +18,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { salesApi } from '@/api';
 import { formatCurrency, formatDateTime } from '@/utils/format';
+import { useAuthStore } from '@/store/auth';
 
 export function Sales() {
+  const { user } = useAuthStore();
   const [isFilterDialogOpen, setIsFilterDialogOpen] = useState(false);
   const [meterImageDialog, setMeterImageDialog] = useState<{ open: boolean; imageUrl: string; sale: any } | null>(null);
   const [saleDetailsDialog, setSaleDetailsDialog] = useState<{ open: boolean; sale: any } | null>(null);
@@ -41,7 +43,29 @@ export function Sales() {
     }),
   });
 
+  // Get sales summary for payment tracking
+  const { data: summaryData, isLoading: summaryLoading } = useQuery({
+    queryKey: ['sales-summary', user?.branchId, appliedFilters],
+    queryFn: () => {
+      if (!user?.branchId) return Promise.resolve({ summary: {
+        totalSales: 0,
+        totalAmount: 0,
+        fuelSales: { totalLiters: 0, totalAmount: 0 },
+        nonFuelSales: { totalItems: 0, totalAmount: 0 },
+        paymentBreakdown: [],
+      }});
+
+      return salesApi.getSummary(user.branchId, {
+        startDate: appliedFilters.startDate || undefined,
+        endDate: appliedFilters.endDate || undefined,
+      });
+    },
+    enabled: !!user?.branchId,
+    refetchInterval: 30000, // Refetch every 30 seconds for real-time tracking
+  });
+
   const sales = data?.items ?? [];
+  const summary = summaryData?.summary;
 
   const handleApplyFilters = () => {
     setAppliedFilters(filters);
@@ -97,6 +121,13 @@ export function Sales() {
     URL.revokeObjectURL(url);
   };
 
+  // Helper to get payment breakdown by method
+  const getPaymentAmount = (method: string) => {
+    if (!summary) return 0;
+    const payment = summary.paymentBreakdown.find(pb => pb.method === method);
+    return payment?.amount || 0;
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -123,6 +154,65 @@ export function Sales() {
             Export
           </Button>
         </div>
+      </div>
+
+      {/* Payment Tracking Summary */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        {summaryLoading ? (
+          <>
+            {[...Array(4)].map((_, i) => (
+              <Skeleton key={i} className="h-28" />
+            ))}
+          </>
+        ) : (
+          <>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total Volume</CardTitle>
+                <Fuel className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{summary?.fuelSales.totalLiters.toFixed(2) || '0.00'} L</div>
+                <p className="text-xs text-muted-foreground">Fuel sold</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total Amount</CardTitle>
+                <Banknote className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{formatCurrency(summary?.totalAmount || 0)}</div>
+                <p className="text-xs text-muted-foreground">{summary?.totalSales || 0} transactions</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Credit Sales</CardTitle>
+                <CreditCard className="h-4 w-4 text-blue-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{formatCurrency(getPaymentAmount('credit'))}</div>
+                <p className="text-xs text-muted-foreground">Customer credit</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Card + Cash Sales</CardTitle>
+                <Wallet className="h-4 w-4 text-green-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {formatCurrency(getPaymentAmount('cash') + getPaymentAmount('card') + getPaymentAmount('bank_card') + getPaymentAmount('pso_card'))}
+                </div>
+                <p className="text-xs text-muted-foreground">Card & cash payments</p>
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
 
       {/* Active Filters Display */}
