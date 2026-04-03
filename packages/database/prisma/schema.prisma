@@ -973,3 +973,28 @@ model AuditLog {
   @@index([entityType, entityId], name: "idx_audit_log_entity")
   @@map("audit_log")
 }
+
+// ============================================================
+// BACKDATED ENTRIES (Accountant Backlog Processing)
+// ============================================================
+
+/// Backdated Entry (Historical meter readings without shift validation)
+model BackdatedEntry {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  date              DateTime @db.Date
+  nozzleId          String   @map("nozzle_id") @db.Uuid
+  openingReading    Decimal  @map("opening_reading") @db.Decimal(12, 2)
+  closingReading    Decimal  @map("closing_reading") @db.Decimal(12, 2)
+  creditCardSales   Decimal  @default(0) @map("credit_card_sales") @db.Decimal(12, 2)
+  bankCardSales     Decimal  @default(0) @map("bank_card_sales") @db.Decimal(12, 2)
+  psoCardSales      Decimal  @default(0) @map("pso_card_sales") @db.Decimal(12, 2)
+  totalAmount       Decimal  @map("total_amount") @db.Decimal(12, 2)
+  notes             String?  @db.Text
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@unique([nozzleId, date], name: "unique_nozzle_date")
+  @@index([date], name: "idx_backdated_entries_date")
+  @@index([nozzleId], name: "idx_backdated_entries_nozzle")
+  @@map("backdated_entries")
+}
