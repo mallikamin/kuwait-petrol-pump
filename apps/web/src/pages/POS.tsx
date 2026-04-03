@@ -138,10 +138,10 @@ export function POS() {
     staleTime: 300000,
   });
 
-  // Fetch liters available (PMG/HSD)
+  // Fetch liters sold (PMG/HSD)
   const { data: litersData } = useQuery({
-    queryKey: ['liters-available'],
-    queryFn: () => dashboardApi.getLitersAvailable(),
+    queryKey: ['liters-sold'],
+    queryFn: () => dashboardApi.getLitersSold(),
     refetchInterval: 30000, // Refetch every 30 seconds
   });
 
@@ -446,18 +446,15 @@ export function POS() {
           <div className="grid grid-cols-2 gap-4">
             <div className="text-center">
               <p className="text-sm text-muted-foreground">PMG Available</p>
-              <p className="text-3xl font-bold text-blue-600">{litersData?.pmg?.toLocaleString() || 0}</p>
+              <p className="text-3xl font-bold text-blue-600">{litersData?.pmg_sold?.toLocaleString() || 0}</p>
               <p className="text-xs text-muted-foreground">Liters</p>
             </div>
             <div className="text-center border-l">
               <p className="text-sm text-muted-foreground">HSD Available</p>
-              <p className="text-3xl font-bold text-green-600">{litersData?.hsd?.toLocaleString() || 0}</p>
+              <p className="text-3xl font-bold text-green-600">{litersData?.hsd_sold?.toLocaleString() || 0}</p>
               <p className="text-xs text-muted-foreground">Liters</p>
             </div>
           </div>
-          {litersData?.note && (
-            <p className="text-xs text-center text-muted-foreground mt-2">{litersData.note}</p>
-          )}
         </CardContent>
       </Card>
 

@@ -45,9 +45,9 @@ export function Sales() {
 
   // Get sales summary for payment tracking
   const { data: summaryData, isLoading: summaryLoading } = useQuery({
-    queryKey: ['sales-summary', user?.branchId, appliedFilters],
+    queryKey: ['sales-summary', user?.branch_id, appliedFilters],
     queryFn: () => {
-      if (!user?.branchId) return Promise.resolve({ summary: {
+      if (!user?.branch_id) return Promise.resolve({ summary: {
         totalSales: 0,
         totalAmount: 0,
         fuelSales: { totalLiters: 0, totalAmount: 0 },
@@ -55,12 +55,12 @@ export function Sales() {
         paymentBreakdown: [],
       }});
 
-      return salesApi.getSummary(user.branchId, {
+      return salesApi.getSummary(user.branch_id, {
         startDate: appliedFilters.startDate || undefined,
         endDate: appliedFilters.endDate || undefined,
       });
     },
-    enabled: !!user?.branchId,
+    enabled: !!user?.branch_id,
     refetchInterval: 30000, // Refetch every 30 seconds for real-time tracking
   });
 
