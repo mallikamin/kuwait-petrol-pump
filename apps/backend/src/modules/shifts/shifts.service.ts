@@ -1,5 +1,6 @@
 import { prisma } from '../../config/database';
 import { AppError } from '../../middleware/error.middleware';
+import { getBusinessDate } from '../../utils/timezone';
 
 export class ShiftsService {
   /**
@@ -114,8 +115,8 @@ export class ShiftsService {
     }
 
     // Check if there's already an open shift for this branch today
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // Use business timezone to calculate correct date (not server system timezone)
+    const today = await getBusinessDate(organizationId);
 
     const existingOpenShift = await prisma.shiftInstance.findFirst({
       where: {
