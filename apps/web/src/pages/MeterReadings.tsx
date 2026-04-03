@@ -54,13 +54,18 @@ function formatShiftTime(timeValue: unknown): string {
 // Format nozzle display name - prioritize custom name from nozzles setup
 function formatNozzleName(nozzle: any): string {
   if (!nozzle) return '-';
+
   // If custom name exists (like "D1N1-HSD"), use it directly
-  if (nozzle.name) {
-    return nozzle.name;
+  // Check both 'name' and trimmed value (handle whitespace/null)
+  const customName = nozzle.name?.trim();
+  if (customName && customName.length > 0) {
+    return customName;
   }
+
   // Fallback to constructed name
-  const fuelName = nozzle.fuel_type?.name || '';
-  return fuelName ? `Nozzle ${nozzle.nozzle_number} - ${fuelName}` : `Nozzle ${nozzle.nozzle_number}`;
+  const fuelName = nozzle.fuel_type?.name || nozzle.fuelType?.name || '';
+  const nozzleNum = nozzle.nozzle_number || nozzle.nozzleNumber || '?';
+  return fuelName ? `Nozzle ${nozzleNum} - ${fuelName}` : `Nozzle ${nozzleNum}`;
 }
 
 export function MeterReadings() {
