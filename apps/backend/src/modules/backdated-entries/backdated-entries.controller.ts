@@ -107,11 +107,17 @@ export class BackdatedEntriesController {
           .json({ error: 'Insufficient permissions. Only admin, manager, or accountant can create backdated entries.' });
       }
 
-      const data = createBackdatedEntrySchema.parse(req.body);
+      const validatedData = createBackdatedEntrySchema.parse(req.body);
 
       const entry = await this.service.createEntry(
         {
-          ...data,
+          branchId: validatedData.branchId,
+          businessDate: validatedData.businessDate,
+          nozzleId: validatedData.nozzleId,
+          shiftId: validatedData.shiftId,
+          openingReading: validatedData.openingReading,
+          closingReading: validatedData.closingReading,
+          notes: validatedData.notes,
           createdBy: req.user.userId,
         },
         req.user.organizationId
@@ -198,14 +204,26 @@ export class BackdatedEntriesController {
       }
 
       const { id: backdatedEntryId } = req.params;
-      const data = createBackdatedTransactionSchema.parse({
+      const validatedData = createBackdatedTransactionSchema.parse({
         ...req.body,
         backdatedEntryId,
       });
 
       const transaction = await this.service.createTransaction(
         {
-          ...data,
+          backdatedEntryId: validatedData.backdatedEntryId,
+          customerId: validatedData.customerId,
+          vehicleNumber: validatedData.vehicleNumber,
+          slipNumber: validatedData.slipNumber,
+          productId: validatedData.productId,
+          fuelTypeId: validatedData.fuelTypeId,
+          productName: validatedData.productName,
+          quantity: validatedData.quantity,
+          unitPrice: validatedData.unitPrice,
+          lineTotal: validatedData.lineTotal,
+          paymentMethod: validatedData.paymentMethod,
+          transactionDateTime: validatedData.transactionDateTime,
+          notes: validatedData.notes,
           createdBy: req.user.userId,
         },
         req.user.organizationId
@@ -320,12 +338,17 @@ export class BackdatedEntriesController {
       }
 
       const { id } = req.params;
-      const data = reconcileBackdatedEntrySchema.parse({
+      const validatedData = reconcileBackdatedEntrySchema.parse({
         ...req.body,
         id,
       });
 
-      const entry = await this.service.reconcileEntry(data);
+      const entry = await this.service.reconcileEntry({
+        id: validatedData.id,
+        isReconciled: validatedData.isReconciled,
+        varianceLiters: validatedData.varianceLiters,
+        varianceAmount: validatedData.varianceAmount,
+      });
 
       res.json({
         success: true,

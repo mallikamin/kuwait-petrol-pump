@@ -342,7 +342,15 @@ export class BackdatedEntriesService {
   async updateTransaction(id: string, data: Partial<CreateBackdatedTransactionDto>) {
     const updateData: Prisma.BackdatedTransactionUpdateInput = {};
 
-    if (data.customerId !== undefined) updateData.customerId = data.customerId;
+    if (data.customerId !== undefined) {
+      updateData.customer = data.customerId ? { connect: { id: data.customerId } } : { disconnect: true };
+    }
+    if (data.productId !== undefined) {
+      updateData.product = data.productId ? { connect: { id: data.productId } } : { disconnect: true };
+    }
+    if (data.fuelTypeId !== undefined) {
+      updateData.fuelType = data.fuelTypeId ? { connect: { id: data.fuelTypeId } } : { disconnect: true };
+    }
     if (data.vehicleNumber !== undefined) updateData.vehicleNumber = data.vehicleNumber;
     if (data.slipNumber !== undefined) updateData.slipNumber = data.slipNumber;
     if (data.productName !== undefined) updateData.productName = data.productName;
