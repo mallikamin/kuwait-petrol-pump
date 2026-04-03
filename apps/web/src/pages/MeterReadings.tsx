@@ -747,6 +747,61 @@ export function MeterReadings() {
         </Button>
       </div>
 
+      {/* Current Shift Info */}
+      {currentShift ? (
+        <Card className="border-green-200 bg-green-50">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="flex items-center justify-center w-12 h-12 rounded-full bg-green-600">
+                  <Clock className="h-6 w-6 text-white" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-semibold text-green-900">
+                      {(currentShift as any).shift?.name || `Shift #${(currentShift as any).shift?.shiftNumber}`}
+                    </h3>
+                    <Badge className="bg-green-600 text-white">Active</Badge>
+                  </div>
+                  <div className="flex items-center gap-4 mt-1 text-sm text-green-700">
+                    <span className="flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
+                      {(currentShift as any).shift?.startTime ? format(new Date(`2000-01-01T${(currentShift as any).shift.startTime}`), 'HH:mm') : 'N/A'} - {(currentShift as any).shift?.endTime ? format(new Date(`2000-01-01T${(currentShift as any).shift.endTime}`), 'HH:mm') : 'N/A'}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <User className="h-3 w-3" />
+                      Opened by: {(currentShift as any).openedByUser?.fullName || (currentShift as any).openedByUser?.username || 'Unknown'}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Calendar className="h-3 w-3" />
+                      {format(new Date((currentShift as any).date || (currentShift as any).openedAt), 'dd MMM yyyy')}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-xs text-green-600 mb-1">Shift Duration</div>
+                <div className="text-2xl font-bold text-green-900">
+                  {(currentShift as any).openedAt ? (() => {
+                    const duration = Math.floor((new Date().getTime() - new Date((currentShift as any).openedAt).getTime()) / 1000 / 60);
+                    const hours = Math.floor(duration / 60);
+                    const mins = duration % 60;
+                    return `${hours}h ${mins}m`;
+                  })() : 'N/A'}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <Alert className="border-orange-200 bg-orange-50">
+          <AlertCircle className="h-4 w-4 text-orange-600" />
+          <AlertDescription className="text-orange-900">
+            <strong>No Active Shift:</strong> Please open a shift before recording meter readings.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Filters */}
       <Card>
         <CardHeader className="pb-3">
