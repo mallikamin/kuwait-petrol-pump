@@ -176,6 +176,71 @@ export class ShiftsService {
       },
     });
 
+    // AUTO-POPULATE OPENING READINGS from previous shift's closing readings
+    try {
+      // Find the most recent closed shift instance for this branch
+      const previousShiftInstance = await prisma.shiftInstance.findFirst({
+        where: {
+          branchId,
+          status: 'closed',
+          OR: [
+            // Same day, earlier shift
+            {
+              date: today,
+              shift: {
+                shiftNumber: { lt: shift.shiftNumber },
+              },
+            },
+            // Previous day, any shift
+            {
+              date: { lt: today },
+            },
+          ],
+        },
+        orderBy: [
+          { date: 'desc' },
+          { shift: { shiftNumber: 'desc' } },
+        ],
+        include: {
+          meterReadings: {
+            where: {
+              readingType: 'closing',
+            },
+            include: {
+              nozzle: true,
+            },
+          },
+        },
+      });
+
+      if (previousShiftInstance && previousShiftInstance.meterReadings.length > 0) {
+        // Create opening readings for all nozzles that had closing readings
+        const openingReadingsToCreate = previousShiftInstance.meterReadings.map((closingReading) => ({
+          nozzleId: closingReading.nozzleId,
+          shiftInstanceId: shiftInstance.id,
+          readingType: 'opening' as const,
+          meterValue: closingReading.meterValue,
+          recordedAt: new Date(),
+          recordedBy: userId,
+          isManualOverride: false,
+          isOcr: false,
+        }));
+
+        // Bulk create all opening readings
+        await prisma.meterReading.createMany({
+          data: openingReadingsToCreate,
+          skipDuplicates: true, // Skip if opening already exists
+        });
+
+        console.log(`✅ Auto-created ${openingReadingsToCreate.length} opening readings for shift ${shiftInstance.id} from previous shift ${previousShiftInstance.id}`);
+      } else {
+        console.log(`ℹ️ No previous closing readings found for shift ${shiftInstance.id} - this might be the first shift`);
+      }
+    } catch (error) {
+      // Log but don't fail the shift opening if auto-populate fails
+      console.error('Failed to auto-populate opening readings:', error);
+    }
+
     return shiftInstance;
   }
 
