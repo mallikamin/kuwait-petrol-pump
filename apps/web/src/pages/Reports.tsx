@@ -125,7 +125,7 @@ export function Reports() {
   });
 
   // Customer Ledger
-  const { data: customerLedger, isLoading: loadingLedger, isError: errorLedger, refetch: refetchLedger } = useQuery({
+  const { data: customerLedger, isLoading: loadingLedger, isError: errorLedger } = useQuery({
     queryKey: ['report-customer-ledger', selectedCustomerId, startDate, endDate],
     queryFn: () => {
       console.log('[LEDGER DEBUG] Frontend calling API with:', {
