@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Plus, Gauge, AlertCircle, Filter, Camera, Upload, Edit2, CheckCircle, Loader2, X, Eye, Clock, User } from 'lucide-react';
+import { Plus, Gauge, AlertCircle, Filter, Camera, Upload, Edit2, CheckCircle, Loader2, X, Eye, Clock, User, Calendar } from 'lucide-react';
 import { meterReadingsApi, branchesApi, shiftsApi } from '@/api';
 import { apiClient } from '@/api/client';
 import { toast } from 'sonner';
@@ -660,7 +660,8 @@ export function MeterReadings() {
                           const dataUrl = event.target?.result as string;
                           compressImage(dataUrl).then((compressed) => {
                             setImageDataUrl(compressed);
-                            uploadImageToServer(compressed);
+                            // TODO: Implement server upload
+                            // uploadImageToServer(compressed);
                           }).catch(() => {
                             toast.error('Failed to compress image');
                           });
