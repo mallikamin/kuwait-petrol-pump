@@ -775,7 +775,15 @@ export function MeterReadings() {
                     </span>
                     <span className="flex items-center gap-1">
                       <Calendar className="h-3 w-3" />
-                      {format(new Date((currentShift as any).date || (currentShift as any).openedAt), 'dd MMM yyyy')}
+                      {(() => {
+                        const dateValue = (currentShift as any).date || (currentShift as any).openedAt;
+                        if (!dateValue) return 'N/A';
+                        try {
+                          return format(new Date(dateValue), 'dd MMM yyyy');
+                        } catch {
+                          return 'Invalid Date';
+                        }
+                      })()}
                     </span>
                   </div>
                 </div>
