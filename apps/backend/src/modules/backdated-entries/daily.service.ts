@@ -468,6 +468,86 @@ export class DailyBackdatedEntriesService {
 
     console.log('[BackdatedEntries] Saved all entries:', results.length);
 
+    // Handle walk-in transactions (those without nozzleId)
+    if (txnsWithoutNozzle.length > 0) {
+      console.log('[BackdatedEntries] Processing walk-in transactions:', txnsWithoutNozzle.length);
+
+      // Get first active nozzle from branch as placeholder
+      const placeholderNozzle = await prisma.nozzle.findFirst({
+        where: {
+          dispensingUnit: {
+            branchId,
+          },
+          isActive: true,
+        },
+        include: {
+          fuelType: true,
+        },
+      });
+
+      if (!placeholderNozzle) {
+        throw new AppError(400, 'No active nozzles found in branch. Cannot save walk-in transactions.');
+      }
+
+      // Check if walk-in entry already exists for this date
+      const walkInEntryKey = `WALKIN_${businessDate}`;
+      const existingWalkInEntry = await prisma.backdatedEntry.findFirst({
+        where: {
+          branchId,
+          businessDate: businessDateObj,
+          shiftId: shiftId || null,
+          notes: { startsWith: 'WALK-IN:' }, // Identify walk-in entries by notes prefix
+        },
+      });
+
+      let walkInEntryId: string;
+
+      if (existingWalkInEntry) {
+        console.log('[BackdatedEntries] Using existing walk-in entry:', existingWalkInEntry.id);
+        walkInEntryId = existingWalkInEntry.id;
+
+        // Delete existing walk-in transactions (will be replaced)
+        await prisma.backdatedTransaction.deleteMany({
+          where: { backdatedEntryId: existingWalkInEntry.id },
+        });
+      } else {
+        // Create walk-in entry (use placeholder nozzle, zero meter readings)
+        console.log('[BackdatedEntries] Creating walk-in entry');
+        const walkInEntry = await prisma.backdatedEntry.create({
+          data: {
+            branchId,
+            businessDate: businessDateObj,
+            nozzleId: placeholderNozzle.id, // Placeholder (required by schema)
+            shiftId: shiftId || null,
+            openingReading: new Prisma.Decimal(0),
+            closingReading: new Prisma.Decimal(0),
+            notes: 'WALK-IN: Non-fuel transactions without nozzle assignment',
+          },
+        });
+
+        walkInEntryId = walkInEntry.id;
+      }
+
+      // Create all walk-in transactions
+      await prisma.backdatedTransaction.createMany({
+        data: txnsWithoutNozzle.map((txn) => ({
+          backdatedEntryId: walkInEntryId,
+          customerId: txn.customerId,
+          vehicleNumber: txn.vehicleNumber,
+          slipNumber: txn.slipNumber,
+          productName: txn.productName,
+          quantity: new Prisma.Decimal(txn.quantity),
+          unitPrice: new Prisma.Decimal(txn.unitPrice),
+          lineTotal: new Prisma.Decimal(txn.lineTotal),
+          paymentMethod: txn.paymentMethod,
+          fuelTypeId: null, // Walk-in transactions may not have fuel type
+          transactionDateTime: businessDateObj,
+        })),
+      });
+
+      console.log('[BackdatedEntries] Saved walk-in transactions:', txnsWithoutNozzle.length);
+    }
+
     // Return updated summary
     return this.getDailySummary(
       {

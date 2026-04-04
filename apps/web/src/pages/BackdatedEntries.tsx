@@ -16,7 +16,7 @@ import {
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle, Users, Copy, Search, Gauge, Camera, PanelRightClose, PanelRightOpen, Edit } from 'lucide-react';
+import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle, Users, Copy, Search, Gauge, Camera, Edit } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { branchesApi, customersApi, meterReadingsApi } from '@/api';
 import { toast } from 'sonner';
@@ -47,6 +47,11 @@ interface MeterReadingRow {
   reading_value?: number;
   created_at?: string;
   recorded_at?: string;
+  shift_instance?: {
+    shift?: {
+      name?: string;
+    };
+  };
 }
 
 const toNumber = (value: unknown): number => {
@@ -314,8 +319,7 @@ export function BackdatedEntries() {
   const [_editingReadingId, setEditingReadingId] = useState<string | null>(null);
   const [_editingReadingValue, setEditingReadingValue] = useState<number | null>(null);
 
-  // UI state
-  const [showReconciliation, setShowReconciliation] = useState(true);
+  // UI state (removed showReconciliation - now using Accordion)
 
   // Filtered customers for dialog
   const filteredCustomers = useMemo(() => {
@@ -720,15 +724,6 @@ export function BackdatedEntries() {
           <p className="text-muted-foreground">Transaction-level backfill for accountant processing</p>
         </div>
         <div className="flex items-center gap-3">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowReconciliation(!showReconciliation)}
-            className="gap-2"
-          >
-            {showReconciliation ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
-            {showReconciliation ? 'Hide' : 'Show'} Reconciliation
-          </Button>
           <Badge variant="outline" className="text-orange-600 border-orange-600">
             PKR Only
           </Badge>
@@ -743,9 +738,9 @@ export function BackdatedEntries() {
         </AlertDescription>
       </Alert>
 
-      <div className={`grid grid-cols-1 ${showReconciliation ? 'lg:grid-cols-3' : 'lg:grid-cols-1'} gap-6`}>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left: Entry Form + Transactions */}
-        <div className={`${showReconciliation ? 'lg:col-span-2' : 'lg:col-span-1'} space-y-6`}>
+        <div className="lg:col-span-2 space-y-6">
           {/* Entry Details */}
           <Card>
             <CardHeader>
@@ -810,22 +805,23 @@ export function BackdatedEntries() {
             </CardContent>
           </Card>
 
-          {/* Meter Readings Section */}
+          {/* Meter Readings Section - Collapsible */}
           {selectedBranchId && businessDate && nozzlesData && nozzlesData.length > 0 && (
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="flex items-center gap-2">
-                    <Gauge className="h-5 w-5" />
-                    Backdated Meter Readings
-                  </CardTitle>
-                  <Badge variant="outline" className="text-blue-600 border-blue-600">
-                    <Camera className="h-3 w-3 mr-1" />
-                    OCR + Upload Supported
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent>
+            <Accordion type="single" collapsible defaultValue="meter-readings">
+              <AccordionItem value="meter-readings" className="border rounded-lg">
+                <AccordionTrigger className="px-4 hover:no-underline">
+                  <div className="flex items-center justify-between w-full pr-2">
+                    <CardTitle className="flex items-center gap-2">
+                      <Gauge className="h-5 w-5" />
+                      Backdated Meter Readings
+                    </CardTitle>
+                    <Badge variant="outline" className="text-blue-600 border-blue-600">
+                      <Camera className="h-3 w-3 mr-1" />
+                      OCR + Upload
+                    </Badge>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="px-4 pb-4">
                 {/* Auto-sync info */}
                 <Alert className="mb-4 border-green-200 bg-green-50">
                   <CheckCircle className="h-4 w-4 text-green-600" />
@@ -843,7 +839,7 @@ export function BackdatedEntries() {
                     </AlertDescription>
                   </Alert>
                 )}
-                <div className="space-y-3">
+                <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2">
                   {(nozzlesData || []).map((nozzle: any) => {
                     const nozzleReadings = (meterReadingsData || []).filter((r: any) => r.nozzle_id === nozzle.id);
                     const hasOpening = nozzleReadings.some((r: any) => r.reading_type === 'opening');
@@ -863,6 +859,11 @@ export function BackdatedEntries() {
                           <div>
                             <div className="font-semibold">{nozzle.name || `Nozzle ${nozzle.nozzleNumber}`}</div>
                             <div className="text-sm text-muted-foreground">{nozzle.fuelType?.name || 'Unknown'}</div>
+                            {(openingReading?.shift_instance?.shift?.name || closingReading?.shift_instance?.shift?.name) && (
+                              <div className="text-xs text-blue-600 font-medium mt-1">
+                                Shift: {openingReading?.shift_instance?.shift?.name || closingReading?.shift_instance?.shift?.name}
+                              </div>
+                            )}
                           </div>
                           <div className="flex items-center gap-2">
                             <Badge variant={hasOpening && hasClosing ? 'default' : 'secondary'} className={hasOpening && hasClosing ? 'bg-green-600' : 'bg-amber-600'}>
@@ -947,8 +948,9 @@ export function BackdatedEntries() {
                     );
                   })}
                 </div>
-              </CardContent>
-            </Card>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
           )}
 
           {/* HSD/PMG Dashboard Cards */}
@@ -1329,14 +1331,15 @@ export function BackdatedEntries() {
           </Dialog>
         </div>
 
-        {/* Right: Reconciliation Panel */}
-        {showReconciliation && (
-          <div className="space-y-6">
-            <Card className="sticky top-6">
-            <CardHeader>
-              <CardTitle className="text-base">Reconciliation</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4 text-sm">
+        {/* Right: Reconciliation Panel - Collapsible */}
+        <div className="space-y-6">
+          <Accordion type="single" collapsible defaultValue="reconciliation" className="sticky top-6">
+            <AccordionItem value="reconciliation" className="border rounded-lg">
+              <AccordionTrigger className="px-4 hover:no-underline">
+                <CardTitle className="text-base">Reconciliation</CardTitle>
+              </AccordionTrigger>
+              <AccordionContent className="px-4 pb-4">
+                <div className="space-y-4 text-sm">
               {/* Nozzle Meter Reading Checklist */}
               {nozzleReconciliation.length > 0 && (
                 <div>
@@ -1470,10 +1473,11 @@ export function BackdatedEntries() {
                   </Badge>
                 </div>
               )}
-            </CardContent>
-          </Card>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
         </div>
-        )}
       </div>
     </div>
   );
