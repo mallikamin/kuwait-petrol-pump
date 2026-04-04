@@ -16,6 +16,18 @@ Each entry follows:
 
 ---
 
+## 2026-04-04 — Radix UI SelectItem empty string crash (P0)
+
+- **Error**: `Uncaught Error: A <Select.Item /> must have a value prop that is not an empty string.`
+- **Context**: BackdatedEntries page crash on load. Customer dropdown and Shift dropdown both had `<SelectItem value="">` for "Walk-in" and "Any shift" options.
+- **Root Cause**: Radix UI Select component uses empty string as a reserved value to clear selection and show placeholder. Any `<SelectItem value="">` crashes at runtime.
+- **Fix**: RESOLVED (commit 68e64b9)
+  - Customer dropdown: Changed `value=""` to `value="__walkin__"`, map back to empty in `onValueChange`
+  - Shift dropdown: Changed `value=""` to `value="__none__"`, map back to empty in `onValueChange`
+- **Rule**: NEVER use `<SelectItem value="">` in Radix UI. Always use a sentinel string (e.g., `__none__`, `__walkin__`) for "no selection" options and map it back in the handler.
+
+---
+
 ## 2026-04-04 — Meter Readings Date Boundary Bug (P0)
 
 - **Error**: Page header shows Apr 04, 2026 but shift cards show April 3 data. Active Day Shift opened shows "03 Apr" when it should be "04 Apr". POS PMG/HSD header totals out of sync.
