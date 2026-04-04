@@ -13,7 +13,15 @@ export class MeterReadingsService {
    * @param businessDate - Optional business date filter (YYYY-MM-DD string or Date object)
    *                       Filters by shift_instance.date (business date), NOT by timestamps
    */
-  async getAllReadings(organizationId: string, limit: number = 100, isOcr?: boolean, businessDate?: string | Date) {
+  async getAllReadings(
+    organizationId: string,
+    limit: number = 100,
+    isOcr?: boolean,
+    businessDate?: string | Date,
+    nozzleId?: string,
+    shiftInstanceId?: string,
+    readingType?: 'opening' | 'closing'
+  ) {
     // Convert businessDate string to Date if provided
     const dateFilter = businessDate ? new Date(businessDate) : undefined;
     if (dateFilter) {
@@ -30,6 +38,9 @@ export class MeterReadingsService {
           },
         },
         ...(isOcr !== undefined && { isOcr }),
+        ...(nozzleId && { nozzleId }),
+        ...(shiftInstanceId && { shiftInstanceId }),
+        ...(readingType && { readingType }),
         // CRITICAL: Filter by shift_instance.date (business date), NOT recordedAt timestamp
         ...(dateFilter && {
           shiftInstance: {

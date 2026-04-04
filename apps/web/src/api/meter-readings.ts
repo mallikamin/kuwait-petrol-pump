@@ -7,6 +7,7 @@ export const meterReadingsApi = {
     size?: number;
     shift_id?: string;
     nozzle_id?: string;
+    date?: string;
     reading_type?: 'opening' | 'closing';
   }): Promise<PaginatedResponse<MeterReading>> => {
     const response = await apiClient.get<{

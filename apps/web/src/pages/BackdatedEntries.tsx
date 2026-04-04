@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,7 +16,7 @@ import {
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle } from 'lucide-react';
 import { apiClient } from '@/api/client';
-import { branchesApi, customersApi } from '@/api';
+import { branchesApi, customersApi, meterReadingsApi } from '@/api';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 
@@ -33,6 +33,45 @@ interface Transaction {
   paymentMethod: 'cash' | 'credit_card' | 'bank_card' | 'pso_card' | 'credit_customer';
 }
 
+interface BackdatedEntryResponse {
+  id: string;
+  shiftId?: string | null;
+  openingReading: number | string;
+  closingReading: number | string;
+  notes?: string | null;
+  transactions?: Array<{
+    id: string;
+    customerId?: string | null;
+    customer?: { name?: string | null } | null;
+    vehicleNumber?: string | null;
+    slipNumber?: string | null;
+    productName?: string | null;
+    quantity: number | string;
+    unitPrice: number | string;
+    lineTotal: number | string;
+    paymentMethod: Transaction['paymentMethod'];
+  }>;
+}
+
+interface MeterReadingRow {
+  id: string;
+  shift_id?: string;
+  reading_type: 'opening' | 'closing';
+  meter_value?: number;
+  reading_value?: number;
+  created_at?: string;
+  recorded_at?: string;
+}
+
+const toNumber = (value: unknown): number => {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    const parsed = parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+};
+
 export function BackdatedEntries() {
   // Entry fields
   const [businessDate, setBusinessDate] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -46,6 +85,7 @@ export function BackdatedEntries() {
   // Transaction fields
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [currentEntryId, setCurrentEntryId] = useState<string | null>(null);
+  const [syncMessage, setSyncMessage] = useState('');
 
   const queryClient = useQueryClient();
 
@@ -82,6 +122,57 @@ export function BackdatedEntries() {
     },
   });
 
+  // Fetch shift instances for selected business date (for optional shift-specific reconciliation)
+  const { data: shiftInstancesData } = useQuery({
+    queryKey: ['shift-history', selectedBranchId, businessDate],
+    enabled: !!selectedBranchId && !!businessDate,
+    queryFn: async () => {
+      const res = await apiClient.get('/api/shifts/history', {
+        params: {
+          branchId: selectedBranchId,
+          startDate: `${businessDate}T00:00:00.000Z`,
+          endDate: `${businessDate}T23:59:59.999Z`,
+          limit: 20,
+          offset: 0,
+        },
+      });
+      return (res.data?.shifts || []) as Array<{ id: string; shift?: { name?: string; shiftNumber?: number } }>;
+    },
+  });
+
+  // Fetch existing backdated entry for selected day/nozzle/(optional)shift
+  const { data: existingEntriesData } = useQuery({
+    queryKey: ['backdated-entries', selectedBranchId, selectedNozzleId, businessDate, selectedShiftId],
+    enabled: !!selectedBranchId && !!selectedNozzleId && !!businessDate,
+    queryFn: async () => {
+      const res = await apiClient.get('/api/backdated-entries', {
+        params: {
+          branchId: selectedBranchId,
+          nozzleId: selectedNozzleId,
+          businessDateFrom: businessDate,
+          businessDateTo: businessDate,
+          shiftId: selectedShiftId || undefined,
+        },
+      });
+      return (res.data?.data || []) as BackdatedEntryResponse[];
+    },
+  });
+
+  // Fetch meter readings for selected day/nozzle/(optional)shift for deterministic prefill
+  const { data: meterReadingsData } = useQuery({
+    queryKey: ['meter-readings', selectedNozzleId, selectedShiftId, businessDate],
+    enabled: !!selectedNozzleId && !!businessDate,
+    queryFn: async () => {
+      const res = await meterReadingsApi.getAll({
+        size: 300,
+        nozzle_id: selectedNozzleId,
+        shift_id: selectedShiftId || undefined,
+        date: businessDate,
+      });
+      return (res.items || []) as MeterReadingRow[];
+    },
+  });
+
   // Get selected nozzle details
   const selectedNozzle = nozzlesData?.find((n: any) => n.id === selectedNozzleId);
   const fuelTypeId = selectedNozzle?.fuelTypeId;
@@ -91,7 +182,7 @@ export function BackdatedEntries() {
 
   // Calculate meter variance
   const meterLiters = closingReading && openingReading
-    ? parseFloat(closingReading) - parseFloat(openingReading)
+    ? toNumber(closingReading) - toNumber(openingReading)
     : 0;
 
   const transactionTotals = transactions.reduce(
@@ -134,7 +225,104 @@ export function BackdatedEntries() {
   );
 
   const varianceLiters = meterLiters - transactionTotals.liters;
-  const varianceAmount = varianceLiters * parseFloat(defaultUnitPrice || '0');
+  const varianceAmount = varianceLiters * toNumber(defaultUnitPrice);
+  const meterSalesAmount = meterLiters * toNumber(defaultUnitPrice);
+  const knownNonCashAmount =
+    transactionTotals.creditCard +
+    transactionTotals.bankCard +
+    transactionTotals.psoCard +
+    transactionTotals.creditCustomer;
+  // Reconciliation formula: expected cash is derived after posting all known non-cash methods.
+  const backTracedCashAmount = meterSalesAmount - knownNonCashAmount;
+  const postedCashAmount = transactionTotals.cash;
+  const cashGapAmount = backTracedCashAmount - postedCashAmount;
+
+  const mappedShiftOptions = useMemo(
+    () =>
+      (shiftInstancesData || []).map((instance) => ({
+        id: instance.id,
+        label: instance.shift?.name || `Shift ${instance.shift?.shiftNumber || ''}`.trim(),
+      })),
+    [shiftInstancesData]
+  );
+
+  useEffect(() => {
+    if (!selectedBranchId || !selectedNozzleId || !businessDate) {
+      setCurrentEntryId(null);
+      setOpeningReading('');
+      setClosingReading('');
+      setNotes('');
+      setTransactions([]);
+      setSyncMessage('');
+      return;
+    }
+
+    const matchedEntry = (existingEntriesData || []).find((entry) => {
+      if (selectedShiftId) return entry.shiftId === selectedShiftId;
+      return true;
+    });
+
+    if (matchedEntry) {
+      setCurrentEntryId(matchedEntry.id);
+      setOpeningReading(toNumber(matchedEntry.openingReading).toString());
+      setClosingReading(toNumber(matchedEntry.closingReading).toString());
+      setNotes(matchedEntry.notes || '');
+      setTransactions(
+        (matchedEntry.transactions || []).map((txn) => ({
+          id: txn.id,
+          customerId: txn.customerId || '',
+          customerName: txn.customer?.name || '',
+          vehicleNumber: txn.vehicleNumber || '',
+          slipNumber: txn.slipNumber || '',
+          productName: txn.productName || 'Fuel',
+          quantity: toNumber(txn.quantity).toString(),
+          unitPrice: toNumber(txn.unitPrice).toFixed(2),
+          lineTotal: toNumber(txn.lineTotal).toFixed(2),
+          paymentMethod: txn.paymentMethod,
+        }))
+      );
+      setSyncMessage('Loaded existing backdated entry for selected context.');
+      return;
+    }
+
+    const readings = (meterReadingsData || []).filter((reading) => {
+      if (selectedShiftId && reading.shift_id !== selectedShiftId) return false;
+      return true;
+    });
+
+    if (readings.length > 0) {
+      const ordered = [...readings].sort((a, b) => {
+        const aTs = new Date(a.recorded_at || a.created_at || 0).getTime();
+        const bTs = new Date(b.recorded_at || b.created_at || 0).getTime();
+        return aTs - bTs;
+      });
+
+      const opening = ordered.find((reading) => reading.reading_type === 'opening');
+      const closing = [...ordered].reverse().find((reading) => reading.reading_type === 'closing');
+
+      setCurrentEntryId(null);
+      setOpeningReading(opening ? toNumber(opening.meter_value ?? opening.reading_value).toString() : '');
+      setClosingReading(closing ? toNumber(closing.meter_value ?? closing.reading_value).toString() : '');
+      setNotes('');
+      setTransactions([]);
+      setSyncMessage('Prefilled meter readings from recorded shift/day data.');
+      return;
+    }
+
+    setCurrentEntryId(null);
+    setOpeningReading('');
+    setClosingReading('');
+    setNotes('');
+    setTransactions([]);
+    setSyncMessage('No existing backdated entry or meter readings found for this selection.');
+  }, [
+    selectedBranchId,
+    selectedNozzleId,
+    businessDate,
+    selectedShiftId,
+    existingEntriesData,
+    meterReadingsData,
+  ]);
 
   // Add transaction row
   const addTransaction = () => {
@@ -162,8 +350,8 @@ export function BackdatedEntries() {
 
     // Auto-calculate line total when quantity or unit price changes
     if (field === 'quantity' || field === 'unitPrice') {
-      const qty = parseFloat(updated[index].quantity || '0');
-      const price = parseFloat(updated[index].unitPrice || '0');
+      const qty = toNumber(updated[index].quantity);
+      const price = toNumber(updated[index].unitPrice);
       updated[index].lineTotal = (qty * price).toFixed(2);
     }
 
@@ -201,8 +389,12 @@ export function BackdatedEntries() {
         throw new Error('Please fill in all required entry fields');
       }
 
-      if (parseFloat(closingReading) <= parseFloat(openingReading)) {
-        throw new Error('Closing reading must be greater than opening reading');
+      if (openingReading.trim().length < 7 || closingReading.trim().length < 7) {
+        throw new Error('Meter readings must be at least 7 digits');
+      }
+
+      if (toNumber(closingReading) < toNumber(openingReading)) {
+        throw new Error('Closing reading must be greater than or equal to opening reading');
       }
 
       const res = await apiClient.post('/api/backdated-entries', {
@@ -210,8 +402,8 @@ export function BackdatedEntries() {
         businessDate,
         nozzleId: selectedNozzleId,
         shiftId: selectedShiftId || undefined,
-        openingReading: parseFloat(openingReading),
-        closingReading: parseFloat(closingReading),
+        openingReading: toNumber(openingReading),
+        closingReading: toNumber(closingReading),
         notes,
       });
 
@@ -229,8 +421,8 @@ export function BackdatedEntries() {
 
   // Create transaction mutation
   const createTransactionMutation = useMutation({
-    mutationFn: async (transaction: Transaction) => {
-      if (!currentEntryId) {
+    mutationFn: async ({ entryId, transaction }: { entryId: string; transaction: Transaction }) => {
+      if (!entryId) {
         throw new Error('Create entry first');
       }
 
@@ -241,17 +433,17 @@ export function BackdatedEntries() {
         }
       }
 
-      const res = await apiClient.post(`/api/backdated-entries/${currentEntryId}/transactions`, {
+      const res = await apiClient.post(`/api/backdated-entries/${entryId}/transactions`, {
         customerId: transaction.customerId || undefined,
         vehicleNumber: transaction.vehicleNumber || undefined,
         slipNumber: transaction.slipNumber || undefined,
         fuelTypeId: fuelTypeId || undefined,
         productName: transaction.productName,
-        quantity: parseFloat(transaction.quantity),
-        unitPrice: parseFloat(transaction.unitPrice),
-        lineTotal: parseFloat(transaction.lineTotal),
+        quantity: toNumber(transaction.quantity),
+        unitPrice: toNumber(transaction.unitPrice),
+        lineTotal: toNumber(transaction.lineTotal),
         paymentMethod: transaction.paymentMethod,
-        transactionDateTime: new Date(businessDate).toISOString(),
+        transactionDateTime: `${businessDate}T12:00:00+05:00`,
       });
 
       return res.data.data;
@@ -267,23 +459,23 @@ export function BackdatedEntries() {
 
   // Save all transactions
   const handleSaveAll = async () => {
-    if (!currentEntryId && transactions.length > 0) {
-      // Create entry first
-      await createEntryMutation.mutateAsync();
+    let entryId = currentEntryId;
+    if (!entryId) {
+      const createdEntry = await createEntryMutation.mutateAsync();
+      entryId = createdEntry.id;
+      setCurrentEntryId(entryId);
     }
 
-    if (currentEntryId) {
-      // Create all transactions
-      for (const txn of transactions) {
-        if (!txn.id && parseFloat(txn.quantity || '0') > 0) {
-          await createTransactionMutation.mutateAsync(txn);
-        }
+    if (!entryId) return;
+
+    for (const txn of transactions) {
+      if (!txn.id && toNumber(txn.quantity) > 0) {
+        await createTransactionMutation.mutateAsync({ entryId, transaction: txn });
       }
-
-      toast.success('All transactions saved!');
-      resetForm();
-      queryClient.invalidateQueries({ queryKey: ['backdated-entries'] });
     }
+
+    toast.success('All transactions saved');
+    queryClient.invalidateQueries({ queryKey: ['backdated-entries'] });
   };
 
   const resetForm = () => {
@@ -296,6 +488,7 @@ export function BackdatedEntries() {
     setNotes('');
     setTransactions([]);
     setCurrentEntryId(null);
+    setSyncMessage('');
   };
 
   return (
@@ -378,17 +571,27 @@ export function BackdatedEntries() {
 
                 <div className="space-y-2">
                   <Label>Shift (Optional)</Label>
-                  <Select value={selectedShiftId} onValueChange={(v) => setSelectedShiftId(v === '__none__' ? '' : v)}>
+                  <Select value={selectedShiftId || '__none__'} onValueChange={(v) => setSelectedShiftId(v === '__none__' ? '' : v)}>
                     <SelectTrigger>
                       <SelectValue placeholder="Any shift" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__none__">Any shift</SelectItem>
-                      {/* TODO: Fetch shifts from API */}
+                      {mappedShiftOptions.map((shiftOption) => (
+                        <SelectItem key={shiftOption.id} value={shiftOption.id}>
+                          {shiftOption.label}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
               </div>
+
+              {syncMessage && (
+                <div className="rounded-md border border-blue-200 bg-blue-50 p-2 text-xs text-blue-800">
+                  {syncMessage}
+                </div>
+              )}
 
               <div className="grid grid-cols-3 gap-4">
                 <div className="space-y-2">
@@ -652,8 +855,8 @@ export function BackdatedEntries() {
                 <div className="font-semibold mb-2">Payment Breakdown</div>
                 <div className="space-y-1 text-xs">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Cash:</span>
-                    <span className="font-mono">{transactionTotals.cash.toFixed(2)} PKR</span>
+                    <span className="text-muted-foreground">Posted Cash:</span>
+                    <span className="font-mono">{postedCashAmount.toFixed(2)} PKR</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Credit Card:</span>
@@ -670,6 +873,16 @@ export function BackdatedEntries() {
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Credit Customer:</span>
                     <span className="font-mono">{transactionTotals.creditCustomer.toFixed(2)} PKR</span>
+                  </div>
+                  <div className="flex justify-between pt-1 border-t">
+                    <span className="text-muted-foreground">Back-traced Cash:</span>
+                    <span className="font-mono font-semibold">{backTracedCashAmount.toFixed(2)} PKR</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Cash Gap:</span>
+                    <span className={`font-mono font-semibold ${Math.abs(cashGapAmount) < 0.01 ? 'text-green-600' : 'text-orange-600'}`}>
+                      {cashGapAmount > 0 ? '+' : ''}{cashGapAmount.toFixed(2)} PKR
+                    </span>
                   </div>
                 </div>
               </div>
@@ -694,7 +907,7 @@ export function BackdatedEntries() {
               </div>
 
               {/* Status */}
-              {transactions.length > 0 && Math.abs(varianceLiters) < 1 && (
+              {transactions.length > 0 && Math.abs(varianceLiters) < 1 && Math.abs(cashGapAmount) < 0.01 && (
                 <div className="pt-2 border-t">
                   <Badge variant="outline" className="w-full justify-center text-green-600 border-green-600">
                     <CheckCircle className="h-3 w-3 mr-1" />
@@ -703,11 +916,11 @@ export function BackdatedEntries() {
                 </div>
               )}
 
-              {Math.abs(varianceLiters) >= 1 && transactions.length > 0 && (
+              {(Math.abs(varianceLiters) >= 1 || Math.abs(cashGapAmount) >= 0.01) && transactions.length > 0 && (
                 <div className="pt-2 border-t">
                   <Badge variant="outline" className="w-full justify-center text-orange-600 border-orange-600">
                     <AlertCircle className="h-3 w-3 mr-1" />
-                    Variance Detected
+                    Reconciliation Pending
                   </Badge>
                 </div>
               )}

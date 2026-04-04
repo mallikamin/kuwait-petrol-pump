@@ -70,12 +70,18 @@ export class MeterReadingsController {
       const limit = req.query.limit ? parseInt(req.query.limit as string) : size;
       const isOcr = req.query.is_ocr ? req.query.is_ocr === 'true' : undefined;
       const businessDate = req.query.date as string | undefined; // YYYY-MM-DD format
+      const nozzleId = req.query.nozzle_id as string | undefined;
+      const shiftInstanceId = req.query.shift_id as string | undefined;
+      const readingType = req.query.reading_type as 'opening' | 'closing' | undefined;
 
       const allReadings = await this.meterReadingsService.getAllReadings(
         req.user.organizationId,
         limit * page, // Get enough for pagination
         isOcr,
-        businessDate // Pass business date filter
+        businessDate, // Pass business date filter
+        nozzleId,
+        shiftInstanceId,
+        readingType
       );
 
       // Paginate
