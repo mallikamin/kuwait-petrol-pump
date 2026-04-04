@@ -12,7 +12,7 @@ import { Nozzles } from '@/pages/Nozzles';
 import { Sales } from '@/pages/Sales';
 import { Customers } from '@/pages/Customers';
 import { Products } from '@/pages/Products';
-import { Reconciliation } from '@/pages/Reconciliation';
+import { ReconciliationNew as Reconciliation } from '@/pages/ReconciliationNew';
 import { Reports } from '@/pages/Reports';
 import { Users } from '@/pages/Users';
 import { POS } from '@/pages/POS';

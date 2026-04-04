@@ -1,0 +1,449 @@
+/**
+ * Reconciliation Dashboard - Accountant's Power Tool
+ *
+ * Purpose: Identify days that need reconciliation, show what's missing, provide audit trail
+ * Data Source: Backdated Meter Readings API (shift-segregated daily read model)
+ */
+import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Calendar, CheckCircle, AlertTriangle, XCircle, ChevronDown, ChevronRight, Download } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { formatDate } from '@/utils/format';
+import { useAuthStore } from '@/store/auth';
+import { apiClient } from '@/api/client';
+
+interface DailySummary {
+  businessDate: string;
+  totalReadingsExpected: number;
+  totalReadingsEntered: number;
+  totalReadingsDerived: number;
+  totalReadingsMissing: number;
+  completionPercent: number;
+  status: 'fully_reconciled' | 'partially_reconciled' | 'not_reconciled';
+  missingDetails?: {
+    shiftName: string;
+    nozzleName: string;
+    missingReadings: ('opening' | 'closing')[];
+  }[];
+  auditTrail?: {
+    recordedBy: string;
+    recordedAt: string;
+    editedBy?: string;
+    editedAt?: string;
+  }[];
+}
+
+export function ReconciliationNew() {
+  const { user } = useAuthStore();
+  const [startDate, setStartDate] = useState(() => {
+    const date = new Date();
+    date.setDate(date.getDate() - 30); // Last 30 days
+    return date.toISOString().split('T')[0];
+  });
+  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set());
+
+  // Fetch daily summaries for date range
+  const { data: summaries, isLoading, error } = useQuery({
+    queryKey: ['reconciliation-summary', user?.branch_id, startDate, endDate],
+    queryFn: async () => {
+      if (!user?.branch_id) throw new Error('Branch not found. Please log in again.');
+
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      const days: DailySummary[] = [];
+
+      // Fetch each day in range
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        const businessDate = d.toISOString().split('T')[0];
+        try {
+          const response = await apiClient.get('/api/backdated-meter-readings/daily', {
+            params: {
+              branchId: user.branch_id,
+              businessDate,
+            },
+          });
+
+          const data = response.data.data;
+
+          // Determine status
+          let status: 'fully_reconciled' | 'partially_reconciled' | 'not_reconciled';
+          if (data.summary.completionPercent === 100) {
+            status = 'fully_reconciled';
+          } else if (data.summary.totalReadingsEntered > 0 || data.summary.totalReadingsDerived > 0) {
+            status = 'partially_reconciled';
+          } else {
+            status = 'not_reconciled';
+          }
+
+          // Extract missing details
+          const missingDetails: { shiftName: string; nozzleName: string; missingReadings: ('opening' | 'closing')[] }[] = [];
+          data.shifts.forEach((shift: any) => {
+            shift.nozzles.forEach((nozzle: any) => {
+              const missing: ('opening' | 'closing')[] = [];
+              if (nozzle.opening?.status === 'missing') missing.push('opening');
+              if (nozzle.closing?.status === 'missing') missing.push('closing');
+              if (missing.length > 0) {
+                missingDetails.push({
+                  shiftName: shift.shiftName,
+                  nozzleName: nozzle.nozzleName,
+                  missingReadings: missing,
+                });
+              }
+            });
+          });
+
+          days.push({
+            businessDate,
+            totalReadingsExpected: data.summary.totalReadingsExpected,
+            totalReadingsEntered: data.summary.totalReadingsEntered,
+            totalReadingsDerived: data.summary.totalReadingsDerived,
+            totalReadingsMissing: data.summary.totalReadingsMissing,
+            completionPercent: data.summary.completionPercent,
+            status,
+            missingDetails: missingDetails.length > 0 ? missingDetails : undefined,
+          });
+        } catch (err: any) {
+          // If no data for this date, mark as not reconciled
+          days.push({
+            businessDate,
+            totalReadingsExpected: 24, // Default: 6 nozzles × 2 shifts × 2 readings
+            totalReadingsEntered: 0,
+            totalReadingsDerived: 0,
+            totalReadingsMissing: 24,
+            completionPercent: 0,
+            status: 'not_reconciled',
+          });
+        }
+      }
+
+      return days.reverse(); // Most recent first
+    },
+    enabled: !!user?.branch_id,
+    staleTime: 30000, // Cache for 30 seconds
+  });
+
+  const toggleDay = (date: string) => {
+    setExpandedDays(prev => {
+      const next = new Set(prev);
+      if (next.has(date)) {
+        next.delete(date);
+      } else {
+        next.add(date);
+      }
+      return next;
+    });
+  };
+
+  const exportToCSV = () => {
+    if (!summaries) return;
+
+    const headers = ['Date', 'Status', 'Expected', 'Entered', 'Derived', 'Missing', 'Completion %'];
+    const rows = summaries.map(s => [
+      s.businessDate,
+      s.status.replace(/_/g, ' ').toUpperCase(),
+      s.totalReadingsExpected,
+      s.totalReadingsEntered,
+      s.totalReadingsDerived,
+      s.totalReadingsMissing,
+      s.completionPercent.toFixed(0) + '%',
+    ]);
+
+    const csv = [headers, ...rows].map(row => row.join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `reconciliation-summary-${startDate}-to-${endDate}.csv`;
+    a.click();
+  };
+
+  // Aggregate stats
+  const stats = summaries ? {
+    fullyReconciled: summaries.filter(s => s.status === 'fully_reconciled').length,
+    partiallyReconciled: summaries.filter(s => s.status === 'partially_reconciled').length,
+    notReconciled: summaries.filter(s => s.status === 'not_reconciled').length,
+    totalMissing: summaries.reduce((sum, s) => sum + s.totalReadingsMissing, 0),
+  } : null;
+
+  if (!user?.branch_id) {
+    return (
+      <div className="space-y-6">
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>
+            Branch not found. Please log in again.
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Reconciliation Dashboard</h1>
+          <p className="text-muted-foreground">Accountant's hack to identify unbalanced days and missing entries</p>
+        </div>
+        <Button onClick={exportToCSV} disabled={!summaries || summaries.length === 0}>
+          <Download className="mr-2 h-4 w-4" />
+          Export CSV
+        </Button>
+      </div>
+
+      {/* Date Range Filter */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Date Range</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="startDate">Start Date</Label>
+              <Input
+                id="startDate"
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                max={endDate}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="endDate">End Date</Label>
+              <Input
+                id="endDate"
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                min={startDate}
+                max={new Date().toISOString().split('T')[0]}
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Summary Stats */}
+      {stats && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Fully Reconciled</CardTitle>
+              <CheckCircle className="h-4 w-4 text-green-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-green-600">{stats.fullyReconciled}</div>
+              <p className="text-xs text-muted-foreground">100% complete</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Partially Reconciled</CardTitle>
+              <AlertTriangle className="h-4 w-4 text-yellow-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-yellow-600">{stats.partiallyReconciled}</div>
+              <p className="text-xs text-muted-foreground">Some data entered</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Not Reconciled</CardTitle>
+              <XCircle className="h-4 w-4 text-red-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-red-600">{stats.notReconciled}</div>
+              <p className="text-xs text-muted-foreground">No data</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Missing Readings</CardTitle>
+              <Calendar className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.totalMissing}</div>
+              <p className="text-xs text-muted-foreground">Across all days</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Daily Breakdown */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Daily Reconciliation Status</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="space-y-2">
+              {[...Array(10)].map((_, i) => (
+                <Skeleton key={i} className="h-16" />
+              ))}
+            </div>
+          ) : error ? (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                {(error as any).message || 'Failed to load reconciliation data'}
+              </AlertDescription>
+            </Alert>
+          ) : !summaries || summaries.length === 0 ? (
+            <div className="py-8 text-center text-muted-foreground">
+              No data for selected date range
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {summaries.map((day) => (
+                <Collapsible
+                  key={day.businessDate}
+                  open={expandedDays.has(day.businessDate)}
+                  onOpenChange={() => toggleDay(day.businessDate)}
+                >
+                  <div className={`border rounded-lg ${
+                    day.status === 'fully_reconciled' ? 'bg-green-50 border-green-200' :
+                    day.status === 'partially_reconciled' ? 'bg-yellow-50 border-yellow-200' :
+                    'bg-red-50 border-red-200'
+                  }`}>
+                    <CollapsibleTrigger asChild>
+                      <div className="flex items-center justify-between p-4 cursor-pointer hover:bg-white/50 transition-colors">
+                        <div className="flex items-center gap-4">
+                          {expandedDays.has(day.businessDate) ? (
+                            <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                          ) : (
+                            <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                          )}
+                          <div>
+                            <h3 className="font-semibold">{formatDate(day.businessDate)}</h3>
+                            <p className="text-sm text-muted-foreground">
+                              {day.totalReadingsEntered} entered, {day.totalReadingsDerived} derived, {day.totalReadingsMissing} missing
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="text-right">
+                            <div className="text-2xl font-bold">
+                              {day.completionPercent.toFixed(0)}%
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              {day.totalReadingsEntered}/{day.totalReadingsExpected} readings
+                            </p>
+                          </div>
+                          <Badge variant={
+                            day.status === 'fully_reconciled' ? 'default' :
+                            day.status === 'partially_reconciled' ? 'secondary' :
+                            'destructive'
+                          }>
+                            {day.status === 'fully_reconciled' ? 'Fully Reconciled' :
+                             day.status === 'partially_reconciled' ? 'Partial Data' :
+                             'Not Reconciled'}
+                          </Badge>
+                        </div>
+                      </div>
+                    </CollapsibleTrigger>
+
+                    <CollapsibleContent>
+                      <div className="border-t px-4 py-4 bg-white">
+                        {day.missingDetails && day.missingDetails.length > 0 ? (
+                          <div className="space-y-3">
+                            <h4 className="font-semibold text-sm">Missing Readings:</h4>
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Shift</TableHead>
+                                  <TableHead>Nozzle</TableHead>
+                                  <TableHead>Missing</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {day.missingDetails.map((detail, idx) => (
+                                  <TableRow key={idx}>
+                                    <TableCell>{detail.shiftName}</TableCell>
+                                    <TableCell className="font-medium">{detail.nozzleName}</TableCell>
+                                    <TableCell>
+                                      {detail.missingReadings.map(r => (
+                                        <Badge key={r} variant="outline" className="mr-1">
+                                          {r}
+                                        </Badge>
+                                      ))}
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                            <Button
+                              size="sm"
+                              onClick={() => {
+                                // Navigate to Backdated Entries with pre-selected date
+                                window.location.href = `/backdated-entries?date=${day.businessDate}`;
+                              }}
+                            >
+                              Fill Missing Readings
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 text-green-700">
+                            <CheckCircle className="h-5 w-5" />
+                            <span className="font-medium">All readings complete for this day!</span>
+                          </div>
+                        )}
+                      </div>
+                    </CollapsibleContent>
+                  </div>
+                </Collapsible>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* User Guide */}
+      <Card>
+        <CardHeader>
+          <CardTitle>How to Use This Dashboard</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-start gap-3">
+            <CheckCircle className="h-5 w-5 text-green-600 mt-0.5" />
+            <div>
+              <strong className="text-green-700">Fully Reconciled (Green)</strong>
+              <p className="text-sm text-muted-foreground">
+                All meter readings entered for both Day and Night shifts. Ready for accounting.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-yellow-600 mt-0.5" />
+            <div>
+              <strong className="text-yellow-700">Partially Reconciled (Yellow)</strong>
+              <p className="text-sm text-muted-foreground">
+                Some readings entered or derived. Click to expand and see what's missing.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3">
+            <XCircle className="h-5 w-5 text-red-600 mt-0.5" />
+            <div>
+              <strong className="text-red-700">Not Reconciled (Red)</strong>
+              <p className="text-sm text-muted-foreground">
+                No data entered. Click "Fill Missing Readings" to add meter readings in Backdated Entries module.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

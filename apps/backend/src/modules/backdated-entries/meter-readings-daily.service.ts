@@ -22,6 +22,7 @@ export interface MeterReadingStatus {
     value: number | null;
     status: 'entered' | 'derived_from_prev_shift' | 'derived_from_next_shift' | 'missing';
     shiftInstanceId?: string;
+    recordedBy?: string;
     recordedAt?: Date;
     imageUrl?: string;
   };
@@ -29,6 +30,7 @@ export interface MeterReadingStatus {
     value: number | null;
     status: 'entered' | 'derived_from_prev_shift' | 'derived_from_next_shift' | 'missing';
     shiftInstanceId?: string;
+    recordedBy?: string;
     recordedAt?: Date;
     imageUrl?: string;
   };
@@ -284,6 +286,7 @@ export class BackdatedMeterReadingsDailyService {
                 value: parseFloat(openingReading.meterValue.toString()),
                 status: 'entered' as const,
                 shiftInstanceId: shiftInstance?.id,
+                recordedBy: openingReading.recordedBy || undefined,
                 recordedAt: openingReading.recordedAt,
                 imageUrl: openingReading.imageUrl || undefined,
               }
@@ -301,6 +304,7 @@ export class BackdatedMeterReadingsDailyService {
                 value: parseFloat(closingReading.meterValue.toString()),
                 status: 'entered' as const,
                 shiftInstanceId: shiftInstance?.id,
+                recordedBy: closingReading.recordedBy || undefined,
                 recordedAt: closingReading.recordedAt,
                 imageUrl: closingReading.imageUrl || undefined,
               }
