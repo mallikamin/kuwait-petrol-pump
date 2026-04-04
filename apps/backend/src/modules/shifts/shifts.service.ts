@@ -511,4 +511,88 @@ export class ShiftsService {
 
     return shiftInstance;
   }
+
+  /**
+   * Get or create shift instances for a specific business date
+   * Used for backdated entries - auto-creates shift instances from templates if they don't exist
+   */
+  async getOrCreateShiftInstancesForDate(
+    branchId: string,
+    businessDate: string,
+    userId: string,
+    organizationId: string
+  ) {
+    // Verify branch belongs to organization
+    const branch = await prisma.branch.findFirst({
+      where: {
+        id: branchId,
+        organizationId,
+      },
+    });
+
+    if (!branch) {
+      throw new AppError(404, 'Branch not found');
+    }
+
+    // Get all shift templates for this branch
+    const shiftTemplates = await prisma.shift.findMany({
+      where: {
+        branchId,
+        isActive: true,
+      },
+      orderBy: { shiftNumber: 'asc' },
+    });
+
+    if (shiftTemplates.length === 0) {
+      throw new AppError(
+        400,
+        'No shift templates configured for this branch. Please configure shifts in Shift Management first.'
+      );
+    }
+
+    // Parse business date and normalize
+    const targetDate = new Date(businessDate);
+    targetDate.setUTCHours(0, 0, 0, 0);
+
+    // Get or create shift instances for each template
+    const shiftInstances = await Promise.all(
+      shiftTemplates.map(async (shiftTemplate) => {
+        let instance = await prisma.shiftInstance.findUnique({
+          where: {
+            shiftId_date: {
+              shiftId: shiftTemplate.id,
+              date: targetDate,
+            },
+          },
+          include: {
+            shift: true,
+          },
+        });
+
+        if (!instance) {
+          // Auto-create shift instance for this date
+          instance = await prisma.shiftInstance.create({
+            data: {
+              shiftId: shiftTemplate.id,
+              branchId,
+              date: targetDate,
+              openedAt: new Date(targetDate), // Use business date as opened time
+              openedBy: userId,
+              status: 'open', // Will be closed manually later
+            },
+            include: {
+              shift: true,
+            },
+          });
+          console.log(
+            `✅ Auto-created shift instance for ${shiftTemplate.name} on ${targetDate.toISOString().split('T')[0]}`
+          );
+        }
+
+        return instance;
+      })
+    );
+
+    return shiftInstances;
+  }
 }

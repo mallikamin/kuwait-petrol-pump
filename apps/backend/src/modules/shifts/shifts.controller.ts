@@ -37,6 +37,11 @@ const getHistoryQuerySchema = z.object({
   offset: z.string().transform(val => parseInt(val, 10)).optional(),
 });
 
+const getShiftInstancesForDateSchema = z.object({
+  branchId: z.string().uuid(),
+  businessDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), // YYYY-MM-DD
+});
+
 export class ShiftsController {
   private shiftsService: ShiftsService;
 
@@ -241,6 +246,34 @@ export class ShiftsController {
       const shiftInstance = await this.shiftsService.getShiftById(id, req.user.organizationId);
 
       res.json({ shiftInstance });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * GET /api/shifts/instances-for-date
+   * Get or create shift instances for a specific business date (for backdated entries)
+   */
+  getShiftInstancesForDate = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      const { branchId, businessDate } = getShiftInstancesForDateSchema.parse(req.query);
+
+      const shiftInstances = await this.shiftsService.getOrCreateShiftInstancesForDate(
+        branchId,
+        businessDate,
+        req.user.userId,
+        req.user.organizationId
+      );
+
+      res.json({
+        shiftInstances,
+        message: 'Shift instances fetched/created successfully',
+      });
     } catch (error) {
       next(error);
     }

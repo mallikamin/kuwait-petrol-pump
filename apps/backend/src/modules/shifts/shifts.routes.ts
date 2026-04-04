@@ -14,6 +14,7 @@ router.post('/open', shiftsController.openShift);
 router.post('/:id/close', shiftsController.closeShift);
 router.get('/current', shiftsController.getCurrentShift);
 router.get('/history', shiftsController.getShiftHistory);
+router.get('/instances-for-date', shiftsController.getShiftInstancesForDate);
 router.get('/:id', shiftsController.getShiftById);
 
 export default router;

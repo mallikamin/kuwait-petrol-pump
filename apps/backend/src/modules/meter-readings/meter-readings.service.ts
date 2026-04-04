@@ -116,10 +116,16 @@ export class MeterReadingsService {
     // Determine the shift instance ID
     let resolvedShiftInstanceId = shiftInstanceId;
 
-    // If shiftId provided instead of shiftInstanceId, get/create today's shift instance
+    // If shiftId provided instead of shiftInstanceId, get/create shift instance for the target date
     if (!resolvedShiftInstanceId && shiftId) {
-      // CRITICAL: Use business timezone, NOT server system timezone
-      const today = await getBusinessDate(organizationId);
+      // Use customTimestamp if provided (for backdated entries), otherwise use business date
+      const targetDate = customTimestamp
+        ? new Date(customTimestamp)
+        : await getBusinessDate(organizationId);
+
+      // Normalize to business date (remove time component)
+      const businessDateOnly = new Date(targetDate);
+      businessDateOnly.setUTCHours(0, 0, 0, 0);
 
       // Verify shift exists and belongs to organization
       const shift = await prisma.shift.findFirst({
@@ -136,28 +142,29 @@ export class MeterReadingsService {
         throw new AppError(404, 'Shift not found or inactive');
       }
 
-      // Find or create today's shift instance
+      // Find or create shift instance for the target date
       let shiftInstance = await prisma.shiftInstance.findUnique({
         where: {
           shiftId_date: {
             shiftId,
-            date: today,
+            date: businessDateOnly,
           },
         },
       });
 
       if (!shiftInstance) {
-        // Auto-create shift instance if it doesn't exist
+        // Auto-create shift instance if it doesn't exist (for backdated entries)
         shiftInstance = await prisma.shiftInstance.create({
           data: {
             shiftId,
             branchId: shift.branchId,
-            date: today, // Business date from organization timezone
-            openedAt: new Date(), // UTC timestamp
+            date: businessDateOnly, // Business date (normalized)
+            openedAt: customTimestamp ? new Date(customTimestamp) : new Date(), // Use custom timestamp for backdated entries
             openedBy: userId,
-            status: 'open',
+            status: 'open', // Will be closed manually later
           },
         });
+        console.log(`✅ Auto-created shift instance for ${businessDateOnly.toISOString().split('T')[0]} (backdated entry)`);
       }
 
       resolvedShiftInstanceId = shiftInstance.id;
@@ -181,18 +188,31 @@ export class MeterReadingsService {
       throw new AppError(404, 'Shift instance not found');
     }
 
-    if (shiftInstance.status !== 'open') {
+    // For backdated entries (customTimestamp provided), allow recording on any shift status
+    // For current entries, require shift to be open
+    const isBackdatedEntry = !!customTimestamp;
+    if (!isBackdatedEntry && shiftInstance.status !== 'open') {
       throw new AppError(400, 'Cannot record reading for a closed shift');
     }
 
-    // Get the latest reading for this nozzle to validate
-    const latestReading = await prisma.meterReading.findFirst({
-      where: { nozzleId },
-      orderBy: { recordedAt: 'desc' },
-    });
+    // For backdated entries, get the latest reading for THIS SHIFT INSTANCE (not globally)
+    // For current entries, get the latest reading globally
+    const latestReading = isBackdatedEntry
+      ? await prisma.meterReading.findFirst({
+          where: {
+            nozzleId,
+            shiftInstanceId: resolvedShiftInstanceId,
+          },
+          orderBy: { recordedAt: 'desc' },
+        })
+      : await prisma.meterReading.findFirst({
+          where: { nozzleId },
+          orderBy: { recordedAt: 'desc' },
+        });
 
-    // Validate meter value is greater than previous reading
-    if (latestReading && new Decimal(meterValue).lessThanOrEqualTo(latestReading.meterValue)) {
+    // For backdated entries, skip strict meter value validation (allow manual corrections)
+    // For current entries, validate meter value is greater than previous reading
+    if (!isBackdatedEntry && latestReading && new Decimal(meterValue).lessThanOrEqualTo(latestReading.meterValue)) {
       throw new AppError(400, `Meter value (${meterValue}) must be greater than the last reading (${latestReading.meterValue.toString()})`);
     }
 
