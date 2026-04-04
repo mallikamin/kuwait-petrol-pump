@@ -16,7 +16,7 @@ import {
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle, Users, Copy, Search, Gauge, Camera, PanelRightClose, PanelRightOpen } from 'lucide-react';
+import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle, Users, Copy, Search, Gauge, Camera, PanelRightClose, PanelRightOpen, Edit } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { branchesApi, customersApi, meterReadingsApi } from '@/api';
 import { toast } from 'sonner';
@@ -35,6 +35,7 @@ interface Transaction {
   unitPrice: string;
   lineTotal: string;
   paymentMethod: 'cash' | 'credit_card' | 'bank_card' | 'pso_card' | 'credit_customer';
+  _localStatus?: 'draft' | 'saved'; // Local status for UI feedback
 }
 
 interface MeterReadingRow {
@@ -161,16 +162,29 @@ export function BackdatedEntries() {
     },
   });
 
-  // Compute fuel totals from ALL nozzles' meter readings
+  // Compute fuel totals from ALL nozzles' meter readings (aggregates all shifts for the day)
   const fuelTotals = useMemo(() => {
     const totals = { HSD: 0, PMG: 0, other: 0 };
     (nozzlesData || []).forEach((nozzle: any) => {
       const readings = (meterReadingsData || []).filter((r: any) => r.nozzle_id === nozzle.id);
       if (readings.length === 0) return;
-      const opening = readings.find((r: any) => r.reading_type === 'opening');
-      const closing = readings.find((r: any) => r.reading_type === 'closing');
-      if (!opening || !closing) return;
-      const liters = toNumber(closing.meter_value ?? closing.reading_value) - toNumber(opening.meter_value ?? opening.reading_value);
+
+      // For daily totals: take EARLIEST opening and LATEST closing (aggregates all shifts)
+      const openings = readings.filter((r: any) => r.reading_type === 'opening');
+      const closings = readings.filter((r: any) => r.reading_type === 'closing');
+
+      if (openings.length === 0 || closings.length === 0) return;
+
+      // Sort by timestamp to get first opening and last closing
+      const earliestOpening = openings.sort((a: any, b: any) =>
+        new Date(a.recorded_at || a.created_at).getTime() - new Date(b.recorded_at || b.created_at).getTime()
+      )[0];
+      const latestClosing = closings.sort((a: any, b: any) =>
+        new Date(b.recorded_at || b.created_at).getTime() - new Date(a.recorded_at || a.created_at).getTime()
+      )[0];
+
+      const liters = toNumber(latestClosing.meter_value ?? latestClosing.reading_value) -
+                     toNumber(earliestOpening.meter_value ?? earliestOpening.reading_value);
       const fuelCode = nozzle.fuelType?.code;
       if (fuelCode === 'HSD') totals.HSD += liters;
       else if (fuelCode === 'PMG') totals.PMG += liters;
@@ -297,6 +311,8 @@ export function BackdatedEntries() {
   const [isMeterReadingOpen, setIsMeterReadingOpen] = useState(false);
   const [selectedMeterNozzle, setSelectedMeterNozzle] = useState<any>(null);
   const [selectedReadingType, setSelectedReadingType] = useState<'opening' | 'closing'>('opening');
+  const [_editingReadingId, setEditingReadingId] = useState<string | null>(null);
+  const [_editingReadingValue, setEditingReadingValue] = useState<number | null>(null);
 
   // UI state
   const [showReconciliation, setShowReconciliation] = useState(true);
@@ -323,7 +339,8 @@ export function BackdatedEntries() {
         quantity: '',
         unitPrice: '',
         lineTotal: '0',
-        paymentMethod: 'cash',
+        paymentMethod: 'credit_customer', // Default to credit customer for accountant workflow
+        _localStatus: 'draft', // Mark as draft until saved
       },
     ]);
   };
@@ -334,8 +351,16 @@ export function BackdatedEntries() {
     const lastRow = transactions[lastIdx];
     setTransactions([
       ...transactions,
-      { ...lastRow, id: undefined, quantity: '', lineTotal: '0' },
+      { ...lastRow, id: undefined, quantity: '', lineTotal: '0', _localStatus: 'draft' },
     ]);
+  };
+
+  // Save individual transaction row (mark as saved locally, actual save happens in draft save)
+  const saveTransactionRow = (index: number) => {
+    const updated = [...transactions];
+    updated[index] = { ...updated[index], _localStatus: 'saved' };
+    setTransactions(updated);
+    toast.success('Row marked as complete. Click "Save Draft" to persist.');
   };
 
   const mappedShiftOptions = useMemo(
@@ -386,6 +411,70 @@ export function BackdatedEntries() {
   useEffect(() => {
     if (transactions.length > 0) setIsDirty(true);
   }, [transactions]);
+
+  // LocalStorage backup to prevent data loss (CRITICAL)
+  useEffect(() => {
+    if (transactions.length > 0 && selectedBranchId && businessDate) {
+      const backupKey = `backdated_draft_${selectedBranchId}_${businessDate}${selectedShiftId ? '_' + selectedShiftId : ''}`;
+      localStorage.setItem(backupKey, JSON.stringify({
+        transactions,
+        timestamp: new Date().toISOString(),
+      }));
+    }
+  }, [transactions, selectedBranchId, businessDate, selectedShiftId]);
+
+  // Restore from localStorage if API returns empty but backup exists
+  useEffect(() => {
+    if (!selectedBranchId || !businessDate) {
+      setTransactions([]);
+      setSyncMessage('');
+      return;
+    }
+
+    const backupKey = `backdated_draft_${selectedBranchId}_${businessDate}${selectedShiftId ? '_' + selectedShiftId : ''}`;
+    const backup = localStorage.getItem(backupKey);
+
+    if (dailySummaryData?.transactions && dailySummaryData.transactions.length > 0) {
+      setTransactions(
+        dailySummaryData.transactions.map((txn: any) => ({
+          id: txn.id,
+          customerId: txn.customer?.id || '',
+          customerName: txn.customer?.name || '',
+          fuelCode: txn.fuelCode || txn.nozzle?.fuelType?.code || '',
+          vehicleNumber: txn.vehicleNumber || '',
+          slipNumber: txn.slipNumber || '',
+          productName: txn.productName || 'Fuel',
+          quantity: toNumber(txn.quantity).toString(),
+          unitPrice: toNumber(txn.unitPrice).toFixed(2),
+          lineTotal: toNumber(txn.lineTotal).toFixed(2),
+          paymentMethod: txn.paymentMethod,
+        }))
+      );
+      setSyncMessage(`Loaded ${dailySummaryData.transactions.length} existing transactions.`);
+      // Clear backup when API data loads successfully
+      localStorage.removeItem(backupKey);
+    } else if (backup) {
+      // API returned empty but we have a localStorage backup
+      try {
+        const parsed = JSON.parse(backup);
+        setTransactions(parsed.transactions);
+        setSyncMessage(`⚠️ Restored ${parsed.transactions.length} transactions from backup (${new Date(parsed.timestamp).toLocaleTimeString()}). Please save draft to persist.`);
+        toast.warning('Draft restored from local backup. Click "Save Draft" to persist to server.');
+      } catch (err) {
+        console.error('Failed to restore backup:', err);
+        setTransactions([]);
+        setSyncMessage('No existing transactions. Start adding customer groups.');
+      }
+    } else {
+      setTransactions([]);
+      setSyncMessage('No existing transactions. Start adding customer groups.');
+    }
+  }, [
+    selectedBranchId,
+    businessDate,
+    selectedShiftId,
+    dailySummaryData,
+  ]);
 
   // Auto-save timer (2 minutes)
   useEffect(() => {
@@ -582,9 +671,16 @@ export function BackdatedEntries() {
     });
   };
 
-  const openMeterReadingDialog = (nozzle: any, type: 'opening' | 'closing') => {
+  const openMeterReadingDialog = (nozzle: any, type: 'opening' | 'closing', reading?: any) => {
     setSelectedMeterNozzle(nozzle);
     setSelectedReadingType(type);
+    if (reading) {
+      setEditingReadingId(reading.id);
+      setEditingReadingValue(toNumber(reading.meter_value ?? reading.reading_value));
+    } else {
+      setEditingReadingId(null);
+      setEditingReadingValue(null);
+    }
     setIsMeterReadingOpen(true);
   };
 
@@ -770,13 +866,23 @@ export function BackdatedEntries() {
                             <div className="text-xs font-medium text-muted-foreground">Opening Reading</div>
                             {hasOpening ? (
                               <div className="space-y-1">
-                                <div className="flex items-center gap-2">
-                                  <CheckCircle className="h-4 w-4 text-green-600" />
-                                  <span className="font-mono font-semibold text-base">
-                                    {toNumber(openingReading?.meter_value ?? openingReading?.reading_value).toFixed(3)} L
-                                  </span>
+                                <div className="flex items-center gap-2 justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <CheckCircle className="h-4 w-4 text-green-600" />
+                                    <span className="font-mono font-semibold text-base">
+                                      {toNumber(openingReading?.meter_value ?? openingReading?.reading_value).toFixed(3)} L
+                                    </span>
+                                  </div>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => openMeterReadingDialog(nozzle, 'opening', openingReading)}
+                                    className="h-7 w-7 p-0"
+                                    title="Edit opening reading"
+                                  >
+                                    <Edit className="h-3 w-3" />
+                                  </Button>
                                 </div>
-                                {/* Edit button hidden for now - can be added later */}
                               </div>
                             ) : (
                               <Button
@@ -794,13 +900,23 @@ export function BackdatedEntries() {
                             <div className="text-xs font-medium text-muted-foreground">Closing Reading</div>
                             {hasClosing ? (
                               <div className="space-y-1">
-                                <div className="flex items-center gap-2">
-                                  <CheckCircle className="h-4 w-4 text-green-600" />
-                                  <span className="font-mono font-semibold text-base">
-                                    {toNumber(closingReading?.meter_value ?? closingReading?.reading_value).toFixed(3)} L
-                                  </span>
+                                <div className="flex items-center gap-2 justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <CheckCircle className="h-4 w-4 text-green-600" />
+                                    <span className="font-mono font-semibold text-base">
+                                      {toNumber(closingReading?.meter_value ?? closingReading?.reading_value).toFixed(3)} L
+                                    </span>
+                                  </div>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => openMeterReadingDialog(nozzle, 'closing', closingReading)}
+                                    className="h-7 w-7 p-0"
+                                    title="Edit closing reading"
+                                  >
+                                    <Edit className="h-3 w-3" />
+                                  </Button>
                                 </div>
-                                {/* Edit button hidden for now - can be added later */}
                               </div>
                             ) : (
                               <Button
@@ -947,6 +1063,7 @@ export function BackdatedEntries() {
                               <TableHead className="min-w-[140px] text-right">Price/L</TableHead>
                               <TableHead className="min-w-[180px] text-right">Total (PKR)</TableHead>
                               <TableHead className="min-w-[200px]">Payment</TableHead>
+                              <TableHead className="w-[100px] text-center">Save</TableHead>
                               <TableHead className="w-[60px]"></TableHead>
                             </TableRow>
                           </TableHeader>
@@ -1029,6 +1146,21 @@ export function BackdatedEntries() {
                                         <SelectItem value="credit_customer">Credit Customer</SelectItem>
                                       </SelectContent>
                                     </Select>
+                                  </TableCell>
+                                  <TableCell className="p-2 text-center">
+                                    {txn._localStatus === 'saved' ? (
+                                      <CheckCircle className="h-5 w-5 text-green-600 mx-auto" />
+                                    ) : (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => saveTransactionRow(globalIdx)}
+                                        className="h-9 w-9 p-0"
+                                        title="Mark row as complete"
+                                      >
+                                        <Plus className="h-5 w-5 text-blue-600" />
+                                      </Button>
+                                    )}
                                   </TableCell>
                                   <TableCell className="p-2">
                                     <Button size="icon" variant="ghost" onClick={() => removeTransaction(globalIdx)}>
