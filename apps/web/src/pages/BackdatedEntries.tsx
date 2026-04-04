@@ -15,9 +15,8 @@ import {
 } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { CustomerSelector } from '@/components/ui/customer-selector';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle, Users, Copy } from 'lucide-react';
+import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle, Users, Copy, Search } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { branchesApi, customersApi, meterReadingsApi } from '@/api';
 import { toast } from 'sonner';
@@ -27,7 +26,7 @@ interface Transaction {
   id?: string;
   customerId?: string;
   customerName?: string;
-  nozzleId?: string;
+  fuelCode: 'HSD' | 'PMG' | 'OTHER' | '';
   vehicleNumber?: string;
   slipNumber?: string;
   productName: string;
@@ -170,48 +169,38 @@ export function BackdatedEntries() {
     return totals;
   }, [nozzlesData, meterReadingsData]);
 
-  // Compute posted fuel totals from transactions
+  // Compute posted fuel totals from transactions (uses fuelCode directly)
   const postedByFuel = useMemo(() => {
     const posted = { HSD: 0, PMG: 0, other: 0 };
     transactions.forEach(txn => {
-      const nozzle = (nozzlesData || []).find((n: any) => n.id === txn.nozzleId);
-      const fuelCode = nozzle?.fuelType?.code;
       const qty = toNumber(txn.quantity);
-      if (fuelCode === 'HSD') posted.HSD += qty;
-      else if (fuelCode === 'PMG') posted.PMG += qty;
-      else posted.other += qty;
+      if (txn.fuelCode === 'HSD') posted.HSD += qty;
+      else if (txn.fuelCode === 'PMG') posted.PMG += qty;
+      else if (txn.fuelCode === 'OTHER') posted.other += qty;
     });
     return posted;
-  }, [transactions, nozzlesData]);
+  }, [transactions]);
 
-  // Compute nozzle-level reconciliation for checklist
+  // Compute nozzle-level meter reading status for checklist
   const nozzleReconciliation = useMemo(() => {
     return (nozzlesData || []).map((nozzle: any) => {
       const readings = (meterReadingsData || []).filter((r: any) => r.nozzle_id === nozzle.id);
       const opening = readings.find((r: any) => r.reading_type === 'opening');
       const closing = readings.find((r: any) => r.reading_type === 'closing');
-      const meterLiters = opening && closing
-        ? toNumber(closing.meter_value ?? closing.reading_value) - toNumber(opening.meter_value ?? opening.reading_value)
-        : 0;
-
-      const postedLiters = transactions
-        .filter(txn => txn.nozzleId === nozzle.id)
-        .reduce((sum, txn) => sum + toNumber(txn.quantity), 0);
-
-      const remaining = meterLiters - postedLiters;
-      const isReconciled = Math.abs(remaining) < 0.1;
+      const hasOpening = !!opening;
+      const hasClosing = !!closing;
+      const hasBoth = hasOpening && hasClosing;
 
       return {
         nozzleId: nozzle.id,
         nozzleName: nozzle.name || `N${nozzle.nozzleNumber}`,
         fuelCode: nozzle.fuelType?.code || 'Unknown',
-        meterLiters,
-        postedLiters,
-        remaining,
-        isReconciled,
+        hasOpening,
+        hasClosing,
+        hasBoth,
       };
     });
-  }, [nozzlesData, meterReadingsData, transactions]);
+  }, [nozzlesData, meterReadingsData]);
 
   const transactionTotals = transactions.reduce(
     (acc, txn) => {
@@ -292,7 +281,18 @@ export function BackdatedEntries() {
 
   // Add customer group dialog state
   const [isAddGroupOpen, setIsAddGroupOpen] = useState(false);
-  const [newGroupCustomerId, setNewGroupCustomerId] = useState('');
+  const [customerSearchQuery, setCustomerSearchQuery] = useState('');
+
+  // Filtered customers for dialog
+  const filteredCustomers = useMemo(() => {
+    if (!customerSearchQuery.trim()) return customersData || [];
+    const query = customerSearchQuery.toLowerCase();
+    return (customersData || []).filter((c: any) =>
+      c.name.toLowerCase().includes(query) ||
+      (c.phone && c.phone.toLowerCase().includes(query)) ||
+      (c.email && c.email.toLowerCase().includes(query))
+    );
+  }, [customersData, customerSearchQuery]);
 
   const addTransactionToCustomer = (customerId: string, customerName: string) => {
     setTransactions([
@@ -300,7 +300,7 @@ export function BackdatedEntries() {
       {
         customerId: customerId === '__walkin__' ? '' : customerId,
         customerName: customerId === '__walkin__' ? '' : customerName,
-        nozzleId: '',
+        fuelCode: '',
         productName: '',
         quantity: '',
         unitPrice: '',
@@ -342,7 +342,7 @@ export function BackdatedEntries() {
           id: txn.id,
           customerId: txn.customer?.id || '',
           customerName: txn.customer?.name || '',
-          nozzleId: txn.nozzle?.id || '',
+          fuelCode: txn.fuelCode || txn.nozzle?.fuelType?.code || '',
           vehicleNumber: txn.vehicleNumber || '',
           slipNumber: txn.slipNumber || '',
           productName: txn.productName || 'Fuel',
@@ -393,17 +393,22 @@ export function BackdatedEntries() {
     const updated = [...transactions];
     updated[index] = { ...updated[index], [field]: value };
 
-    // Auto-fill product name and unit price when nozzle selected
-    if (field === 'nozzleId') {
-      const nozzle = (nozzlesData || []).find((n: any) => n.id === value);
-      if (nozzle) {
-        updated[index].productName = nozzle.fuelType?.name || 'Fuel';
-        updated[index].unitPrice = nozzle.fuelType?.code === 'HSD' ? '287.33' : '290.50';
+    // Auto-fill product name and unit price when fuel type selected
+    if (field === 'fuelCode') {
+      if (value === 'HSD') {
+        updated[index].productName = 'High Speed Diesel';
+        updated[index].unitPrice = '287.33';
+      } else if (value === 'PMG') {
+        updated[index].productName = 'Premium Motor Gasoline';
+        updated[index].unitPrice = '290.50';
+      } else if (value === 'OTHER') {
+        updated[index].productName = 'Other Fuel';
+        updated[index].unitPrice = '0.00';
       }
     }
 
     // Auto-calculate line total when quantity or unit price changes
-    if (field === 'quantity' || field === 'unitPrice' || field === 'nozzleId') {
+    if (field === 'quantity' || field === 'unitPrice' || field === 'fuelCode') {
       const qty = toNumber(updated[index].quantity);
       const price = toNumber(updated[index].unitPrice);
       updated[index].lineTotal = (qty * price).toFixed(2);
@@ -446,7 +451,7 @@ export function BackdatedEntries() {
         shiftId: selectedShiftId || undefined,
         transactions: transactions.map(txn => ({
           customerId: txn.customerId || undefined,
-          nozzleId: txn.nozzleId || undefined,
+          fuelCode: txn.fuelCode || undefined,
           vehicleNumber: txn.vehicleNumber || undefined,
           slipNumber: txn.slipNumber || undefined,
           productName: txn.productName,
@@ -536,7 +541,7 @@ export function BackdatedEntries() {
       <Alert className="border-orange-200 bg-orange-50">
         <AlertCircle className="h-4 w-4 text-orange-600" />
         <AlertDescription className="text-sm text-orange-900">
-          <strong>Transaction-First Approach:</strong> Select branch and date, then add individual customer transactions. Nozzle selection is per-transaction. Credit customers require vehicle# and slip#.
+          <strong>Transaction-First Approach:</strong> Select branch and date, then add customer groups with fuel type. Credit customers require vehicle# and slip#.
         </AlertDescription>
       </Alert>
 
@@ -721,15 +726,14 @@ export function BackdatedEntries() {
                         <Table>
                           <TableHeader>
                             <TableRow className="bg-muted/30">
-                              <TableHead className="w-[160px]">Nozzle</TableHead>
-                              <TableHead className="w-[130px]">Vehicle#</TableHead>
-                              <TableHead className="w-[110px]">Slip#</TableHead>
-                              <TableHead className="w-[130px]">Product</TableHead>
-                              <TableHead className="w-[120px] text-right">Qty (L)</TableHead>
-                              <TableHead className="w-[120px] text-right">Price/L</TableHead>
-                              <TableHead className="w-[140px] text-right">Total (PKR)</TableHead>
-                              <TableHead className="w-[160px]">Payment</TableHead>
-                              <TableHead className="w-[50px]"></TableHead>
+                              <TableHead className="w-[140px]">Fuel Type</TableHead>
+                              <TableHead className="w-[150px]">Vehicle#</TableHead>
+                              <TableHead className="w-[130px]">Slip#</TableHead>
+                              <TableHead className="w-[140px] text-right">Qty (L)</TableHead>
+                              <TableHead className="w-[130px] text-right">Price/L</TableHead>
+                              <TableHead className="w-[160px] text-right">Total (PKR)</TableHead>
+                              <TableHead className="w-[180px]">Payment</TableHead>
+                              <TableHead className="w-[60px]"></TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
@@ -739,25 +743,23 @@ export function BackdatedEntries() {
                                 <TableRow key={globalIdx}>
                                   <TableCell className="p-2">
                                     <Select
-                                      value={txn.nozzleId || '__none__'}
-                                      onValueChange={(v) => updateTransaction(globalIdx, 'nozzleId', v === '__none__' ? '' : v)}
+                                      value={txn.fuelCode || '__none__'}
+                                      onValueChange={(v) => updateTransaction(globalIdx, 'fuelCode', v === '__none__' ? '' : v)}
                                     >
-                                      <SelectTrigger className="h-10 text-sm">
-                                        <SelectValue placeholder="Select nozzle" />
+                                      <SelectTrigger className="h-11 text-base">
+                                        <SelectValue placeholder="Select fuel" />
                                       </SelectTrigger>
                                       <SelectContent>
-                                        <SelectItem value="__none__">No nozzle</SelectItem>
-                                        {(nozzlesData || []).map((nozzle: any) => (
-                                          <SelectItem key={nozzle.id} value={nozzle.id}>
-                                            {nozzle.name || `N${nozzle.nozzleNumber}`} - {nozzle.fuelType?.code}
-                                          </SelectItem>
-                                        ))}
+                                        <SelectItem value="__none__">Select...</SelectItem>
+                                        <SelectItem value="HSD">HSD (Diesel)</SelectItem>
+                                        <SelectItem value="PMG">PMG (Petrol)</SelectItem>
+                                        <SelectItem value="OTHER">Other</SelectItem>
                                       </SelectContent>
                                     </Select>
                                   </TableCell>
                                   <TableCell className="p-2">
                                     <Input
-                                      className="h-10 text-sm font-mono"
+                                      className="h-11 text-base font-mono"
                                       value={txn.vehicleNumber || ''}
                                       onChange={(e) => updateTransaction(globalIdx, 'vehicleNumber', e.target.value)}
                                       placeholder="ABC-123"
@@ -765,18 +767,15 @@ export function BackdatedEntries() {
                                   </TableCell>
                                   <TableCell className="p-2">
                                     <Input
-                                      className="h-10 text-sm font-mono"
+                                      className="h-11 text-base font-mono"
                                       value={txn.slipNumber || ''}
                                       onChange={(e) => updateTransaction(globalIdx, 'slipNumber', e.target.value)}
                                       placeholder="SLP-001"
                                     />
                                   </TableCell>
                                   <TableCell className="p-2">
-                                    <Input className="h-10 text-sm bg-muted/30" value={txn.productName} readOnly />
-                                  </TableCell>
-                                  <TableCell className="p-2">
                                     <Input
-                                      className="h-10 text-sm font-mono text-right"
+                                      className="h-11 text-base font-mono text-right"
                                       type="number"
                                       step="0.001"
                                       value={txn.quantity}
@@ -786,7 +785,7 @@ export function BackdatedEntries() {
                                   </TableCell>
                                   <TableCell className="p-2">
                                     <Input
-                                      className="h-10 text-sm font-mono text-right"
+                                      className="h-11 text-base font-mono text-right"
                                       type="number"
                                       step="0.01"
                                       value={txn.unitPrice}
@@ -795,7 +794,7 @@ export function BackdatedEntries() {
                                   </TableCell>
                                   <TableCell className="p-2">
                                     <Input
-                                      className="h-10 text-sm font-mono text-right font-semibold bg-blue-50 text-blue-700"
+                                      className="h-11 text-base font-mono text-right font-semibold bg-blue-50 text-blue-700"
                                       value={toNumber(txn.lineTotal).toLocaleString('en-PK', { minimumFractionDigits: 2 })}
                                       readOnly
                                     />
@@ -805,7 +804,7 @@ export function BackdatedEntries() {
                                       value={txn.paymentMethod}
                                       onValueChange={(v: any) => updateTransaction(globalIdx, 'paymentMethod', v)}
                                     >
-                                      <SelectTrigger className="h-10 text-sm">
+                                      <SelectTrigger className="h-11 text-base">
                                         <SelectValue />
                                       </SelectTrigger>
                                       <SelectContent>
@@ -867,35 +866,81 @@ export function BackdatedEntries() {
           </Card>
 
           {/* Add Customer Group Dialog */}
-          <Dialog open={isAddGroupOpen} onOpenChange={setIsAddGroupOpen}>
-            <DialogContent className="sm:max-w-md">
+          <Dialog open={isAddGroupOpen} onOpenChange={(open) => {
+            setIsAddGroupOpen(open);
+            if (!open) {
+              setCustomerSearchQuery('');
+            }
+          }}>
+            <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col">
               <DialogHeader>
                 <DialogTitle>Add Customer Group</DialogTitle>
               </DialogHeader>
-              <div className="py-4">
-                <Label className="mb-2 block">Customer</Label>
-                <CustomerSelector
-                  customers={customersData || []}
-                  value={newGroupCustomerId}
-                  onChange={setNewGroupCustomerId}
-                  placeholder="Search by name, phone, or email..."
-                />
+              <div className="flex-1 flex flex-col gap-4 overflow-hidden">
+                {/* Quick Walk-in Button */}
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="w-full h-14 text-lg border-2 border-dashed hover:bg-accent"
+                  onClick={() => {
+                    addTransactionToCustomer('__walkin__', 'Walk-in Sales');
+                    setIsAddGroupOpen(false);
+                    setCustomerSearchQuery('');
+                  }}
+                >
+                  <Users className="h-5 w-5 mr-2" />
+                  Walk-in Sales
+                </Button>
+
+                {/* Search Input */}
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                  <Input
+                    placeholder="Search by name, phone, or email..."
+                    value={customerSearchQuery}
+                    onChange={(e) => setCustomerSearchQuery(e.target.value)}
+                    className="w-full h-12 pl-10 text-base"
+                    autoFocus
+                  />
+                </div>
+
+                {/* Customer List */}
+                <div className="flex-1 overflow-y-auto border rounded-lg">
+                  {filteredCustomers.length === 0 ? (
+                    <div className="flex items-center justify-center h-32 text-muted-foreground">
+                      No customers found
+                    </div>
+                  ) : (
+                    <div className="divide-y">
+                      {filteredCustomers.map((customer: any) => (
+                        <button
+                          key={customer.id}
+                          onClick={() => {
+                            addTransactionToCustomer(customer.id, customer.name);
+                            setIsAddGroupOpen(false);
+                            setCustomerSearchQuery('');
+                          }}
+                          className="w-full px-4 py-3 text-left hover:bg-accent transition-colors flex items-center justify-between group"
+                        >
+                          <div className="flex-1">
+                            <div className="font-semibold text-base group-hover:text-primary">{customer.name}</div>
+                            <div className="text-sm text-muted-foreground">
+                              {customer.phone || customer.email || 'No contact info'}
+                            </div>
+                          </div>
+                          <Plus className="h-5 w-5 text-muted-foreground group-hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => { setIsAddGroupOpen(false); setNewGroupCustomerId(''); }}>
-                  Cancel
-                </Button>
-                <Button onClick={() => {
-                  const isWalkin = !newGroupCustomerId || newGroupCustomerId === 'none';
-                  const customer = customersData?.find((c: any) => c.id === newGroupCustomerId);
-                  addTransactionToCustomer(
-                    isWalkin ? '__walkin__' : newGroupCustomerId,
-                    isWalkin ? 'Walk-in Sales' : (customer?.name || 'Unknown'),
-                  );
+                <Button variant="outline" onClick={() => {
                   setIsAddGroupOpen(false);
-                  setNewGroupCustomerId('');
+                  setCustomerSearchQuery('');
                 }}>
-                  <Plus className="h-4 w-4 mr-1" /> Add Group
+                  Cancel
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -909,20 +954,20 @@ export function BackdatedEntries() {
               <CardTitle className="text-base">Reconciliation</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4 text-sm">
-              {/* Nozzle Checklist */}
+              {/* Nozzle Meter Reading Checklist */}
               {nozzleReconciliation.length > 0 && (
                 <div>
-                  <div className="font-semibold mb-2">Nozzle Checklist</div>
+                  <div className="font-semibold mb-2">Nozzle Meter Readings</div>
                   <div className="space-y-1.5 text-xs">
                     {nozzleReconciliation.map((nozzle: any) => (
                       <div key={nozzle.nozzleId} className="flex items-center justify-between p-2 bg-muted/30 rounded">
                         <div className="flex items-center gap-2">
-                          <div className={`w-2 h-2 rounded-full ${nozzle.isReconciled ? 'bg-green-500' : 'bg-orange-500'}`} />
+                          <div className={`w-2 h-2 rounded-full ${nozzle.hasBoth ? 'bg-green-500' : 'bg-orange-500'}`} />
                           <span className="font-medium">{nozzle.nozzleName}</span>
                           <Badge variant="outline" className="text-[10px] px-1 py-0">{nozzle.fuelCode}</Badge>
                         </div>
-                        <span className="font-mono text-xs">
-                          {nozzle.postedLiters.toFixed(1)}/{nozzle.meterLiters.toFixed(1)}L
+                        <span className="text-xs">
+                          {nozzle.hasBoth ? '✓ Both' : !nozzle.hasOpening ? '✗ Opening' : '✗ Closing'}
                         </span>
                       </div>
                     ))}
