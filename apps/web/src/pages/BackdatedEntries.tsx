@@ -189,67 +189,44 @@ export function BackdatedEntries() {
     },
   });
 
-  // Compute fuel totals from ALL nozzles' meter readings (aggregates all shifts for the day)
+  // Compute fuel totals using shift-segregated pairs (closing - opening per shift per nozzle)
   const fuelTotals = useMemo(() => {
     const totals = { HSD: 0, PMG: 0, other: 0 };
 
-    console.log('[Fuel Totals Debug] Starting calculation...');
-    console.log('[Fuel Totals Debug] Nozzles count:', (nozzlesData || []).length);
-    console.log('[Fuel Totals Debug] Total readings count:', (meterReadingsData || []).length);
+    if (!nozzlesData || !shiftTemplatesData || !shiftInstancesData) return totals;
 
     (nozzlesData || []).forEach((nozzle: any) => {
-      const readings = (meterReadingsData || []).filter((r: any) => r.nozzle_id === nozzle.id);
+      const nozzleReadings = (meterReadingsData || []).filter((r: any) => r.nozzle_id === nozzle.id);
 
-      const readingsDetail = readings.map((r: any) => ({
-        type: r.reading_type,
-        value: r.meter_value ?? r.reading_value,
-        shift: r.shift_instance?.shift?.name || 'unknown',
-        timestamp: r.recorded_at || r.created_at,
-      }));
+      // For each shift, compute sales (closing - opening)
+      (shiftTemplatesData || []).forEach((shiftTemplate: any) => {
+        const shiftInstance = (shiftInstancesData || []).find((si: any) => si.shiftId === shiftTemplate.id);
+        if (!shiftInstance) return;
 
-      console.log(`[Fuel Totals Debug] ${nozzle.name} (${nozzle.fuelType?.code}):`, {
-        readingsCount: readings.length,
-        readings: readingsDetail,
+        const shiftReadings = nozzleReadings.filter((r: any) => r.shift_instance?.id === shiftInstance.id);
+        const opening = shiftReadings.find((r: any) => r.reading_type === 'opening');
+        const closing = shiftReadings.find((r: any) => r.reading_type === 'closing');
+
+        // Compute auto-fill opening if not in DB
+        const openingValue = opening
+          ? toNumber(opening.meter_value ?? opening.reading_value)
+          : getPreviousReading(nozzle.id, 'opening', shiftTemplate);
+
+        const closingValue = closing ? toNumber(closing.meter_value ?? closing.reading_value) : 0;
+
+        // Only count sales if we have both values
+        if ((opening || openingValue > 0) && closing) {
+          const sales = closingValue - openingValue;
+          const fuelCode = nozzle.fuelType?.code;
+          if (fuelCode === 'HSD') totals.HSD += sales;
+          else if (fuelCode === 'PMG') totals.PMG += sales;
+          else totals.other += sales;
+        }
       });
-
-      if (readings.length === 0) return;
-
-      // For daily totals: take EARLIEST opening and LATEST closing (aggregates all shifts)
-      const openings = readings.filter((r: any) => r.reading_type === 'opening');
-      const closings = readings.filter((r: any) => r.reading_type === 'closing');
-
-      if (openings.length === 0 || closings.length === 0) {
-        console.log(`[Fuel Totals Debug] Skipping ${nozzle.name}: openings=${openings.length}, closings=${closings.length}`);
-        return;
-      }
-
-      // Sort by timestamp to get first opening and last closing
-      const earliestOpening = openings.sort((a: any, b: any) =>
-        new Date(a.recorded_at || a.created_at).getTime() - new Date(b.recorded_at || b.created_at).getTime()
-      )[0];
-      const latestClosing = closings.sort((a: any, b: any) =>
-        new Date(b.recorded_at || b.created_at).getTime() - new Date(a.recorded_at || a.created_at).getTime()
-      )[0];
-
-      const earliestValue = toNumber(earliestOpening.meter_value ?? earliestOpening.reading_value);
-      const latestValue = toNumber(latestClosing.meter_value ?? latestClosing.reading_value);
-      const liters = latestValue - earliestValue;
-
-      console.log(`[Fuel Totals Debug] ${nozzle.name} calculation:`, {
-        earliestValue,
-        latestValue,
-        liters,
-      });
-
-      const fuelCode = nozzle.fuelType?.code;
-      if (fuelCode === 'HSD') totals.HSD += liters;
-      else if (fuelCode === 'PMG') totals.PMG += liters;
-      else totals.other += liters;
     });
 
-    console.log('[Fuel Totals Debug] Final totals:', totals);
     return totals;
-  }, [nozzlesData, meterReadingsData]);
+  }, [nozzlesData, meterReadingsData, shiftTemplatesData, shiftInstancesData]);
 
   // Compute posted fuel totals from transactions (uses fuelCode directly)
   const postedByFuel = useMemo(() => {
@@ -325,6 +302,41 @@ export function BackdatedEntries() {
 
   const totalMeterLiters = fuelTotals.HSD + fuelTotals.PMG + fuelTotals.other;
   const varianceLiters = totalMeterLiters - transactionTotals.liters;
+
+  // Totals Integrity: Track missing readings
+  const readingsIntegrity = useMemo(() => {
+    if (!nozzlesData || !shiftTemplatesData) return { expected: 0, found: 0, missing: [] };
+
+    const expected = (nozzlesData || []).length * (shiftTemplatesData || []).length * 2; // 2 = opening + closing
+    const found = (meterReadingsData || []).length;
+    const missing: Array<{ shift: string; nozzle: string; type: string }> = [];
+
+    (nozzlesData || []).forEach((nozzle: any) => {
+      (shiftTemplatesData || []).forEach((shiftTemplate: any) => {
+        const shiftInstance = (shiftInstancesData || []).find((si: any) => si.shiftId === shiftTemplate.id);
+        if (!shiftInstance) return;
+
+        const nozzleReadings = (meterReadingsData || []).filter(
+          (r: any) => r.nozzle_id === nozzle.id && r.shift_instance?.id === shiftInstance.id
+        );
+
+        const hasOpening = nozzleReadings.some((r: any) => r.reading_type === 'opening');
+        const hasClosing = nozzleReadings.some((r: any) => r.reading_type === 'closing');
+
+        // Check for auto-filled opening (not in DB but computed)
+        const computedOpening = !hasOpening ? getPreviousReading(nozzle.id, 'opening', shiftTemplate) : 0;
+
+        if (!hasOpening && computedOpening === 0) {
+          missing.push({ shift: shiftTemplate.name, nozzle: nozzle.name, type: 'Opening' });
+        }
+        if (!hasClosing) {
+          missing.push({ shift: shiftTemplate.name, nozzle: nozzle.name, type: 'Closing' });
+        }
+      });
+    });
+
+    return { expected, found, missing };
+  }, [nozzlesData, shiftTemplatesData, shiftInstancesData, meterReadingsData]);
 
   // Estimated variance amount (using average price from transactions)
   const avgPrice = transactionTotals.liters > 0 ? transactionTotals.amount / transactionTotals.liters : 288;
@@ -1674,6 +1686,64 @@ export function BackdatedEntries() {
               </AccordionTrigger>
               <AccordionContent className="px-4 pb-4">
                 <div className="space-y-4 text-sm">
+              {/* Totals Integrity Diagnostics */}
+              {selectedBranchId && businessDate && (
+                <div className={`border-2 rounded-lg p-3 ${
+                  readingsIntegrity.missing.length === 0
+                    ? 'border-green-300 bg-green-50'
+                    : 'border-orange-300 bg-orange-50'
+                }`}>
+                  <div className="font-semibold mb-2 flex items-center gap-2">
+                    {readingsIntegrity.missing.length === 0 ? (
+                      <CheckCircle className="h-4 w-4 text-green-600" />
+                    ) : (
+                      <AlertCircle className="h-4 w-4 text-orange-600" />
+                    )}
+                    <span>Totals Integrity</span>
+                  </div>
+                  <div className="space-y-2 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Expected Points:</span>
+                      <span className="font-mono font-semibold">{readingsIntegrity.expected}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Found Points:</span>
+                      <span className="font-mono font-semibold">{readingsIntegrity.found}</span>
+                    </div>
+                    {readingsIntegrity.missing.length > 0 && (
+                      <>
+                        <div className="pt-2 border-t border-orange-200">
+                          <div className="font-medium text-orange-900 mb-1">Missing Readings ({readingsIntegrity.missing.length}):</div>
+                          <div className="space-y-1 max-h-32 overflow-y-auto">
+                            {readingsIntegrity.missing.map((m, idx) => (
+                              <div key={idx} className="flex items-center gap-2 text-orange-800">
+                                <span className="font-medium">{m.shift}</span>
+                                <span>→</span>
+                                <span>{m.nozzle}</span>
+                                <span className="text-orange-600">({m.type})</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="pt-2 border-t border-orange-200">
+                          <div className="text-orange-900 font-medium">
+                            ⚠️ Totals partial due to missing readings ({readingsIntegrity.found}/{readingsIntegrity.expected})
+                          </div>
+                        </div>
+                      </>
+                    )}
+                    {readingsIntegrity.missing.length === 0 && (
+                      <div className="pt-2 border-t border-green-200">
+                        <div className="text-green-900 font-medium flex items-center gap-1">
+                          <CheckCircle className="h-3 w-3" />
+                          All readings complete
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Nozzle Meter Reading Checklist */}
               {nozzleReconciliation.length > 0 && (
                 <div>
@@ -1790,12 +1860,24 @@ export function BackdatedEntries() {
               </div>
 
               {/* Status */}
-              {transactions.length > 0 && Math.abs(varianceLiters) < 1 && Math.abs(cashGapAmount) < 0.01 && (
+              {transactions.length > 0 && Math.abs(varianceLiters) < 1 && Math.abs(cashGapAmount) < 0.01 && readingsIntegrity.missing.length === 0 && (
                 <div className="pt-2 border-t">
                   <Badge variant="outline" className="w-full justify-center text-green-600 border-green-600">
                     <CheckCircle className="h-3 w-3 mr-1" />
                     Balanced
                   </Badge>
+                </div>
+              )}
+
+              {transactions.length > 0 && Math.abs(varianceLiters) < 1 && Math.abs(cashGapAmount) < 0.01 && readingsIntegrity.missing.length > 0 && (
+                <div className="pt-2 border-t">
+                  <Badge variant="outline" className="w-full justify-center text-blue-600 border-blue-600">
+                    <CheckCircle className="h-3 w-3 mr-1" />
+                    Balanced (Provisional)
+                  </Badge>
+                  <div className="text-xs text-blue-700 mt-1 text-center">
+                    Missing {readingsIntegrity.missing.length} reading(s)
+                  </div>
                 </div>
               )}
 
@@ -1805,6 +1887,11 @@ export function BackdatedEntries() {
                     <AlertCircle className="h-3 w-3 mr-1" />
                     Reconciliation Pending
                   </Badge>
+                  {readingsIntegrity.missing.length > 0 && (
+                    <div className="text-xs text-orange-700 mt-1 text-center">
+                      Missing {readingsIntegrity.missing.length} reading(s)
+                    </div>
+                  )}
                 </div>
               )}
                 </div>
