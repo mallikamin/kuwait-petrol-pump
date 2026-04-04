@@ -200,14 +200,16 @@ export function BackdatedEntries() {
     (nozzlesData || []).forEach((nozzle: any) => {
       const readings = (meterReadingsData || []).filter((r: any) => r.nozzle_id === nozzle.id);
 
-      console.log(`[Fuel Totals Debug] Nozzle ${nozzle.name}:`, {
-        fuelCode: nozzle.fuelType?.code,
+      const readingsDetail = readings.map((r: any) => ({
+        type: r.reading_type,
+        value: r.meter_value ?? r.reading_value,
+        shift: r.shift_instance?.shift?.name || 'unknown',
+        timestamp: r.recorded_at || r.created_at,
+      }));
+
+      console.log(`[Fuel Totals Debug] ${nozzle.name} (${nozzle.fuelType?.code}):`, {
         readingsCount: readings.length,
-        readings: readings.map((r: any) => ({
-          type: r.reading_type,
-          value: r.meter_value ?? r.reading_value,
-          timestamp: r.recorded_at || r.created_at,
-        })),
+        readings: readingsDetail,
       });
 
       if (readings.length === 0) return;
@@ -1064,6 +1066,18 @@ export function BackdatedEntries() {
 
                               // Determine row state (consider computed opening as valid)
                               const effectiveHasOpening = hasOpening || showComputedOpening;
+
+                              // Calculate sales (closing - opening)
+                              const openingValue = hasOpening
+                                ? toNumber(openingReading?.meter_value ?? openingReading?.reading_value)
+                                : showComputedOpening
+                                ? computedOpening
+                                : 0;
+                              const closingValue = hasClosing
+                                ? toNumber(closingReading?.meter_value ?? closingReading?.reading_value)
+                                : 0;
+                              const salesLiters = effectiveHasOpening && hasClosing ? closingValue - openingValue : 0;
+
                               let rowState = 'Both Missing';
                               let statusColor = 'bg-amber-50 border-amber-200';
                               if (effectiveHasOpening && hasClosing) {
@@ -1107,7 +1121,7 @@ export function BackdatedEntries() {
                                   </div>
 
                                   {/* Reading Inputs */}
-                                  <div className="grid grid-cols-2 gap-2">
+                                  <div className="grid grid-cols-3 gap-2">
                                     {/* Opening Reading */}
                                     <div className="space-y-1">
                                       <div className="text-xs font-medium text-muted-foreground">Opening</div>
@@ -1225,6 +1239,22 @@ export function BackdatedEntries() {
                                           <Camera className="h-4 w-4 mr-1" />
                                           Add
                                         </Button>
+                                      )}
+                                    </div>
+
+                                    {/* Sales Column (Closing - Opening) */}
+                                    <div className="space-y-1">
+                                      <div className="text-xs font-medium text-muted-foreground">Sales (L)</div>
+                                      {effectiveHasOpening && hasClosing ? (
+                                        <div className="flex items-center justify-center h-11 bg-blue-50 border border-blue-200 rounded">
+                                          <span className="font-mono font-bold text-base text-blue-700">
+                                            {salesLiters.toFixed(3)}
+                                          </span>
+                                        </div>
+                                      ) : (
+                                        <div className="flex items-center justify-center h-11 bg-gray-50 border border-dashed border-gray-300 rounded">
+                                          <span className="text-xs text-muted-foreground">—</span>
+                                        </div>
                                       )}
                                     </div>
                                   </div>
