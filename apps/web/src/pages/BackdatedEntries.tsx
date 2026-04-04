@@ -16,7 +16,7 @@ import {
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle, Users, Copy, Search, Gauge, Camera } from 'lucide-react';
+import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle, Users, Copy, Search, Gauge, Camera, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { branchesApi, customersApi, meterReadingsApi } from '@/api';
 import { toast } from 'sonner';
@@ -104,6 +104,15 @@ export function BackdatedEntries() {
     },
   });
 
+  // Fetch current fuel prices from API
+  const { data: fuelPricesData } = useQuery({
+    queryKey: ['fuel-prices', 'current'],
+    queryFn: async () => {
+      const res = await apiClient.get('/api/fuel-prices/current');
+      return res.data?.prices || [];
+    },
+  });
+
   // Fetch shift instances for selected business date (for optional shift-specific reconciliation)
   const { data: shiftInstancesData } = useQuery({
     queryKey: ['shift-history', selectedBranchId, businessDate],
@@ -139,14 +148,14 @@ export function BackdatedEntries() {
   });
 
   // Fetch ALL meter readings for selected date (all nozzles)
-  const { data: meterReadingsData } = useQuery({
-    queryKey: ['meter-readings-all', selectedBranchId, businessDate],
+  const { data: meterReadingsData, refetch: refetchMeterReadings } = useQuery({
+    queryKey: ['meter-readings-all', selectedBranchId, businessDate, selectedShiftId],
     enabled: !!selectedBranchId && !!businessDate,
     queryFn: async () => {
-      if (!nozzlesData || nozzlesData.length === 0) return [];
+      if (!selectedBranchId || !businessDate) return [];
       const res = await meterReadingsApi.getAll({
         size: 500,
-        date: businessDate,
+        date: businessDate, // Business date filter (YYYY-MM-DD)
       });
       return (res.items || []) as MeterReadingRow[];
     },
@@ -289,6 +298,9 @@ export function BackdatedEntries() {
   const [selectedMeterNozzle, setSelectedMeterNozzle] = useState<any>(null);
   const [selectedReadingType, setSelectedReadingType] = useState<'opening' | 'closing'>('opening');
 
+  // UI state
+  const [showReconciliation, setShowReconciliation] = useState(true);
+
   // Filtered customers for dialog
   const filteredCustomers = useMemo(() => {
     if (!customerSearchQuery.trim()) return customersData || [];
@@ -401,15 +413,16 @@ export function BackdatedEntries() {
 
     // Auto-fill product name and unit price when fuel type selected
     if (field === 'fuelCode') {
+      const fuelPrice = (fuelPricesData || []).find((fp: any) => fp.fuelType?.code === value);
       if (value === 'HSD') {
         updated[index].productName = 'High Speed Diesel';
-        updated[index].unitPrice = '287.33';
+        updated[index].unitPrice = fuelPrice?.price?.toString() || '287.33'; // Fallback to default
       } else if (value === 'PMG') {
         updated[index].productName = 'Premium Motor Gasoline';
-        updated[index].unitPrice = '290.50';
+        updated[index].unitPrice = fuelPrice?.price?.toString() || '290.50'; // Fallback to default
       } else if (value === 'OTHER') {
         updated[index].productName = 'Other Fuel';
-        updated[index].unitPrice = '0.00';
+        updated[index].unitPrice = fuelPrice?.price?.toString() || '0.00';
       }
     }
 
@@ -537,7 +550,7 @@ export function BackdatedEntries() {
         reading_type: readingType,
         reading_value: meterValue,
         meter_value: meterValue,
-        recorded_at: `${businessDate}T12:00:00.000Z`, // Use business date
+        recorded_at: `${businessDate}T12:00:00.000Z`, // Use business date (Asia/Karachi)
         image_url: imageUrl,
         ocr_confidence: ocrConfidence,
         is_manual: isManual,
@@ -548,7 +561,8 @@ export function BackdatedEntries() {
       toast.success('Meter reading saved successfully');
       setIsMeterReadingOpen(false);
       setSelectedMeterNozzle(null);
-      refetchDailySummary(); // Refresh data to update meter totals
+      refetchMeterReadings(); // Refresh meter readings
+      refetchDailySummary(); // Refresh daily summary to update totals
     },
     onError: (error: any) => {
       const errorMsg = error?.response?.data?.error || error.message || 'Failed to save meter reading';
@@ -607,9 +621,20 @@ export function BackdatedEntries() {
           <h1 className="text-3xl font-bold tracking-tight">Backdated Entries</h1>
           <p className="text-muted-foreground">Transaction-level backfill for accountant processing</p>
         </div>
-        <Badge variant="outline" className="text-orange-600 border-orange-600">
-          PKR Only
-        </Badge>
+        <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowReconciliation(!showReconciliation)}
+            className="gap-2"
+          >
+            {showReconciliation ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
+            {showReconciliation ? 'Hide' : 'Show'} Reconciliation
+          </Button>
+          <Badge variant="outline" className="text-orange-600 border-orange-600">
+            PKR Only
+          </Badge>
+        </div>
       </div>
 
       {/* Info Alert */}
@@ -620,9 +645,9 @@ export function BackdatedEntries() {
         </AlertDescription>
       </Alert>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className={`grid grid-cols-1 ${showReconciliation ? 'lg:grid-cols-3' : 'lg:grid-cols-1'} gap-6`}>
         {/* Left: Entry Form + Transactions */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className={`${showReconciliation ? 'lg:col-span-2' : 'lg:col-span-1'} space-y-6`}>
           {/* Entry Details */}
           <Card>
             <CardHeader>
@@ -698,11 +723,20 @@ export function BackdatedEntries() {
                   </CardTitle>
                   <Badge variant="outline" className="text-blue-600 border-blue-600">
                     <Camera className="h-3 w-3 mr-1" />
-                    OCR Supported
+                    OCR + Upload Supported
                   </Badge>
                 </div>
               </CardHeader>
               <CardContent>
+                {/* Prompt when no readings exist */}
+                {(!meterReadingsData || meterReadingsData.length === 0) && (
+                  <Alert className="mb-4 border-blue-200 bg-blue-50">
+                    <AlertCircle className="h-4 w-4 text-blue-600" />
+                    <AlertDescription className="text-sm text-blue-900">
+                      <strong>No meter readings found for {businessDate}.</strong> Please enter opening and closing readings for each nozzle using camera OCR, upload existing photos, or manual entry.
+                    </AlertDescription>
+                  </Alert>
+                )}
                 <div className="space-y-3">
                   {(nozzlesData || []).map((nozzle: any) => {
                     const nozzleReadings = (meterReadingsData || []).filter((r: any) => r.nozzle_id === nozzle.id);
@@ -711,31 +745,45 @@ export function BackdatedEntries() {
                     const openingReading = nozzleReadings.find((r: any) => r.reading_type === 'opening');
                     const closingReading = nozzleReadings.find((r: any) => r.reading_type === 'closing');
 
+                    // Determine row state
+                    let rowState = 'Both Missing';
+                    if (hasOpening && hasClosing) rowState = 'Both Present';
+                    else if (hasOpening && !hasClosing) rowState = 'Closing Missing';
+                    else if (!hasOpening && hasClosing) rowState = 'Opening Missing';
+
                     return (
-                      <div key={nozzle.id} className="border rounded-lg p-4 space-y-3">
+                      <div key={nozzle.id} className={`border rounded-lg p-4 space-y-3 ${hasOpening && hasClosing ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
                         <div className="flex items-center justify-between">
                           <div>
                             <div className="font-semibold">{nozzle.name || `Nozzle ${nozzle.nozzleNumber}`}</div>
                             <div className="text-sm text-muted-foreground">{nozzle.fuelType?.name || 'Unknown'}</div>
                           </div>
-                          <Badge variant="outline">{nozzle.fuelType?.code || 'N/A'}</Badge>
+                          <div className="flex items-center gap-2">
+                            <Badge variant={hasOpening && hasClosing ? 'default' : 'secondary'} className={hasOpening && hasClosing ? 'bg-green-600' : 'bg-amber-600'}>
+                              {rowState}
+                            </Badge>
+                            <Badge variant="outline">{nozzle.fuelType?.code || 'N/A'}</Badge>
+                          </div>
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                           <div className="space-y-2">
-                            <div className="text-xs text-muted-foreground">Opening Reading</div>
+                            <div className="text-xs font-medium text-muted-foreground">Opening Reading</div>
                             {hasOpening ? (
-                              <div className="flex items-center gap-2">
-                                <CheckCircle className="h-4 w-4 text-green-600" />
-                                <span className="font-mono font-semibold">
-                                  {toNumber(openingReading?.meter_value ?? openingReading?.reading_value).toFixed(3)} L
-                                </span>
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                  <CheckCircle className="h-4 w-4 text-green-600" />
+                                  <span className="font-mono font-semibold text-base">
+                                    {toNumber(openingReading?.meter_value ?? openingReading?.reading_value).toFixed(3)} L
+                                  </span>
+                                </div>
+                                {/* Edit button hidden for now - can be added later */}
                               </div>
                             ) : (
                               <Button
                                 size="sm"
                                 variant="outline"
                                 onClick={() => openMeterReadingDialog(nozzle, 'opening')}
-                                className="w-full"
+                                className="w-full h-9 text-sm border-amber-600 text-amber-700 hover:bg-amber-100"
                               >
                                 <Camera className="h-3 w-3 mr-1" />
                                 Add Opening
@@ -743,24 +791,28 @@ export function BackdatedEntries() {
                             )}
                           </div>
                           <div className="space-y-2">
-                            <div className="text-xs text-muted-foreground">Closing Reading</div>
+                            <div className="text-xs font-medium text-muted-foreground">Closing Reading</div>
                             {hasClosing ? (
-                              <div className="flex items-center gap-2">
-                                <CheckCircle className="h-4 w-4 text-green-600" />
-                                <span className="font-mono font-semibold">
-                                  {toNumber(closingReading?.meter_value ?? closingReading?.reading_value).toFixed(3)} L
-                                </span>
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                  <CheckCircle className="h-4 w-4 text-green-600" />
+                                  <span className="font-mono font-semibold text-base">
+                                    {toNumber(closingReading?.meter_value ?? closingReading?.reading_value).toFixed(3)} L
+                                  </span>
+                                </div>
+                                {/* Edit button hidden for now - can be added later */}
                               </div>
                             ) : (
                               <Button
                                 size="sm"
                                 variant="outline"
                                 onClick={() => openMeterReadingDialog(nozzle, 'closing')}
-                                className="w-full"
+                                className="w-full h-9 text-sm border-amber-600 text-amber-700 hover:bg-amber-100"
                                 disabled={!hasOpening}
+                                title={!hasOpening ? 'Add opening reading first' : ''}
                               >
                                 <Camera className="h-3 w-3 mr-1" />
-                                Add Closing
+                                {!hasOpening ? 'Requires Opening' : 'Add Closing'}
                               </Button>
                             )}
                           </div>
@@ -884,16 +936,17 @@ export function BackdatedEntries() {
                         </div>
                       </AccordionTrigger>
                       <AccordionContent>
-                        <Table>
+                        <div className="overflow-x-auto">
+                          <Table>
                           <TableHeader>
                             <TableRow className="bg-muted/30">
-                              <TableHead className="w-[140px]">Fuel Type</TableHead>
-                              <TableHead className="w-[150px]">Vehicle#</TableHead>
-                              <TableHead className="w-[130px]">Slip#</TableHead>
-                              <TableHead className="w-[140px] text-right">Qty (L)</TableHead>
-                              <TableHead className="w-[130px] text-right">Price/L</TableHead>
-                              <TableHead className="w-[160px] text-right">Total (PKR)</TableHead>
-                              <TableHead className="w-[180px]">Payment</TableHead>
+                              <TableHead className="min-w-[180px]">Fuel Type</TableHead>
+                              <TableHead className="min-w-[200px]">Vehicle#</TableHead>
+                              <TableHead className="min-w-[160px]">Slip#</TableHead>
+                              <TableHead className="min-w-[160px] text-right">Qty (L)</TableHead>
+                              <TableHead className="min-w-[140px] text-right">Price/L</TableHead>
+                              <TableHead className="min-w-[180px] text-right">Total (PKR)</TableHead>
+                              <TableHead className="min-w-[200px]">Payment</TableHead>
                               <TableHead className="w-[60px]"></TableHead>
                             </TableRow>
                           </TableHeader>
@@ -987,6 +1040,7 @@ export function BackdatedEntries() {
                             })}
                           </TableBody>
                         </Table>
+                        </div>
                         <div className="flex justify-end gap-2 mt-3">
                           <Button size="sm" variant="outline" onClick={() => duplicateLastInGroup(group.indices)}>
                             <Copy className="h-3 w-3 mr-1" /> Duplicate Last
@@ -1134,8 +1188,9 @@ export function BackdatedEntries() {
         </div>
 
         {/* Right: Reconciliation Panel */}
-        <div className="space-y-6">
-          <Card className="sticky top-6">
+        {showReconciliation && (
+          <div className="space-y-6">
+            <Card className="sticky top-6">
             <CardHeader>
               <CardTitle className="text-base">Reconciliation</CardTitle>
             </CardHeader>
@@ -1276,6 +1331,7 @@ export function BackdatedEntries() {
             </CardContent>
           </Card>
         </div>
+        )}
       </div>
     </div>
   );

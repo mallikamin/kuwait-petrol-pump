@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Camera, X, CheckCircle, AlertCircle, Loader2, Edit2 } from 'lucide-react';
+import { Camera, X, CheckCircle, AlertCircle, Loader2, Edit2, Upload } from 'lucide-react';
 import { apiClient } from '@/api/client';
 
 export interface MeterReadingData {
@@ -58,6 +58,7 @@ export function MeterReadingCapture({
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Calculate liters
   const calculatedLiters = currentReading
@@ -206,6 +207,76 @@ export function MeterReadingCapture({
     }
   };
 
+  // Handle file upload
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Check file type
+    if (!file.type.startsWith('image/')) {
+      setError('Please select an image file');
+      return;
+    }
+
+    // Check file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      setError('Image file is too large (max 10MB)');
+      return;
+    }
+
+    // Read file as data URL
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const dataUrl = e.target?.result as string;
+      setImageDataUrl(dataUrl);
+
+      // Compress and process OCR
+      try {
+        setLoading(true);
+        setError(null);
+
+        const compressed = await compressImage(dataUrl);
+
+        // Upload image
+        console.log('[Upload] Uploading image...');
+        const uploadRes = await apiClient.post<{ success: boolean; imageUrl: string; size: number }>(
+          '/api/meter-readings/upload',
+          { imageBase64: compressed, nozzleId }
+        );
+
+        console.log('[Upload] ✅ Image uploaded:', uploadRes.data.imageUrl);
+
+        // Call OCR
+        console.log('[OCR] Processing...');
+        const ocrRes = await apiClient.post<OCRResult>('/api/meter-readings/ocr', {
+          imageBase64: compressed,
+        });
+
+        console.log('[OCR] Result:', ocrRes.data);
+        setOcrResult(ocrRes.data);
+
+        if (ocrRes.data.extractedValue && !ocrRes.data.error) {
+          setCurrentReading(ocrRes.data.extractedValue.toString());
+          setImageDataUrl(uploadRes.data.imageUrl); // Store server URL instead of base64
+        } else {
+          setError(ocrRes.data.error || 'Could not extract meter reading. Please enter manually.');
+          setManualEdit(true);
+        }
+
+        setLoading(false);
+      } catch (err: any) {
+        console.error('[Upload] Error:', err);
+        setError(err.response?.data?.error || 'Failed to process image');
+        setLoading(false);
+        setManualEdit(true);
+      }
+    };
+    reader.onerror = () => {
+      setError('Failed to read image file');
+    };
+    reader.readAsDataURL(file);
+  };
+
   // Confirm reading
   const confirmReading = () => {
     const current = parseFloat(currentReading);
@@ -258,7 +329,7 @@ export function MeterReadingCapture({
             </Alert>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <Button
               size="lg"
               className="h-24 flex flex-col gap-2"
@@ -272,12 +343,31 @@ export function MeterReadingCapture({
               size="lg"
               variant="outline"
               className="h-24 flex flex-col gap-2"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Upload className="h-8 w-8" />
+              <span>Upload Photo</span>
+            </Button>
+
+            <Button
+              size="lg"
+              variant="outline"
+              className="h-24 flex flex-col gap-2"
               onClick={() => setMode('manual')}
             >
               <Edit2 className="h-8 w-8" />
               <span>Enter Manually</span>
             </Button>
           </div>
+
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleFileUpload}
+            className="hidden"
+          />
 
           <p className="text-xs text-center text-muted-foreground">
             Take a photo for automatic reading or enter manually
