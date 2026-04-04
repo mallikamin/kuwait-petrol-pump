@@ -192,15 +192,34 @@ export function BackdatedEntries() {
   // Compute fuel totals from ALL nozzles' meter readings (aggregates all shifts for the day)
   const fuelTotals = useMemo(() => {
     const totals = { HSD: 0, PMG: 0, other: 0 };
+
+    console.log('[Fuel Totals Debug] Starting calculation...');
+    console.log('[Fuel Totals Debug] Nozzles count:', (nozzlesData || []).length);
+    console.log('[Fuel Totals Debug] Total readings count:', (meterReadingsData || []).length);
+
     (nozzlesData || []).forEach((nozzle: any) => {
       const readings = (meterReadingsData || []).filter((r: any) => r.nozzle_id === nozzle.id);
+
+      console.log(`[Fuel Totals Debug] Nozzle ${nozzle.name}:`, {
+        fuelCode: nozzle.fuelType?.code,
+        readingsCount: readings.length,
+        readings: readings.map((r: any) => ({
+          type: r.reading_type,
+          value: r.meter_value ?? r.reading_value,
+          timestamp: r.recorded_at || r.created_at,
+        })),
+      });
+
       if (readings.length === 0) return;
 
       // For daily totals: take EARLIEST opening and LATEST closing (aggregates all shifts)
       const openings = readings.filter((r: any) => r.reading_type === 'opening');
       const closings = readings.filter((r: any) => r.reading_type === 'closing');
 
-      if (openings.length === 0 || closings.length === 0) return;
+      if (openings.length === 0 || closings.length === 0) {
+        console.log(`[Fuel Totals Debug] Skipping ${nozzle.name}: openings=${openings.length}, closings=${closings.length}`);
+        return;
+      }
 
       // Sort by timestamp to get first opening and last closing
       const earliestOpening = openings.sort((a: any, b: any) =>
@@ -210,13 +229,23 @@ export function BackdatedEntries() {
         new Date(b.recorded_at || b.created_at).getTime() - new Date(a.recorded_at || a.created_at).getTime()
       )[0];
 
-      const liters = toNumber(latestClosing.meter_value ?? latestClosing.reading_value) -
-                     toNumber(earliestOpening.meter_value ?? earliestOpening.reading_value);
+      const earliestValue = toNumber(earliestOpening.meter_value ?? earliestOpening.reading_value);
+      const latestValue = toNumber(latestClosing.meter_value ?? latestClosing.reading_value);
+      const liters = latestValue - earliestValue;
+
+      console.log(`[Fuel Totals Debug] ${nozzle.name} calculation:`, {
+        earliestValue,
+        latestValue,
+        liters,
+      });
+
       const fuelCode = nozzle.fuelType?.code;
       if (fuelCode === 'HSD') totals.HSD += liters;
       else if (fuelCode === 'PMG') totals.PMG += liters;
       else totals.other += liters;
     });
+
+    console.log('[Fuel Totals Debug] Final totals:', totals);
     return totals;
   }, [nozzlesData, meterReadingsData]);
 
@@ -829,7 +858,13 @@ export function BackdatedEntries() {
         }
       }
 
-      // Fallback: any opening reading for this nozzle today
+      // If no opening in DB, check if there's an auto-filled opening (from previous shift's closing)
+      const computedOpening = getPreviousReading(nozzleId, 'opening', currentShift);
+      if (computedOpening > 0) {
+        return computedOpening;
+      }
+
+      // Final fallback: any opening reading for this nozzle today
       const anyOpening = readings.find((r: any) => r.reading_type === 'opening');
       return anyOpening ? toNumber(anyOpening.meter_value ?? anyOpening.reading_value) : 0;
     }
