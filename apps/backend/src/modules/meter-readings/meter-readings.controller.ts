@@ -260,4 +260,74 @@ export class MeterReadingsController {
       next(error);
     }
   };
+
+  /**
+   * PATCH /api/meter-readings/:id
+   * Update meter reading value (for correcting mistakes)
+   */
+  updateMeterReading = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      // Only admin, manager, or operator can update readings
+      if (!hasRole(req.user, ['admin', 'manager', 'operator'])) {
+        return res.status(403).json({ error: 'Insufficient permissions' });
+      }
+
+      const { id } = idParamSchema.parse(req.params);
+      const { meterValue } = req.body;
+
+      if (!meterValue || typeof meterValue !== 'number') {
+        return res.status(400).json({ error: 'meterValue is required and must be a number' });
+      }
+
+      const updatedReading = await this.meterReadingsService.updateMeterReading(
+        id,
+        meterValue,
+        req.user.userId,
+        req.user.organizationId
+      );
+
+      res.json({
+        meterReading: updatedReading,
+        message: 'Meter reading updated successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * DELETE /api/meter-readings/:id
+   * Delete a meter reading (for removing wrong entries)
+   */
+  deleteMeterReading = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      // Only admin or manager can delete readings
+      if (!hasRole(req.user, ['admin', 'manager'])) {
+        return res.status(403).json({ error: 'Insufficient permissions' });
+      }
+
+      const { id } = idParamSchema.parse(req.params);
+
+      await this.meterReadingsService.deleteMeterReading(
+        id,
+        req.user.userId,
+        req.user.organizationId
+      );
+
+      res.json({
+        success: true,
+        message: 'Meter reading deleted successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
 }

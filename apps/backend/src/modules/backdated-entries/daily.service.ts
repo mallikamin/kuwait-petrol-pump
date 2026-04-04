@@ -607,10 +607,74 @@ export class DailyBackdatedEntriesService {
       } as any,
     });
 
-    // Enqueue all transactions for QB sync
-    const allTransactions = entries.flatMap((e) => e.transactions);
+    // Get all transactions with their parent entry details
+    const allTransactions = entries.flatMap((e) =>
+      e.transactions.map((t) => ({
+        ...t,
+        _entry: {
+          branchId: e.branchId,
+          shiftId: e.shiftId,
+          businessDate: e.businessDate,
+          createdBy: e.createdBy,
+        }
+      }))
+    );
 
-    if (allTransactions.length > 0) {
+    // ✅ CREATE SALE RECORDS (so transactions appear in Sales tab)
+    const createdSales: string[] = [];
+    for (const txn of allTransactions) {
+      // Only create sale if fuelTypeId exists (fuel transactions only)
+      if (txn.fuelTypeId) {
+        // Find shift instance for this business date
+        let shiftInstanceId = null;
+        if (txn._entry.shiftId) {
+          const shiftInstance = await prisma.shiftInstance.findFirst({
+            where: {
+              shiftId: txn._entry.shiftId,
+              branchId: txn._entry.branchId,
+              date: txn._entry.businessDate,
+            },
+          });
+          shiftInstanceId = shiftInstance?.id || null;
+        }
+
+        const sale = await prisma.sale.create({
+          data: {
+            branchId: txn._entry.branchId,
+            shiftInstanceId,
+            saleDate: txn.transactionDateTime,
+            saleType: 'fuel',
+            totalAmount: txn.lineTotal,
+            paymentMethod: txn.paymentMethod,
+            customerId: txn.customerId,
+            vehicleNumber: txn.vehicleNumber,
+            slipNumber: txn.slipNumber,
+            cashierId: txn._entry.createdBy,
+            syncStatus: 'synced', // Mark as synced (from backdated/offline)
+            fuelSales: {
+              create: {
+                fuelTypeId: txn.fuelTypeId,
+                quantityLiters: txn.quantity,
+                pricePerLiter: txn.unitPrice,
+                totalAmount: txn.lineTotal,
+                isManualReading: true, // From backdated entry, not live POS
+              },
+            },
+          },
+        });
+        createdSales.push(sale.id);
+      }
+    }
+
+    console.log(`✅ Created ${createdSales.length} sale records from ${allTransactions.length} backdated transactions`);
+
+    // Enqueue all transactions for QB sync
+    const plainTransactions = allTransactions.map((t) => {
+      const { _entry, ...rest } = t as any;
+      return rest;
+    });
+
+    if (plainTransactions.length > 0) {
       // Get QB connection for the organization
       const qbConnection = await prisma.qBConnection.findFirst({
         where: {
@@ -622,7 +686,7 @@ export class DailyBackdatedEntriesService {
       if (qbConnection) {
         // Create sync queue jobs for each transaction
         await prisma.qBSyncQueue.createMany({
-          data: allTransactions.map((txn) => ({
+          data: plainTransactions.map((txn) => ({
             connectionId: qbConnection.id,
             organizationId,
             jobType: 'create_backdated_sale',
@@ -648,7 +712,7 @@ export class DailyBackdatedEntriesService {
         await prisma.backdatedTransaction.updateMany({
           where: {
             id: {
-              in: allTransactions.map((t) => t.id),
+              in: plainTransactions.map((t) => t.id),
             },
           },
           data: {
@@ -660,10 +724,11 @@ export class DailyBackdatedEntriesService {
 
     return {
       success: true,
-      message: `Day finalized. ${entries.length} entries and ${allTransactions.length} transactions marked as finalized.`,
+      message: `Day finalized. ${entries.length} entries, ${plainTransactions.length} transactions, ${createdSales.length} sales created.`,
       entriesCount: entries.length,
-      transactionsCount: allTransactions.length,
-      qbSyncQueued: allTransactions.length,
+      transactionsCount: plainTransactions.length,
+      salesCreated: createdSales.length,
+      qbSyncQueued: plainTransactions.length,
     };
   }
 }

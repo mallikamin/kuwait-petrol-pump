@@ -452,3 +452,39 @@ Each entry follows:
 - **Rule**: NEVER SCP source code to production. All changes through Git. Fix blockers first.
 
 ---
+
+## 2026-04-05 — No DELETE/UPDATE endpoints for meter readings (P0)
+
+- **Error**: `Request failed with status code 400` when trying to edit/delete wrong meter reading entry
+- **Context**: User entered incorrect values (Opening: 100080, Closing: 1000500) in backdated meter readings, tried to edit/delete
+- **Root Cause**: API missing UPDATE and DELETE endpoints for meter readings
+  - Routes file (`meter-readings.routes.ts`) only has: POST (create), GET (read), PUT /verify
+  - Duplicate entry validation (line 268) throws 400 error on re-submit
+  - No way to correct mistakes once submitted
+- **Fix**: PENDING — Need to add:
+  1. `DELETE /api/meter-readings/:id` endpoint
+  2. `PATCH /api/meter-readings/:id` endpoint (update meter value)
+  3. Validation: Only allow edit/delete if shift not yet closed
+  4. Audit trail: Log who deleted/modified readings
+- **Rule**: All data entry APIs MUST provide UPDATE and DELETE endpoints, especially for manual data correction. Never ship CRUD without the UD.
+
+---
+
+## 2026-04-05 — Meter readings don't sync to sales tab (Architectural Gap)
+
+- **Error**: Sales tab empty after entering backdated meter readings
+- **Context**: User enters opening/closing meter readings for historical date, expects sales to appear in Sales tab
+- **Root Cause**: TWO separate systems with no sync mechanism:
+  1. **Meter Readings** (`meter_readings` table) = Shift inventory tracking (opening/closing per nozzle per shift)
+  2. **Fuel Sales** (`sales` + `fuel_sales` tables) = Individual POS transactions (customer sales with vehicle#, slip#)
+  - Meter readings create inventory records, NOT sales records
+  - Sales tab queries `sales` table which is empty for backdated dates
+  - No logic to auto-generate aggregate sales from meter reading diffs
+- **Fix**: PENDING — Need to decide approach:
+  - **Option A**: Auto-create aggregate fuel sale when BOTH opening AND closing entered (closing - opening = volume sold)
+  - **Option B**: Sales tab shows TWO views: "Individual Transactions" + "Meter Reading Summary"
+  - **Option C**: Keep separate, add clarification in UI that meter readings ≠ sales
+- **Temporary Workaround**: User must manually enter fuel sales in POS for sales tab to populate
+- **Rule**: Document data model clearly — distinguish inventory tracking vs transaction tracking. If UI shows "Sales", clarify whether it means transactions or calculated volume.
+
+---

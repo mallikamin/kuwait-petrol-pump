@@ -686,4 +686,109 @@ export class MeterReadingsService {
       varianceReport,
     };
   }
+
+  /**
+   * Update meter reading value (for correcting mistakes)
+   */
+  async updateMeterReading(
+    id: string,
+    newMeterValue: number,
+    userId: string,
+    organizationId: string
+  ) {
+    // Find the reading
+    const reading = await prisma.meterReading.findFirst({
+      where: {
+        id,
+        shiftInstance: {
+          branch: {
+            organizationId,
+          },
+        },
+      },
+      include: {
+        shiftInstance: true,
+      },
+    });
+
+    if (!reading) {
+      throw new AppError(404, 'Meter reading not found');
+    }
+
+    // Don't allow editing if shift is closed
+    if (reading.shiftInstance.status === 'closed') {
+      throw new AppError(400, 'Cannot update reading for a closed shift');
+    }
+
+    // Update the meter value
+    const updated = await prisma.meterReading.update({
+      where: { id },
+      data: {
+        meterValue: new Decimal(newMeterValue),
+      },
+      include: {
+        nozzle: {
+          include: {
+            fuelType: true,
+          },
+        },
+        shiftInstance: {
+          include: {
+            shift: true,
+          },
+        },
+      },
+    });
+
+    console.log(`✅ Updated meter reading ${id}: ${reading.meterValue} → ${newMeterValue} (by user ${userId})`);
+
+    return updated;
+  }
+
+  /**
+   * Delete meter reading (for removing wrong entries)
+   */
+  async deleteMeterReading(
+    id: string,
+    userId: string,
+    organizationId: string
+  ) {
+    // Find the reading
+    const reading = await prisma.meterReading.findFirst({
+      where: {
+        id,
+        shiftInstance: {
+          branch: {
+            organizationId,
+          },
+        },
+      },
+      include: {
+        shiftInstance: true,
+        nozzle: {
+          include: {
+            fuelType: true,
+          },
+        },
+      },
+    });
+
+    if (!reading) {
+      throw new AppError(404, 'Meter reading not found');
+    }
+
+    // Don't allow deleting if shift is closed
+    if (reading.shiftInstance.status === 'closed') {
+      throw new AppError(400, 'Cannot delete reading for a closed shift');
+    }
+
+    // Delete the reading
+    await prisma.meterReading.delete({
+      where: { id },
+    });
+
+    console.log(`🗑️ Deleted meter reading ${id} (${reading.readingType} ${reading.meterValue} for nozzle ${reading.nozzle.name}) by user ${userId}`);
+
+    return { success: true };
+  }
 }
