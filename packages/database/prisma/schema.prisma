@@ -999,6 +999,9 @@ model BackdatedEntry {
   varianceLiters    Decimal? @map("variance_liters") @db.Decimal(12, 3)
   varianceAmount    Decimal? @map("variance_amount") @db.Decimal(12, 2) // PKR
 
+  // Finalization status (for QB sync workflow)
+  isFinalized       Boolean  @default(false) @map("is_finalized")
+
   notes             String?  @db.Text
   createdBy         String?  @map("created_by") @db.Uuid
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
@@ -1015,6 +1018,7 @@ model BackdatedEntry {
   @@index([branchId, businessDate], name: "idx_backdated_entries_branch_date")
   @@index([nozzleId], name: "idx_backdated_entries_nozzle")
   @@index([isReconciled], name: "idx_backdated_entries_reconciled")
+  @@index([isFinalized], name: "idx_backdated_entries_finalized")
   @@map("backdated_entries")
 }
 
@@ -1044,6 +1048,13 @@ model BackdatedTransaction {
   // Transaction timestamp (backdated)
   transactionDateTime DateTime @map("transaction_datetime") @db.Timestamptz
 
+  // QuickBooks sync tracking
+  qbSyncStatus        String?   @default("pending") @map("qb_sync_status") @db.VarChar(20) // 'pending', 'queued', 'synced', 'failed'
+  qbSyncAttempts      Int       @default(0) @map("qb_sync_attempts") @db.Integer
+  qbLastError         String?   @map("qb_last_error") @db.Text
+  qbId                String?   @map("qb_id") @db.VarChar(100) // QB Sales Receipt ID
+  qbSyncedAt          DateTime? @map("qb_synced_at") @db.Timestamptz
+
   notes               String?  @db.Text
   createdBy           String?  @map("created_by") @db.Uuid
   createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
@@ -1059,5 +1070,6 @@ model BackdatedTransaction {
   @@index([customerId], name: "idx_backdated_txn_customer")
   @@index([transactionDateTime], name: "idx_backdated_txn_datetime")
   @@index([paymentMethod], name: "idx_backdated_txn_payment")
+  @@index([qbSyncStatus], name: "idx_backdated_txn_qb_sync_status")
   @@map("backdated_transactions")
 }

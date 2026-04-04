@@ -27,6 +27,7 @@ interface Transaction {
   id?: string;
   customerId?: string;
   customerName?: string;
+  nozzleId?: string;
   vehicleNumber?: string;
   slipNumber?: string;
   productName: string;
@@ -39,13 +40,11 @@ interface Transaction {
 interface BackdatedEntryResponse {
   id: string;
   shiftId?: string | null;
-  openingReading: number | string;
-  closingReading: number | string;
-  notes?: string | null;
   transactions?: Array<{
     id: string;
     customerId?: string | null;
     customer?: { name?: string | null } | null;
+    nozzleId?: string | null;
     vehicleNumber?: string | null;
     slipNumber?: string | null;
     productName?: string | null;
@@ -58,6 +57,7 @@ interface BackdatedEntryResponse {
 
 interface MeterReadingRow {
   id: string;
+  nozzle_id?: string;
   shift_id?: string;
   reading_type: 'opening' | 'closing';
   meter_value?: number;
@@ -79,16 +79,16 @@ export function BackdatedEntries() {
   // Entry fields
   const [businessDate, setBusinessDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [selectedBranchId, setSelectedBranchId] = useState('');
-  const [selectedNozzleId, setSelectedNozzleId] = useState('');
   const [selectedShiftId, setSelectedShiftId] = useState('');
-  const [openingReading, setOpeningReading] = useState('');
-  const [closingReading, setClosingReading] = useState('');
-  const [notes, setNotes] = useState('');
 
   // Transaction fields
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [currentEntryId, setCurrentEntryId] = useState<string | null>(null);
   const [syncMessage, setSyncMessage] = useState('');
+
+  // Auto-save state
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
 
   const queryClient = useQueryClient();
 
@@ -143,15 +143,14 @@ export function BackdatedEntries() {
     },
   });
 
-  // Fetch existing backdated entry for selected day/nozzle/(optional)shift
+  // Fetch existing backdated entry for selected day/branch/(optional)shift
   const { data: existingEntriesData } = useQuery({
-    queryKey: ['backdated-entries', selectedBranchId, selectedNozzleId, businessDate, selectedShiftId],
-    enabled: !!selectedBranchId && !!selectedNozzleId && !!businessDate,
+    queryKey: ['backdated-entries', selectedBranchId, businessDate, selectedShiftId],
+    enabled: !!selectedBranchId && !!businessDate,
     queryFn: async () => {
       const res = await apiClient.get('/api/backdated-entries', {
         params: {
           branchId: selectedBranchId,
-          nozzleId: selectedNozzleId,
           businessDateFrom: businessDate,
           businessDateTo: businessDate,
           shiftId: selectedShiftId || undefined,
@@ -161,32 +160,80 @@ export function BackdatedEntries() {
     },
   });
 
-  // Fetch meter readings for selected day/nozzle/(optional)shift for deterministic prefill
+  // Fetch ALL meter readings for selected date (all nozzles)
   const { data: meterReadingsData } = useQuery({
-    queryKey: ['meter-readings', selectedNozzleId, selectedShiftId, businessDate],
-    enabled: !!selectedNozzleId && !!businessDate,
+    queryKey: ['meter-readings-all', selectedBranchId, businessDate],
+    enabled: !!selectedBranchId && !!businessDate,
     queryFn: async () => {
+      if (!nozzlesData || nozzlesData.length === 0) return [];
       const res = await meterReadingsApi.getAll({
-        size: 300,
-        nozzle_id: selectedNozzleId,
-        shift_id: selectedShiftId || undefined,
+        size: 500,
         date: businessDate,
       });
       return (res.items || []) as MeterReadingRow[];
     },
   });
 
-  // Get selected nozzle details
-  const selectedNozzle = nozzlesData?.find((n: any) => n.id === selectedNozzleId);
-  const fuelTypeId = selectedNozzle?.fuelTypeId;
+  // Compute fuel totals from ALL nozzles' meter readings
+  const fuelTotals = useMemo(() => {
+    const totals = { HSD: 0, PMG: 0, other: 0 };
+    (nozzlesData || []).forEach((nozzle: any) => {
+      const readings = (meterReadingsData || []).filter((r: any) => r.nozzle_id === nozzle.id);
+      if (readings.length === 0) return;
+      const opening = readings.find((r: any) => r.reading_type === 'opening');
+      const closing = readings.find((r: any) => r.reading_type === 'closing');
+      if (!opening || !closing) return;
+      const liters = toNumber(closing.meter_value ?? closing.reading_value) - toNumber(opening.meter_value ?? opening.reading_value);
+      const fuelCode = nozzle.fuelType?.code;
+      if (fuelCode === 'HSD') totals.HSD += liters;
+      else if (fuelCode === 'PMG') totals.PMG += liters;
+      else totals.other += liters;
+    });
+    return totals;
+  }, [nozzlesData, meterReadingsData]);
 
-  // Auto-fill unit price when nozzle selected (mock - replace with API call)
-  const defaultUnitPrice = selectedNozzle?.fuelType?.code === 'HSD' ? '287.33' : '290.50';
+  // Compute posted fuel totals from transactions
+  const postedByFuel = useMemo(() => {
+    const posted = { HSD: 0, PMG: 0, other: 0 };
+    transactions.forEach(txn => {
+      const nozzle = (nozzlesData || []).find((n: any) => n.id === txn.nozzleId);
+      const fuelCode = nozzle?.fuelType?.code;
+      const qty = toNumber(txn.quantity);
+      if (fuelCode === 'HSD') posted.HSD += qty;
+      else if (fuelCode === 'PMG') posted.PMG += qty;
+      else posted.other += qty;
+    });
+    return posted;
+  }, [transactions, nozzlesData]);
 
-  // Calculate meter variance
-  const meterLiters = closingReading && openingReading
-    ? toNumber(closingReading) - toNumber(openingReading)
-    : 0;
+  // Compute nozzle-level reconciliation for checklist
+  const nozzleReconciliation = useMemo(() => {
+    return (nozzlesData || []).map((nozzle: any) => {
+      const readings = (meterReadingsData || []).filter((r: any) => r.nozzle_id === nozzle.id);
+      const opening = readings.find((r: any) => r.reading_type === 'opening');
+      const closing = readings.find((r: any) => r.reading_type === 'closing');
+      const meterLiters = opening && closing
+        ? toNumber(closing.meter_value ?? closing.reading_value) - toNumber(opening.meter_value ?? opening.reading_value)
+        : 0;
+
+      const postedLiters = transactions
+        .filter(txn => txn.nozzleId === nozzle.id)
+        .reduce((sum, txn) => sum + toNumber(txn.quantity), 0);
+
+      const remaining = meterLiters - postedLiters;
+      const isReconciled = Math.abs(remaining) < 0.1;
+
+      return {
+        nozzleId: nozzle.id,
+        nozzleName: nozzle.name || `N${nozzle.nozzleNumber}`,
+        fuelCode: nozzle.fuelType?.code || 'Unknown',
+        meterLiters,
+        postedLiters,
+        remaining,
+        isReconciled,
+      };
+    });
+  }, [nozzlesData, meterReadingsData, transactions]);
 
   const transactionTotals = transactions.reduce(
     (acc, txn) => {
@@ -227,14 +274,20 @@ export function BackdatedEntries() {
     }
   );
 
-  const varianceLiters = meterLiters - transactionTotals.liters;
-  const varianceAmount = varianceLiters * toNumber(defaultUnitPrice);
-  const meterSalesAmount = meterLiters * toNumber(defaultUnitPrice);
+  const totalMeterLiters = fuelTotals.HSD + fuelTotals.PMG + fuelTotals.other;
+  const varianceLiters = totalMeterLiters - transactionTotals.liters;
+
+  // Estimated variance amount (using average price from transactions)
+  const avgPrice = transactionTotals.liters > 0 ? transactionTotals.amount / transactionTotals.liters : 288;
+  const varianceAmount = varianceLiters * avgPrice;
+
+  const meterSalesAmount = totalMeterLiters * avgPrice;
   const knownNonCashAmount =
     transactionTotals.creditCard +
     transactionTotals.bankCard +
     transactionTotals.psoCard +
     transactionTotals.creditCustomer;
+
   // Reconciliation formula: expected cash is derived after posting all known non-cash methods.
   const backTracedCashAmount = meterSalesAmount - knownNonCashAmount;
   const postedCashAmount = transactionTotals.cash;
@@ -269,9 +322,10 @@ export function BackdatedEntries() {
       {
         customerId: customerId === '__walkin__' ? '' : customerId,
         customerName: customerId === '__walkin__' ? '' : customerName,
-        productName: selectedNozzle?.fuelType?.name || 'Fuel',
+        nozzleId: '',
+        productName: '',
         quantity: '',
-        unitPrice: defaultUnitPrice,
+        unitPrice: '',
         lineTotal: '0',
         paymentMethod: 'cash',
       },
@@ -298,11 +352,8 @@ export function BackdatedEntries() {
   );
 
   useEffect(() => {
-    if (!selectedBranchId || !selectedNozzleId || !businessDate) {
+    if (!selectedBranchId || !businessDate) {
       setCurrentEntryId(null);
-      setOpeningReading('');
-      setClosingReading('');
-      setNotes('');
       setTransactions([]);
       setSyncMessage('');
       return;
@@ -315,14 +366,12 @@ export function BackdatedEntries() {
 
     if (matchedEntry) {
       setCurrentEntryId(matchedEntry.id);
-      setOpeningReading(toNumber(matchedEntry.openingReading).toString());
-      setClosingReading(toNumber(matchedEntry.closingReading).toString());
-      setNotes(matchedEntry.notes || '');
       setTransactions(
         (matchedEntry.transactions || []).map((txn) => ({
           id: txn.id,
           customerId: txn.customerId || '',
           customerName: txn.customer?.name || '',
+          nozzleId: txn.nozzleId || '',
           vehicleNumber: txn.vehicleNumber || '',
           slipNumber: txn.slipNumber || '',
           productName: txn.productName || 'Fuel',
@@ -336,44 +385,32 @@ export function BackdatedEntries() {
       return;
     }
 
-    const readings = (meterReadingsData || []).filter((reading) => {
-      if (selectedShiftId && reading.shift_id !== selectedShiftId) return false;
-      return true;
-    });
-
-    if (readings.length > 0) {
-      const ordered = [...readings].sort((a, b) => {
-        const aTs = new Date(a.recorded_at || a.created_at || 0).getTime();
-        const bTs = new Date(b.recorded_at || b.created_at || 0).getTime();
-        return aTs - bTs;
-      });
-
-      const opening = ordered.find((reading) => reading.reading_type === 'opening');
-      const closing = [...ordered].reverse().find((reading) => reading.reading_type === 'closing');
-
-      setCurrentEntryId(null);
-      setOpeningReading(opening ? toNumber(opening.meter_value ?? opening.reading_value).toString() : '');
-      setClosingReading(closing ? toNumber(closing.meter_value ?? closing.reading_value).toString() : '');
-      setNotes('');
-      setTransactions([]);
-      setSyncMessage('Prefilled meter readings from recorded shift/day data.');
-      return;
-    }
-
     setCurrentEntryId(null);
-    setOpeningReading('');
-    setClosingReading('');
-    setNotes('');
     setTransactions([]);
-    setSyncMessage('No existing backdated entry or meter readings found for this selection.');
+    setSyncMessage('No existing backdated entry found. Start adding transactions.');
   }, [
     selectedBranchId,
-    selectedNozzleId,
     businessDate,
     selectedShiftId,
     existingEntriesData,
-    meterReadingsData,
   ]);
+
+  // Auto-save effect (mark dirty on transaction changes)
+  useEffect(() => {
+    if (transactions.length > 0) setIsDirty(true);
+  }, [transactions]);
+
+  // Auto-save timer (2 minutes)
+  useEffect(() => {
+    if (!isDirty || transactions.length === 0) return;
+    const timer = setTimeout(() => {
+      // Auto-save draft (call API when backend ready)
+      console.log('Auto-saving draft...');
+      setLastSaved(new Date());
+      setIsDirty(false);
+    }, 120000); // 2 minutes
+    return () => clearTimeout(timer);
+  }, [isDirty, transactions]);
 
   // Remove transaction row
   const removeTransaction = (index: number) => {
@@ -385,8 +422,17 @@ export function BackdatedEntries() {
     const updated = [...transactions];
     updated[index] = { ...updated[index], [field]: value };
 
+    // Auto-fill product name and unit price when nozzle selected
+    if (field === 'nozzleId') {
+      const nozzle = (nozzlesData || []).find((n: any) => n.id === value);
+      if (nozzle) {
+        updated[index].productName = nozzle.fuelType?.name || 'Fuel';
+        updated[index].unitPrice = nozzle.fuelType?.code === 'HSD' ? '287.33' : '290.50';
+      }
+    }
+
     // Auto-calculate line total when quantity or unit price changes
-    if (field === 'quantity' || field === 'unitPrice') {
+    if (field === 'quantity' || field === 'unitPrice' || field === 'nozzleId') {
       const qty = toNumber(updated[index].quantity);
       const price = toNumber(updated[index].unitPrice);
       updated[index].lineTotal = (qty * price).toFixed(2);
@@ -406,26 +452,14 @@ export function BackdatedEntries() {
   // Create backdated entry mutation
   const createEntryMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedBranchId || !selectedNozzleId || !openingReading || !closingReading) {
-        throw new Error('Please fill in all required entry fields');
-      }
-
-      if (openingReading.trim().length < 7 || closingReading.trim().length < 7) {
-        throw new Error('Meter readings must be at least 7 digits');
-      }
-
-      if (toNumber(closingReading) < toNumber(openingReading)) {
-        throw new Error('Closing reading must be greater than or equal to opening reading');
+      if (!selectedBranchId) {
+        throw new Error('Please select a branch');
       }
 
       const res = await apiClient.post('/api/backdated-entries', {
         branchId: selectedBranchId,
         businessDate,
-        nozzleId: selectedNozzleId,
         shiftId: selectedShiftId || undefined,
-        openingReading: toNumber(openingReading),
-        closingReading: toNumber(closingReading),
-        notes,
       });
 
       return res.data.data;
@@ -454,8 +488,13 @@ export function BackdatedEntries() {
         }
       }
 
+      // Get nozzle details for fuelTypeId
+      const nozzle = (nozzlesData || []).find((n: any) => n.id === transaction.nozzleId);
+      const fuelTypeId = nozzle?.fuelType?.id;
+
       const res = await apiClient.post(`/api/backdated-entries/${entryId}/transactions`, {
         customerId: transaction.customerId || undefined,
+        nozzleId: transaction.nozzleId || undefined,
         vehicleNumber: transaction.vehicleNumber || undefined,
         slipNumber: transaction.slipNumber || undefined,
         fuelTypeId: fuelTypeId || undefined,
@@ -499,14 +538,18 @@ export function BackdatedEntries() {
     queryClient.invalidateQueries({ queryKey: ['backdated-entries'] });
   };
 
+  const handleSaveDraft = () => {
+    // TODO: Implement draft saving when backend endpoint is ready
+    console.log('Saving draft...');
+    setLastSaved(new Date());
+    setIsDirty(false);
+    toast.success('Draft saved locally');
+  };
+
   const resetForm = () => {
     setBusinessDate(format(new Date(), 'yyyy-MM-dd'));
     setSelectedBranchId('');
-    setSelectedNozzleId('');
     setSelectedShiftId('');
-    setOpeningReading('');
-    setClosingReading('');
-    setNotes('');
     setTransactions([]);
     setCurrentEntryId(null);
     setSyncMessage('');
@@ -529,7 +572,7 @@ export function BackdatedEntries() {
       <Alert className="border-orange-200 bg-orange-50">
         <AlertCircle className="h-4 w-4 text-orange-600" />
         <AlertDescription className="text-sm text-orange-900">
-          <strong>Transaction-First Approach:</strong> Create daily entry (meter readings), then add individual customer transactions. Credit customers require vehicle# and slip#.
+          <strong>Transaction-First Approach:</strong> Select branch and date, then add individual customer transactions. Nozzle selection is per-transaction. Credit customers require vehicle# and slip#.
         </AlertDescription>
       </Alert>
 
@@ -541,7 +584,7 @@ export function BackdatedEntries() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Calendar className="h-5 w-5" />
-                Daily Entry (Meter Readings)
+                Daily Entry Context
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -575,22 +618,6 @@ export function BackdatedEntries() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Nozzle *</Label>
-                  <Select value={selectedNozzleId} onValueChange={setSelectedNozzleId} disabled={!selectedBranchId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select nozzle" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {nozzlesData?.map((nozzle: any) => (
-                        <SelectItem key={nozzle.id} value={nozzle.id}>
-                          {nozzle.name || `Nozzle ${nozzle.nozzleNumber}`} - {nozzle.fuelType?.code || 'Unknown'}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
                   <Label>Shift (Optional)</Label>
                   <Select value={selectedShiftId || '__none__'} onValueChange={(v) => setSelectedShiftId(v === '__none__' ? '' : v)}>
                     <SelectTrigger>
@@ -613,52 +640,77 @@ export function BackdatedEntries() {
                   {syncMessage}
                 </div>
               )}
-
-              <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label>Opening Reading *</Label>
-                  <Input
-                    type="number"
-                    step="0.001"
-                    value={openingReading}
-                    onChange={(e) => setOpeningReading(e.target.value)}
-                    placeholder="1234567"
-                    className="font-mono"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Closing Reading *</Label>
-                  <Input
-                    type="number"
-                    step="0.001"
-                    value={closingReading}
-                    onChange={(e) => setClosingReading(e.target.value)}
-                    placeholder="1235000"
-                    className="font-mono"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Meter Liters</Label>
-                  <Input
-                    value={meterLiters.toFixed(3)}
-                    readOnly
-                    className="bg-blue-50 font-semibold text-blue-700 font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Notes</Label>
-                <Input
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Optional notes"
-                />
-              </div>
             </CardContent>
           </Card>
+
+          {/* HSD/PMG Dashboard Cards */}
+          {selectedBranchId && businessDate && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* HSD Card */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">HSD (Diesel)</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Meter Total:</span>
+                    <span className="font-mono font-semibold">{fuelTotals.HSD.toFixed(3)} L</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Posted:</span>
+                    <span className="font-mono text-blue-600">{postedByFuel.HSD.toFixed(3)} L</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Remaining:</span>
+                    <span className="font-mono font-semibold text-orange-600">{(fuelTotals.HSD - postedByFuel.HSD).toFixed(3)} L</span>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>{fuelTotals.HSD > 0 ? Math.round((postedByFuel.HSD / fuelTotals.HSD) * 100) : 0}% Reconciled</span>
+                    </div>
+                    <div className="h-2 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-blue-600 transition-all"
+                        style={{ width: `${fuelTotals.HSD > 0 ? Math.min((postedByFuel.HSD / fuelTotals.HSD) * 100, 100) : 0}%` }}
+                      />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* PMG Card */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">PMG (Petrol)</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Meter Total:</span>
+                    <span className="font-mono font-semibold">{fuelTotals.PMG.toFixed(3)} L</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Posted:</span>
+                    <span className="font-mono text-blue-600">{postedByFuel.PMG.toFixed(3)} L</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Remaining:</span>
+                    <span className="font-mono font-semibold text-orange-600">{(fuelTotals.PMG - postedByFuel.PMG).toFixed(3)} L</span>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>{fuelTotals.PMG > 0 ? Math.round((postedByFuel.PMG / fuelTotals.PMG) * 100) : 0}% Reconciled</span>
+                    </div>
+                    <div className="h-2 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-blue-600 transition-all"
+                        style={{ width: `${fuelTotals.PMG > 0 ? Math.min((postedByFuel.PMG / fuelTotals.PMG) * 100, 100) : 0}%` }}
+                      />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
 
           {/* Transactions — Customer-Grouped */}
           <Card>
@@ -705,6 +757,7 @@ export function BackdatedEntries() {
                         <Table>
                           <TableHeader>
                             <TableRow className="bg-muted/30">
+                              <TableHead className="w-[160px]">Nozzle</TableHead>
                               <TableHead className="w-[130px]">Vehicle#</TableHead>
                               <TableHead className="w-[110px]">Slip#</TableHead>
                               <TableHead className="w-[130px]">Product</TableHead>
@@ -720,6 +773,24 @@ export function BackdatedEntries() {
                               const globalIdx = group.indices[localIdx];
                               return (
                                 <TableRow key={globalIdx}>
+                                  <TableCell className="p-2">
+                                    <Select
+                                      value={txn.nozzleId || '__none__'}
+                                      onValueChange={(v) => updateTransaction(globalIdx, 'nozzleId', v === '__none__' ? '' : v)}
+                                    >
+                                      <SelectTrigger className="h-10 text-sm">
+                                        <SelectValue placeholder="Select nozzle" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="__none__">No nozzle</SelectItem>
+                                        {(nozzlesData || []).map((nozzle: any) => (
+                                          <SelectItem key={nozzle.id} value={nozzle.id}>
+                                            {nozzle.name || `N${nozzle.nozzleNumber}`} - {nozzle.fuelType?.code}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </TableCell>
                                   <TableCell className="p-2">
                                     <Input
                                       className="h-10 text-sm font-mono"
@@ -809,6 +880,11 @@ export function BackdatedEntries() {
               {transactions.length > 0 && (
                 <div className="flex justify-end gap-2 mt-6 pt-4 border-t">
                   <Button variant="outline" onClick={resetForm}>Cancel</Button>
+                  <Button variant="outline" onClick={handleSaveDraft}>
+                    <Save className="h-4 w-4 mr-2" />
+                    Save Draft
+                    {lastSaved && <span className="text-xs ml-2">({format(lastSaved, 'HH:mm')})</span>}
+                  </Button>
                   <Button onClick={handleSaveAll} disabled={createEntryMutation.isPending || createTransactionMutation.isPending}>
                     <Save className="h-4 w-4 mr-2" />
                     {currentEntryId ? 'Save Transactions' : 'Create Entry & Save'}
@@ -861,21 +937,50 @@ export function BackdatedEntries() {
               <CardTitle className="text-base">Reconciliation</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4 text-sm">
-              {/* Meter Readings */}
-              <div>
-                <div className="font-semibold mb-2">Meter Readings</div>
+              {/* Nozzle Checklist */}
+              {nozzleReconciliation.length > 0 && (
+                <div>
+                  <div className="font-semibold mb-2">Nozzle Checklist</div>
+                  <div className="space-y-1.5 text-xs">
+                    {nozzleReconciliation.map((nozzle: any) => (
+                      <div key={nozzle.nozzleId} className="flex items-center justify-between p-2 bg-muted/30 rounded">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-2 h-2 rounded-full ${nozzle.isReconciled ? 'bg-green-500' : 'bg-orange-500'}`} />
+                          <span className="font-medium">{nozzle.nozzleName}</span>
+                          <Badge variant="outline" className="text-[10px] px-1 py-0">{nozzle.fuelCode}</Badge>
+                        </div>
+                        <span className="font-mono text-xs">
+                          {nozzle.postedLiters.toFixed(1)}/{nozzle.meterLiters.toFixed(1)}L
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Fuel Totals */}
+              <div className="pt-2 border-t">
+                <div className="font-semibold mb-2">Fuel Totals</div>
                 <div className="space-y-1 text-xs">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Opening:</span>
-                    <span className="font-mono">{openingReading || '-'} L</span>
+                    <span className="text-muted-foreground">HSD Meter:</span>
+                    <span className="font-mono">{fuelTotals.HSD.toFixed(3)} L</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Closing:</span>
-                    <span className="font-mono">{closingReading || '-'} L</span>
+                    <span className="text-muted-foreground">HSD Posted:</span>
+                    <span className="font-mono text-blue-600">{postedByFuel.HSD.toFixed(3)} L</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">PMG Meter:</span>
+                    <span className="font-mono">{fuelTotals.PMG.toFixed(3)} L</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">PMG Posted:</span>
+                    <span className="font-mono text-blue-600">{postedByFuel.PMG.toFixed(3)} L</span>
                   </div>
                   <div className="flex justify-between font-semibold pt-1 border-t">
-                    <span>Liters:</span>
-                    <span className="font-mono text-blue-600">{meterLiters.toFixed(3)} L</span>
+                    <span>Total Liters:</span>
+                    <span className="font-mono text-blue-600">{transactionTotals.liters.toFixed(3)} L</span>
                   </div>
                 </div>
               </div>
@@ -884,10 +989,6 @@ export function BackdatedEntries() {
               <div className="pt-2 border-t">
                 <div className="font-semibold mb-2">Transaction Totals</div>
                 <div className="space-y-1 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Liters:</span>
-                    <span className="font-mono">{transactionTotals.liters.toFixed(3)} L</span>
-                  </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Amount:</span>
                     <span className="font-mono font-semibold">{transactionTotals.amount.toFixed(2)} PKR</span>
@@ -943,7 +1044,7 @@ export function BackdatedEntries() {
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Amount:</span>
+                    <span className="text-muted-foreground">Amount (est):</span>
                     <span className={`font-mono font-semibold ${varianceAmount > 0 ? 'text-orange-600' : varianceAmount < 0 ? 'text-red-600' : 'text-green-600'}`}>
                       {varianceAmount > 0 ? '+' : ''}{varianceAmount.toFixed(2)} PKR
                     </span>

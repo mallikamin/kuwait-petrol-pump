@@ -1,21 +1,36 @@
 import { Router } from 'express';
 import { BackdatedEntriesController } from './backdated-entries.controller';
+import { DailyBackdatedEntriesController } from './daily.controller';
 import { authenticate } from '../../middleware/auth.middleware';
 
 const router = Router();
 const controller = new BackdatedEntriesController();
+const dailyController = new DailyBackdatedEntriesController();
 
 // All routes require authentication
 router.use(authenticate);
 
 /**
- * Backdated Entry Routes
+ * Daily Consolidated Routes (for accountant workflow)
+ */
+
+// GET /api/backdated-entries/daily - Get daily consolidated summary
+router.get('/daily', dailyController.getDailySummary);
+
+// POST /api/backdated-entries/daily - Save daily draft (upsert entries + transactions)
+router.post('/daily', dailyController.saveDailyDraft);
+
+// POST /api/backdated-entries/daily/finalize - Finalize day and enqueue QB sync
+router.post('/daily/finalize', dailyController.finalizeDay);
+
+/**
+ * Backdated Entry Routes (per-nozzle level)
  */
 
 // GET /api/backdated-entries - Get all entries with filters
 router.get('/', controller.getAllEntries);
 
-// GET /api/backdated-entries/reconciliation/daily - Get daily reconciliation summary
+// GET /api/backdated-entries/reconciliation/daily - Get daily reconciliation summary (LEGACY - use /daily instead)
 router.get('/reconciliation/daily', controller.getDailyReconciliation);
 
 // GET /api/backdated-entries/:id - Get a single entry
