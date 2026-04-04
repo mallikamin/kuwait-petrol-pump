@@ -25,6 +25,7 @@ import syncRoutes from './modules/sync/sync.routes';
 import quickbooksRoutes from './services/quickbooks/routes';
 import { validateQuickBooksConfig } from './services/quickbooks/startup-validation';
 import backdatedEntriesRoutes from './modules/backdated-entries/backdated-entries.routes';
+import backdatedMeterReadingsRoutes from './modules/backdated-entries/backdated-meter-readings.routes';
 
 // Validate QB config on startup (P0: fail fast if missing)
 validateQuickBooksConfig();
@@ -102,6 +103,7 @@ export function createApp() {
   app.use('/api/sync', syncRoutes); // Sprint 1: Offline Foundation
   app.use('/api/quickbooks', quickbooksRoutes); // QuickBooks OAuth & sync
   app.use('/api/backdated-entries', backdatedEntriesRoutes); // Backdated entries for accountant backlog
+  app.use('/api/backdated-meter-readings', backdatedMeterReadingsRoutes); // Meter readings view for backdated workflow (reads from meter_readings table)
 
   app.use('/api/users', usersRoutes);
 
