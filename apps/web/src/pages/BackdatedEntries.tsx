@@ -378,12 +378,12 @@ export function BackdatedEntries() {
 
                 <div className="space-y-2">
                   <Label>Shift (Optional)</Label>
-                  <Select value={selectedShiftId} onValueChange={setSelectedShiftId}>
+                  <Select value={selectedShiftId} onValueChange={(v) => setSelectedShiftId(v === '__none__' ? '' : v)}>
                     <SelectTrigger>
                       <SelectValue placeholder="Any shift" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Any shift</SelectItem>
+                      <SelectItem value="__none__">Any shift</SelectItem>
                       {/* TODO: Fetch shifts from API */}
                     </SelectContent>
                   </Select>
@@ -483,14 +483,14 @@ export function BackdatedEntries() {
                         <TableRow key={index}>
                           <TableCell>
                             <Select
-                              value={txn.customerId || ''}
-                              onValueChange={(value) => updateTransaction(index, 'customerId', value)}
+                              value={txn.customerId || '__walkin__'}
+                              onValueChange={(value) => updateTransaction(index, 'customerId', value === '__walkin__' ? '' : value)}
                             >
                               <SelectTrigger className="h-8 text-xs">
                                 <SelectValue placeholder="Walk-in" />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="">Walk-in (Cash)</SelectItem>
+                                <SelectItem value="__walkin__">Walk-in (Cash)</SelectItem>
                                 {customersData?.map((customer: any) => (
                                   <SelectItem key={customer.id} value={customer.id}>
                                     {customer.name}
