@@ -55,6 +55,13 @@ export class DailyBackdatedEntriesService {
   async getDailySummary(params: DailyQueryParams, organizationId: string) {
     const { branchId, businessDate, shiftId } = params;
 
+    console.log('[BackdatedEntries] getDailySummary called:', {
+      branchId,
+      businessDate,
+      shiftId,
+      organizationId,
+    });
+
     // Validate branch belongs to organization
     const branch = await prisma.branch.findFirst({
       where: {
@@ -67,7 +74,11 @@ export class DailyBackdatedEntriesService {
       throw new AppError(404, 'Branch not found or does not belong to organization');
     }
 
+    // Normalize date to midnight UTC for consistent queries
     const businessDateObj = new Date(businessDate);
+    businessDateObj.setUTCHours(0, 0, 0, 0);
+
+    console.log('[BackdatedEntries] Querying with normalized date:', businessDateObj.toISOString());
 
     // Get all nozzles for the branch (with fuel type)
     const allNozzles = await prisma.nozzle.findMany({
@@ -113,6 +124,11 @@ export class DailyBackdatedEntriesService {
           },
         },
       },
+    });
+
+    console.log('[BackdatedEntries] Found entries:', {
+      entriesCount: entries.length,
+      totalTransactions: entries.reduce((sum, e) => sum + e.transactions.length, 0),
     });
 
     // Build nozzle status map
@@ -288,6 +304,14 @@ export class DailyBackdatedEntriesService {
   async saveDailyDraft(input: DailySaveInput, organizationId: string) {
     const { branchId, businessDate, shiftId, transactions } = input;
 
+    console.log('[BackdatedEntries] saveDailyDraft called:', {
+      branchId,
+      businessDate,
+      shiftId,
+      transactionCount: transactions.length,
+      organizationId,
+    });
+
     // Validate branch
     const branch = await prisma.branch.findFirst({
       where: {
@@ -300,19 +324,41 @@ export class DailyBackdatedEntriesService {
       throw new AppError(404, 'Branch not found or does not belong to organization');
     }
 
+    // Normalize date to midnight UTC for consistent queries
     const businessDateObj = new Date(businessDate);
+    businessDateObj.setUTCHours(0, 0, 0, 0);
 
-    // Group transactions by nozzle
+    console.log('[BackdatedEntries] Normalized date:', businessDateObj.toISOString());
+
+    // Group transactions by nozzle (skip those without nozzleId)
     const txnsByNozzle = new Map<string, DailyTransactionInput[]>();
+    const txnsWithoutNozzle: DailyTransactionInput[] = [];
+
     transactions.forEach((txn) => {
+      if (!txn.nozzleId) {
+        console.warn('[BackdatedEntries] Transaction without nozzleId:', txn);
+        txnsWithoutNozzle.push(txn);
+        return;
+      }
+
       const list = txnsByNozzle.get(txn.nozzleId) || [];
       list.push(txn);
       txnsByNozzle.set(txn.nozzleId, list);
     });
 
+    console.log('[BackdatedEntries] Grouped transactions:', {
+      nozzleCount: txnsByNozzle.size,
+      withoutNozzleCount: txnsWithoutNozzle.length,
+    });
+
     // For each nozzle, create/update entry and transactions
     const results = await Promise.all(
       Array.from(txnsByNozzle.entries()).map(async ([nozzleId, nozzleTxns]) => {
+        console.log('[BackdatedEntries] Processing nozzle:', {
+          nozzleId,
+          transactionCount: nozzleTxns.length,
+        });
+
         // Fetch nozzle with fuel type to determine meter readings
         const nozzle = await prisma.nozzle.findFirst({
           where: {
@@ -329,6 +375,7 @@ export class DailyBackdatedEntriesService {
         });
 
         if (!nozzle) {
+          console.error('[BackdatedEntries] Nozzle not found:', nozzleId);
           throw new AppError(404, `Nozzle ${nozzleId} not found`);
         }
 
@@ -347,6 +394,8 @@ export class DailyBackdatedEntriesService {
         let entryId: string;
 
         if (existingEntry) {
+          console.log('[BackdatedEntries] Updating existing entry:', existingEntry.id);
+
           // Update closing reading to match total liters (opening + totalLiters)
           const opening = parseFloat(existingEntry.openingReading.toString());
           const closing = opening + totalLiters;
@@ -361,10 +410,14 @@ export class DailyBackdatedEntriesService {
           entryId = existingEntry.id;
 
           // Delete existing transactions for this entry (will be replaced)
-          await prisma.backdatedTransaction.deleteMany({
+          const deletedCount = await prisma.backdatedTransaction.deleteMany({
             where: { backdatedEntryId: existingEntry.id },
           });
+
+          console.log('[BackdatedEntries] Deleted existing transactions:', deletedCount.count);
         } else {
+          console.log('[BackdatedEntries] Creating new entry for nozzle:', nozzleId);
+
           // Create new entry
           // Opening reading: assume 0 for new entries (accountant can manually adjust if needed)
           const opening = 0;
@@ -381,11 +434,13 @@ export class DailyBackdatedEntriesService {
             },
           });
 
+          console.log('[BackdatedEntries] Created new entry:', newEntry.id);
+
           entryId = newEntry.id;
         }
 
         // Create all transactions for this entry
-        await prisma.backdatedTransaction.createMany({
+        const createdTxns = await prisma.backdatedTransaction.createMany({
           data: nozzleTxns.map((txn) => ({
             backdatedEntryId: entryId,
             customerId: txn.customerId,
@@ -401,9 +456,17 @@ export class DailyBackdatedEntriesService {
           })),
         });
 
+        console.log('[BackdatedEntries] Created transactions:', {
+          entryId,
+          nozzleId,
+          count: createdTxns.count,
+        });
+
         return { nozzleId, entryId };
       })
     );
+
+    console.log('[BackdatedEntries] Saved all entries:', results.length);
 
     // Return updated summary
     return this.getDailySummary(

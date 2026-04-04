@@ -646,8 +646,10 @@ export function BackdatedEntries() {
       });
       return res.data;
     },
-    onSuccess: () => {
-      toast.success('Meter reading saved successfully');
+    onSuccess: (_data, variables) => {
+      const { readingType } = variables;
+      const direction = readingType === 'closing' ? 'next day opening' : 'previous day closing';
+      toast.success(`Meter reading saved! Auto-synced to ${direction}.`);
       setIsMeterReadingOpen(false);
       setSelectedMeterNozzle(null);
       refetchMeterReadings(); // Refresh meter readings
@@ -824,6 +826,14 @@ export function BackdatedEntries() {
                 </div>
               </CardHeader>
               <CardContent>
+                {/* Auto-sync info */}
+                <Alert className="mb-4 border-green-200 bg-green-50">
+                  <CheckCircle className="h-4 w-4 text-green-600" />
+                  <AlertDescription className="text-sm text-green-900">
+                    <strong>Auto-Sync Enabled:</strong> Closing readings automatically propagate to next day's opening (and vice versa). Enter data in any order—backward or forward—readings will chain automatically.
+                  </AlertDescription>
+                </Alert>
+
                 {/* Prompt when no readings exist */}
                 {(!meterReadingsData || meterReadingsData.length === 0) && (
                   <Alert className="mb-4 border-blue-200 bg-blue-50">

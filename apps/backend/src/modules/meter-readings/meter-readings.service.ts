@@ -309,7 +309,7 @@ export class MeterReadingsService {
       },
     });
 
-    // AUTO-PROPAGATE: Closing of Day X → Opening of Day X+1
+    // AUTO-PROPAGATE: Closing of Day X → Opening of Day X+1 (FORWARD)
     if (readingType === 'closing') {
       try {
         const nextDay = new Date(shiftInstance.date);
@@ -351,12 +351,62 @@ export class MeterReadingsService {
               },
             });
 
-            console.log(`✅ Auto-created opening reading for nozzle ${nozzleId} on ${nextDay.toISOString().split('T')[0]} with value ${meterValue}`);
+            console.log(`✅ [FORWARD] Auto-created opening for nozzle ${nozzleId} on ${nextDay.toISOString().split('T')[0]} = ${meterValue}L (from today's closing)`);
           }
         }
       } catch (error) {
         // Log but don't fail the main operation
-        console.error('Failed to auto-propagate closing to next opening:', error);
+        console.error('[FORWARD] Failed to auto-propagate closing to next opening:', error);
+      }
+    }
+
+    // AUTO-PROPAGATE: Opening of Day X → Closing of Day X-1 (BACKWARD)
+    if (readingType === 'opening') {
+      try {
+        const prevDay = new Date(shiftInstance.date);
+        prevDay.setDate(prevDay.getDate() - 1);
+        prevDay.setHours(0, 0, 0, 0);
+
+        // Find previous day's shift instance for the same shift template
+        const prevDayShiftInstance = await prisma.shiftInstance.findFirst({
+          where: {
+            shiftId: shiftInstance.shiftId,
+            date: prevDay,
+          },
+        });
+
+        // Only auto-create closing if previous day's shift exists (can be open or closed)
+        if (prevDayShiftInstance) {
+          // Check if closing already exists
+          const existingPrevClosing = await prisma.meterReading.findFirst({
+            where: {
+              nozzleId,
+              shiftInstanceId: prevDayShiftInstance.id,
+              readingType: 'closing',
+            },
+          });
+
+          // If no closing exists, auto-create it with today's opening value
+          if (!existingPrevClosing) {
+            await prisma.meterReading.create({
+              data: {
+                nozzleId,
+                shiftInstanceId: prevDayShiftInstance.id,
+                readingType: 'closing',
+                meterValue: new Decimal(meterValue), // Use today's opening value
+                isManualOverride: false,
+                isOcr: false,
+                recordedBy: userId,
+                recordedAt: new Date(), // Record at current time
+              },
+            });
+
+            console.log(`✅ [BACKWARD] Auto-created closing for nozzle ${nozzleId} on ${prevDay.toISOString().split('T')[0]} = ${meterValue}L (from today's opening)`);
+          }
+        }
+      } catch (error) {
+        // Log but don't fail the main operation
+        console.error('[BACKWARD] Failed to auto-propagate opening to prev closing:', error);
       }
     }
 
