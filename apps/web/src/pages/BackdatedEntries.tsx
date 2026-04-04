@@ -782,21 +782,27 @@ export function BackdatedEntries() {
       // For opening reading, find the previous shift's closing value
       const currentShiftNumber = currentShift.shiftNumber;
 
-      // Find the previous shift instance (shiftNumber - 1)
-      const previousShiftInstance = (shiftInstancesData || []).find((si: any) =>
-        si.shift?.shiftNumber === currentShiftNumber - 1 &&
-        si.date === businessDate
+      // Find the previous shift template (shiftNumber - 1)
+      const previousShiftTemplate = (shiftTemplatesData || []).find((st: any) =>
+        st.shiftNumber === currentShiftNumber - 1
       );
 
-      if (previousShiftInstance) {
-        // Find closing reading from previous shift instance
-        const previousShiftClosing = readings.find((r: any) =>
-          r.reading_type === 'closing' &&
-          r.shift_instance?.id === previousShiftInstance.id
+      if (previousShiftTemplate) {
+        // Find the shift instance for the previous shift template on this business date
+        const previousShiftInstance = (shiftInstancesData || []).find((si: any) =>
+          si.shiftId === previousShiftTemplate.id
         );
 
-        if (previousShiftClosing) {
-          return toNumber(previousShiftClosing.meter_value ?? previousShiftClosing.reading_value);
+        if (previousShiftInstance) {
+          // Find closing reading from previous shift instance
+          const previousShiftClosing = readings.find((r: any) =>
+            r.reading_type === 'closing' &&
+            r.shift_instance?.id === previousShiftInstance.id
+          );
+
+          if (previousShiftClosing) {
+            return toNumber(previousShiftClosing.meter_value ?? previousShiftClosing.reading_value);
+          }
         }
       }
 
@@ -809,8 +815,7 @@ export function BackdatedEntries() {
     } else if (type === 'closing' && currentShift) {
       // For closing reading, use THIS shift's opening
       const currentShiftInstance = (shiftInstancesData || []).find((si: any) =>
-        si.shiftId === currentShift.id &&
-        si.date === businessDate
+        si.shiftId === currentShift.id
       );
 
       if (currentShiftInstance) {
@@ -1018,16 +1023,21 @@ export function BackdatedEntries() {
                               const openingReading = nozzleReadings.find((r: any) => r.reading_type === 'opening');
                               const closingReading = nozzleReadings.find((r: any) => r.reading_type === 'closing');
 
-                              // Determine row state
+                              // Compute auto-fill opening value from previous shift's closing
+                              const computedOpening = !hasOpening ? getPreviousReading(nozzle.id, 'opening', shiftTemplate) : 0;
+                              const showComputedOpening = !hasOpening && computedOpening > 0;
+
+                              // Determine row state (consider computed opening as valid)
+                              const effectiveHasOpening = hasOpening || showComputedOpening;
                               let rowState = 'Both Missing';
                               let statusColor = 'bg-amber-50 border-amber-200';
-                              if (hasOpening && hasClosing) {
+                              if (effectiveHasOpening && hasClosing) {
                                 rowState = '✓ Complete';
                                 statusColor = 'bg-green-50 border-green-300';
-                              } else if (hasOpening && !hasClosing) {
+                              } else if (effectiveHasOpening && !hasClosing) {
                                 rowState = 'Closing Missing';
                                 statusColor = 'bg-amber-50 border-amber-300';
-                              } else if (!hasOpening && hasClosing) {
+                              } else if (!effectiveHasOpening && hasClosing) {
                                 rowState = 'Opening Missing';
                                 statusColor = 'bg-amber-50 border-amber-300';
                               }
@@ -1100,6 +1110,24 @@ export function BackdatedEntries() {
                                               <Trash2 className="h-3 w-3" />
                                             </Button>
                                           </div>
+                                        </div>
+                                      ) : showComputedOpening ? (
+                                        <div className="flex items-center gap-2 justify-between">
+                                          <div className="flex items-center gap-2">
+                                            <CheckCircle className="h-4 w-4 text-gray-400" />
+                                            <span className="font-mono font-semibold text-sm text-muted-foreground">
+                                              {computedOpening.toFixed(3)}
+                                            </span>
+                                          </div>
+                                          <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            onClick={() => openMeterReadingDialog(nozzle, shiftTemplate, 'opening')}
+                                            className="h-7 w-7 p-0"
+                                            title="Edit"
+                                          >
+                                            <Edit className="h-3 w-3" />
+                                          </Button>
                                         </div>
                                       ) : (
                                         <Button
