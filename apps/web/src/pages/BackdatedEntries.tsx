@@ -1069,8 +1069,8 @@ export function BackdatedEntries() {
                           <TableHeader>
                             <TableRow className="bg-muted/30">
                               <TableHead className="min-w-[180px]">Fuel Type</TableHead>
-                              <TableHead className="min-w-[200px]">Vehicle#</TableHead>
                               <TableHead className="min-w-[160px]">Slip#</TableHead>
+                              <TableHead className="min-w-[180px]">Vehicle#</TableHead>
                               <TableHead className="min-w-[160px] text-right">Qty (L)</TableHead>
                               <TableHead className="min-w-[140px] text-right">Price/L</TableHead>
                               <TableHead className="min-w-[180px] text-right">Total (PKR)</TableHead>
@@ -1103,17 +1103,17 @@ export function BackdatedEntries() {
                                   <TableCell className="p-2">
                                     <Input
                                       className="h-11 text-base font-mono"
-                                      value={txn.vehicleNumber || ''}
-                                      onChange={(e) => updateTransaction(globalIdx, 'vehicleNumber', e.target.value)}
-                                      placeholder="ABC-123"
+                                      value={txn.slipNumber || ''}
+                                      onChange={(e) => updateTransaction(globalIdx, 'slipNumber', e.target.value)}
+                                      placeholder="SLP-001"
                                     />
                                   </TableCell>
                                   <TableCell className="p-2">
                                     <Input
                                       className="h-11 text-base font-mono"
-                                      value={txn.slipNumber || ''}
-                                      onChange={(e) => updateTransaction(globalIdx, 'slipNumber', e.target.value)}
-                                      placeholder="SLP-001"
+                                      value={txn.vehicleNumber || ''}
+                                      onChange={(e) => updateTransaction(globalIdx, 'vehicleNumber', e.target.value)}
+                                      placeholder="ABC-123"
                                     />
                                   </TableCell>
                                   <TableCell className="p-2">
