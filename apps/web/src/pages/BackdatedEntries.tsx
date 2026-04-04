@@ -774,21 +774,62 @@ export function BackdatedEntries() {
     setIsMeterReadingOpen(true);
   };
 
-  // Get previous reading for a nozzle
-  const getPreviousReading = (nozzleId: string, type: 'opening' | 'closing'): number => {
+  // Get previous reading for a nozzle (shift-aware)
+  const getPreviousReading = (nozzleId: string, type: 'opening' | 'closing', currentShift?: any): number => {
     const readings = (meterReadingsData || []).filter((r: any) => r.nozzle_id === nozzleId);
-    if (type === 'opening') {
-      // For opening reading, use previous day's closing (if available)
-      // For backdated entries, we'll just return 0 or latest reading
-      const latestReading = readings
+
+    if (type === 'opening' && currentShift) {
+      // For opening reading, find the previous shift's closing value
+      const currentShiftNumber = currentShift.shiftNumber;
+
+      // Find the previous shift instance (shiftNumber - 1)
+      const previousShiftInstance = (shiftInstancesData || []).find((si: any) =>
+        si.shift?.shiftNumber === currentShiftNumber - 1 &&
+        si.date === businessDate
+      );
+
+      if (previousShiftInstance) {
+        // Find closing reading from previous shift instance
+        const previousShiftClosing = readings.find((r: any) =>
+          r.reading_type === 'closing' &&
+          r.shift_instance?.id === previousShiftInstance.id
+        );
+
+        if (previousShiftClosing) {
+          return toNumber(previousShiftClosing.meter_value ?? previousShiftClosing.reading_value);
+        }
+      }
+
+      // Fallback: if no previous shift found, use latest closing from any shift on this date
+      const latestClosing = readings
         .filter((r: any) => r.reading_type === 'closing')
-        .sort((a: any, b: any) => new Date(b.recorded_at).getTime() - new Date(a.recorded_at).getTime())[0];
-      return latestReading ? toNumber(latestReading.meter_value ?? latestReading.reading_value) : 0;
-    } else {
-      // For closing reading, use today's opening
-      const openingReading = readings.find((r: any) => r.reading_type === 'opening');
-      return openingReading ? toNumber(openingReading.meter_value ?? openingReading.reading_value) : 0;
+        .sort((a: any, b: any) => new Date(b.recorded_at || b.created_at).getTime() - new Date(a.recorded_at || a.created_at).getTime())[0];
+
+      return latestClosing ? toNumber(latestClosing.meter_value ?? latestClosing.reading_value) : 0;
+    } else if (type === 'closing' && currentShift) {
+      // For closing reading, use THIS shift's opening
+      const currentShiftInstance = (shiftInstancesData || []).find((si: any) =>
+        si.shiftId === currentShift.id &&
+        si.date === businessDate
+      );
+
+      if (currentShiftInstance) {
+        const openingReading = readings.find((r: any) =>
+          r.reading_type === 'opening' &&
+          r.shift_instance?.id === currentShiftInstance.id
+        );
+
+        if (openingReading) {
+          return toNumber(openingReading.meter_value ?? openingReading.reading_value);
+        }
+      }
+
+      // Fallback: any opening reading for this nozzle today
+      const anyOpening = readings.find((r: any) => r.reading_type === 'opening');
+      return anyOpening ? toNumber(anyOpening.meter_value ?? anyOpening.reading_value) : 0;
     }
+
+    return 0;
   };
 
   const resetForm = () => {
@@ -1049,7 +1090,7 @@ export function BackdatedEntries() {
                                               size="sm"
                                               variant="ghost"
                                               onClick={() => {
-                                                if (confirm('Delete this opening reading?')) {
+                                                if (openingReading && confirm('Delete this opening reading?')) {
                                                   deleteMeterReadingMutation.mutate(openingReading.id);
                                                 }
                                               }}
@@ -1100,7 +1141,7 @@ export function BackdatedEntries() {
                                               size="sm"
                                               variant="ghost"
                                               onClick={() => {
-                                                if (confirm('Delete this closing reading?')) {
+                                                if (closingReading && confirm('Delete this closing reading?')) {
                                                   deleteMeterReadingMutation.mutate(closingReading.id);
                                                 }
                                               }}
@@ -1516,7 +1557,7 @@ export function BackdatedEntries() {
                 <MeterReadingCapture
                   nozzleId={selectedMeterNozzle.id}
                   nozzleName={`${selectedShiftForReading.name} – ${selectedMeterNozzle.name || `Nozzle ${selectedMeterNozzle.nozzleNumber}`} (${selectedMeterNozzle.fuelType?.name || 'Unknown'})`}
-                  previousReading={_editingReadingValue ?? getPreviousReading(selectedMeterNozzle.id, selectedReadingType)}
+                  previousReading={_editingReadingValue ?? getPreviousReading(selectedMeterNozzle.id, selectedReadingType, selectedShiftForReading)}
                   onCapture={handleMeterReadingCapture}
                   onCancel={() => {
                     setIsMeterReadingOpen(false);
