@@ -14,7 +14,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle } from 'lucide-react';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { CustomerSelector } from '@/components/ui/customer-selector';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle, Users, Copy } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { branchesApi, customersApi, meterReadingsApi } from '@/api';
 import { toast } from 'sonner';
@@ -237,6 +240,54 @@ export function BackdatedEntries() {
   const postedCashAmount = transactionTotals.cash;
   const cashGapAmount = backTracedCashAmount - postedCashAmount;
 
+  // Customer grouping for accordion display
+  const customerGroups = useMemo(() => {
+    const grouped = new Map<string, { indices: number[]; txns: Transaction[] }>();
+    transactions.forEach((txn, idx) => {
+      const key = txn.customerId || '__walkin__';
+      if (!grouped.has(key)) grouped.set(key, { indices: [], txns: [] });
+      grouped.get(key)!.indices.push(idx);
+      grouped.get(key)!.txns.push(txn);
+    });
+    return Array.from(grouped.entries()).map(([customerId, { indices, txns }]) => ({
+      customerId,
+      customerName: customerId === '__walkin__' ? 'Walk-in Sales' : (txns[0].customerName || 'Unknown'),
+      indices,
+      transactions: txns,
+      totalLiters: txns.reduce((s, t) => s + toNumber(t.quantity), 0),
+      totalAmount: txns.reduce((s, t) => s + toNumber(t.lineTotal), 0),
+    }));
+  }, [transactions]);
+
+  // Add customer group dialog state
+  const [isAddGroupOpen, setIsAddGroupOpen] = useState(false);
+  const [newGroupCustomerId, setNewGroupCustomerId] = useState('');
+
+  const addTransactionToCustomer = (customerId: string, customerName: string) => {
+    setTransactions([
+      ...transactions,
+      {
+        customerId: customerId === '__walkin__' ? '' : customerId,
+        customerName: customerId === '__walkin__' ? '' : customerName,
+        productName: selectedNozzle?.fuelType?.name || 'Fuel',
+        quantity: '',
+        unitPrice: defaultUnitPrice,
+        lineTotal: '0',
+        paymentMethod: 'cash',
+      },
+    ]);
+  };
+
+  const duplicateLastInGroup = (groupIndices: number[]) => {
+    if (groupIndices.length === 0) return;
+    const lastIdx = groupIndices[groupIndices.length - 1];
+    const lastRow = transactions[lastIdx];
+    setTransactions([
+      ...transactions,
+      { ...lastRow, id: undefined, quantity: '', lineTotal: '0' },
+    ]);
+  };
+
   const mappedShiftOptions = useMemo(
     () =>
       (shiftInstancesData || []).map((instance) => ({
@@ -324,20 +375,6 @@ export function BackdatedEntries() {
     meterReadingsData,
   ]);
 
-  // Add transaction row
-  const addTransaction = () => {
-    setTransactions([
-      ...transactions,
-      {
-        productName: selectedNozzle?.fuelType?.name || 'Fuel',
-        quantity: '',
-        unitPrice: defaultUnitPrice,
-        lineTotal: '0',
-        paymentMethod: 'cash',
-      },
-    ]);
-  };
-
   // Remove transaction row
   const removeTransaction = (index: number) => {
     setTransactions(transactions.filter((_, i) => i !== index));
@@ -364,22 +401,6 @@ export function BackdatedEntries() {
     }
 
     setTransactions(updated);
-  };
-
-  // Duplicate last row
-  const duplicateLastRow = () => {
-    if (transactions.length > 0) {
-      const lastRow = transactions[transactions.length - 1];
-      setTransactions([
-        ...transactions,
-        {
-          ...lastRow,
-          id: undefined,
-          quantity: '',
-          lineTotal: '0',
-        },
-      ]);
-    }
   };
 
   // Create backdated entry mutation
@@ -639,7 +660,7 @@ export function BackdatedEntries() {
             </CardContent>
           </Card>
 
-          {/* Transactions Table */}
+          {/* Transactions — Customer-Grouped */}
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -647,166 +668,190 @@ export function BackdatedEntries() {
                   <DollarSign className="h-5 w-5" />
                   Transactions ({transactions.length})
                 </CardTitle>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="outline" onClick={duplicateLastRow} disabled={transactions.length === 0}>
-                    Duplicate Last
-                  </Button>
-                  <Button size="sm" onClick={addTransaction}>
-                    <Plus className="h-4 w-4 mr-1" />
-                    Add Transaction
-                  </Button>
-                </div>
+                <Button size="sm" onClick={() => setIsAddGroupOpen(true)}>
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add Customer Group
+                </Button>
               </div>
             </CardHeader>
             <CardContent>
               {transactions.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <DollarSign className="mx-auto h-12 w-12 mb-3 opacity-30" />
-                  <p>No transactions yet</p>
-                  <p className="text-sm">Click "+ Add Transaction" to start</p>
+                <div className="text-center py-12 text-muted-foreground">
+                  <Users className="mx-auto h-12 w-12 mb-3 opacity-30" />
+                  <p className="font-medium">No transactions yet</p>
+                  <p className="text-sm mt-1">Click &quot;Add Customer Group&quot; to start reconciling</p>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-[150px]">Customer</TableHead>
-                        <TableHead className="w-[100px]">Vehicle#</TableHead>
-                        <TableHead className="w-[80px]">Slip#</TableHead>
-                        <TableHead className="w-[120px]">Product</TableHead>
-                        <TableHead className="w-[100px]">Qty (L)</TableHead>
-                        <TableHead className="w-[100px]">Price (PKR/L)</TableHead>
-                        <TableHead className="w-[120px]">Total (PKR)</TableHead>
-                        <TableHead className="w-[140px]">Payment</TableHead>
-                        <TableHead className="w-[60px]"></TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {transactions.map((txn, index) => (
-                        <TableRow key={index}>
-                          <TableCell>
-                            <Select
-                              value={txn.customerId || '__walkin__'}
-                              onValueChange={(value) => updateTransaction(index, 'customerId', value === '__walkin__' ? '' : value)}
-                            >
-                              <SelectTrigger className="h-8 text-xs">
-                                <SelectValue placeholder="Walk-in" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="__walkin__">Walk-in (Cash)</SelectItem>
-                                {customersData?.map((customer: any) => (
-                                  <SelectItem key={customer.id} value={customer.id}>
-                                    {customer.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </TableCell>
-
-                          <TableCell>
-                            <Input
-                              className="h-8 text-xs font-mono"
-                              value={txn.vehicleNumber || ''}
-                              onChange={(e) => updateTransaction(index, 'vehicleNumber', e.target.value)}
-                              placeholder="ABC-123"
-                            />
-                          </TableCell>
-
-                          <TableCell>
-                            <Input
-                              className="h-8 text-xs font-mono"
-                              value={txn.slipNumber || ''}
-                              onChange={(e) => updateTransaction(index, 'slipNumber', e.target.value)}
-                              placeholder="SLP-001"
-                            />
-                          </TableCell>
-
-                          <TableCell>
-                            <Input
-                              className="h-8 text-xs"
-                              value={txn.productName}
-                              onChange={(e) => updateTransaction(index, 'productName', e.target.value)}
-                              readOnly
-                            />
-                          </TableCell>
-
-                          <TableCell>
-                            <Input
-                              className="h-8 text-xs font-mono text-right"
-                              type="number"
-                              step="0.001"
-                              value={txn.quantity}
-                              onChange={(e) => updateTransaction(index, 'quantity', e.target.value)}
-                              placeholder="0.000"
-                            />
-                          </TableCell>
-
-                          <TableCell>
-                            <Input
-                              className="h-8 text-xs font-mono text-right"
-                              type="number"
-                              step="0.01"
-                              value={txn.unitPrice}
-                              onChange={(e) => updateTransaction(index, 'unitPrice', e.target.value)}
-                            />
-                          </TableCell>
-
-                          <TableCell>
-                            <Input
-                              className="h-8 text-xs font-mono text-right font-semibold"
-                              value={txn.lineTotal}
-                              readOnly
-                            />
-                          </TableCell>
-
-                          <TableCell>
-                            <Select
-                              value={txn.paymentMethod}
-                              onValueChange={(value: any) => updateTransaction(index, 'paymentMethod', value)}
-                            >
-                              <SelectTrigger className="h-8 text-xs">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="cash">Cash</SelectItem>
-                                <SelectItem value="credit_card">Credit Card</SelectItem>
-                                <SelectItem value="bank_card">Bank Card</SelectItem>
-                                <SelectItem value="pso_card">PSO Card</SelectItem>
-                                <SelectItem value="credit_customer">Credit Customer</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </TableCell>
-
-                          <TableCell>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => removeTransaction(index)}
-                              className="h-8 w-8 p-0"
-                            >
-                              <Trash2 className="h-4 w-4 text-red-600" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
+                <Accordion type="multiple" defaultValue={customerGroups.map(g => g.customerId)} className="space-y-2">
+                  {customerGroups.map((group) => (
+                    <AccordionItem key={group.customerId} value={group.customerId} className="border rounded-lg">
+                      <AccordionTrigger className="hover:no-underline px-4 py-3">
+                        <div className="flex items-center justify-between w-full pr-4">
+                          <div className="flex items-center gap-3">
+                            <span className="font-semibold text-base">{group.customerName}</span>
+                            <Badge variant="secondary" className="text-xs">
+                              {group.transactions.length} txn{group.transactions.length > 1 ? 's' : ''}
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-6 text-sm">
+                            <span className="text-muted-foreground">
+                              <span className="font-mono font-semibold text-blue-600">{group.totalLiters.toFixed(3)}</span> L
+                            </span>
+                            <span className="font-mono font-semibold">{group.totalAmount.toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR</span>
+                          </div>
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent>
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="bg-muted/30">
+                              <TableHead className="w-[130px]">Vehicle#</TableHead>
+                              <TableHead className="w-[110px]">Slip#</TableHead>
+                              <TableHead className="w-[130px]">Product</TableHead>
+                              <TableHead className="w-[120px] text-right">Qty (L)</TableHead>
+                              <TableHead className="w-[120px] text-right">Price/L</TableHead>
+                              <TableHead className="w-[140px] text-right">Total (PKR)</TableHead>
+                              <TableHead className="w-[160px]">Payment</TableHead>
+                              <TableHead className="w-[50px]"></TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {group.transactions.map((txn, localIdx) => {
+                              const globalIdx = group.indices[localIdx];
+                              return (
+                                <TableRow key={globalIdx}>
+                                  <TableCell className="p-2">
+                                    <Input
+                                      className="h-10 text-sm font-mono"
+                                      value={txn.vehicleNumber || ''}
+                                      onChange={(e) => updateTransaction(globalIdx, 'vehicleNumber', e.target.value)}
+                                      placeholder="ABC-123"
+                                    />
+                                  </TableCell>
+                                  <TableCell className="p-2">
+                                    <Input
+                                      className="h-10 text-sm font-mono"
+                                      value={txn.slipNumber || ''}
+                                      onChange={(e) => updateTransaction(globalIdx, 'slipNumber', e.target.value)}
+                                      placeholder="SLP-001"
+                                    />
+                                  </TableCell>
+                                  <TableCell className="p-2">
+                                    <Input className="h-10 text-sm bg-muted/30" value={txn.productName} readOnly />
+                                  </TableCell>
+                                  <TableCell className="p-2">
+                                    <Input
+                                      className="h-10 text-sm font-mono text-right"
+                                      type="number"
+                                      step="0.001"
+                                      value={txn.quantity}
+                                      onChange={(e) => updateTransaction(globalIdx, 'quantity', e.target.value)}
+                                      placeholder="0.000"
+                                    />
+                                  </TableCell>
+                                  <TableCell className="p-2">
+                                    <Input
+                                      className="h-10 text-sm font-mono text-right"
+                                      type="number"
+                                      step="0.01"
+                                      value={txn.unitPrice}
+                                      onChange={(e) => updateTransaction(globalIdx, 'unitPrice', e.target.value)}
+                                    />
+                                  </TableCell>
+                                  <TableCell className="p-2">
+                                    <Input
+                                      className="h-10 text-sm font-mono text-right font-semibold bg-blue-50 text-blue-700"
+                                      value={toNumber(txn.lineTotal).toLocaleString('en-PK', { minimumFractionDigits: 2 })}
+                                      readOnly
+                                    />
+                                  </TableCell>
+                                  <TableCell className="p-2">
+                                    <Select
+                                      value={txn.paymentMethod}
+                                      onValueChange={(v: any) => updateTransaction(globalIdx, 'paymentMethod', v)}
+                                    >
+                                      <SelectTrigger className="h-10 text-sm">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="cash">Cash</SelectItem>
+                                        <SelectItem value="credit_card">Credit Card</SelectItem>
+                                        <SelectItem value="bank_card">Bank Card</SelectItem>
+                                        <SelectItem value="pso_card">PSO Card</SelectItem>
+                                        <SelectItem value="credit_customer">Credit Customer</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </TableCell>
+                                  <TableCell className="p-2">
+                                    <Button size="icon" variant="ghost" onClick={() => removeTransaction(globalIdx)}>
+                                      <Trash2 className="h-4 w-4 text-red-500" />
+                                    </Button>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                        <div className="flex justify-end gap-2 mt-3">
+                          <Button size="sm" variant="outline" onClick={() => duplicateLastInGroup(group.indices)}>
+                            <Copy className="h-3 w-3 mr-1" /> Duplicate Last
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => addTransactionToCustomer(group.customerId, group.customerName)}>
+                            <Plus className="h-3 w-3 mr-1" /> Add Row
+                          </Button>
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  ))}
+                </Accordion>
               )}
 
               {transactions.length > 0 && (
-                <div className="flex justify-end gap-2 mt-4 pt-4 border-t">
-                  <Button variant="outline" onClick={resetForm}>
-                    Cancel
-                  </Button>
+                <div className="flex justify-end gap-2 mt-6 pt-4 border-t">
+                  <Button variant="outline" onClick={resetForm}>Cancel</Button>
                   <Button onClick={handleSaveAll} disabled={createEntryMutation.isPending || createTransactionMutation.isPending}>
                     <Save className="h-4 w-4 mr-2" />
-                    {currentEntryId ? 'Save Transactions' : 'Create Entry & Save Transactions'}
+                    {currentEntryId ? 'Save Transactions' : 'Create Entry & Save'}
                   </Button>
                 </div>
               )}
             </CardContent>
           </Card>
+
+          {/* Add Customer Group Dialog */}
+          <Dialog open={isAddGroupOpen} onOpenChange={setIsAddGroupOpen}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Add Customer Group</DialogTitle>
+              </DialogHeader>
+              <div className="py-4">
+                <Label className="mb-2 block">Customer</Label>
+                <CustomerSelector
+                  customers={customersData || []}
+                  value={newGroupCustomerId}
+                  onChange={setNewGroupCustomerId}
+                  placeholder="Search by name, phone, or email..."
+                />
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => { setIsAddGroupOpen(false); setNewGroupCustomerId(''); }}>
+                  Cancel
+                </Button>
+                <Button onClick={() => {
+                  const isWalkin = !newGroupCustomerId || newGroupCustomerId === 'none';
+                  const customer = customersData?.find((c: any) => c.id === newGroupCustomerId);
+                  addTransactionToCustomer(
+                    isWalkin ? '__walkin__' : newGroupCustomerId,
+                    isWalkin ? 'Walk-in Sales' : (customer?.name || 'Unknown'),
+                  );
+                  setIsAddGroupOpen(false);
+                  setNewGroupCustomerId('');
+                }}>
+                  <Plus className="h-4 w-4 mr-1" /> Add Group
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
 
         {/* Right: Reconciliation Panel */}
