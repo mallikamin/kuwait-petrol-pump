@@ -696,8 +696,59 @@ export function BackdatedEntries() {
     },
   });
 
+  // Delete meter reading mutation
+  const deleteMeterReadingMutation = useMutation({
+    mutationFn: async (readingId: string) => {
+      const res = await apiClient.delete(`/api/meter-readings/${readingId}`);
+      return res.data;
+    },
+    onSuccess: () => {
+      toast.success('Meter reading deleted successfully');
+      refetchMeterReadings();
+      refetchDailySummary();
+      refetchShiftInstances();
+    },
+    onError: (error: any) => {
+      const errorMsg = error?.response?.data?.error || error.message || 'Failed to delete meter reading';
+      toast.error(errorMsg);
+    },
+  });
+
+  // Update meter reading mutation
+  const updateMeterReadingMutation = useMutation({
+    mutationFn: async ({ readingId, meterValue }: { readingId: string; meterValue: number }) => {
+      const res = await apiClient.patch(`/api/meter-readings/${readingId}`, { meterValue });
+      return res.data;
+    },
+    onSuccess: () => {
+      toast.success('Meter reading updated successfully');
+      setEditingReadingId(null);
+      setEditingReadingValue(null);
+      refetchMeterReadings();
+      refetchDailySummary();
+    },
+    onError: (error: any) => {
+      const errorMsg = error?.response?.data?.error || error.message || 'Failed to update meter reading';
+      toast.error(errorMsg);
+    },
+  });
+
   const handleMeterReadingCapture = async (data: MeterReadingData) => {
     if (!selectedMeterNozzle || !selectedShiftForReading) return;
+
+    // If editing existing reading, call UPDATE
+    if (_editingReadingId) {
+      await updateMeterReadingMutation.mutateAsync({
+        readingId: _editingReadingId,
+        meterValue: data.currentReading,
+      });
+      setIsMeterReadingOpen(false);
+      setSelectedMeterNozzle(null);
+      setSelectedShiftForReading(null);
+      return;
+    }
+
+    // Otherwise, create new reading
     await saveMeterReadingMutation.mutateAsync({
       nozzleId: selectedMeterNozzle.id,
       readingType: selectedReadingType,
@@ -982,17 +1033,32 @@ export function BackdatedEntries() {
                                               {toNumber(openingReading?.meter_value ?? openingReading?.reading_value).toFixed(3)}
                                             </span>
                                           </div>
-                                          <Button
-                                            size="sm"
-                                            variant="ghost"
-                                            onClick={() =>
-                                              openMeterReadingDialog(nozzle, shiftTemplate, 'opening', openingReading)
-                                            }
-                                            className="h-7 w-7 p-0"
-                                            title="Edit opening"
-                                          >
-                                            <Edit className="h-3 w-3" />
-                                          </Button>
+                                          <div className="flex items-center gap-1">
+                                            <Button
+                                              size="sm"
+                                              variant="ghost"
+                                              onClick={() =>
+                                                openMeterReadingDialog(nozzle, shiftTemplate, 'opening', openingReading)
+                                              }
+                                              className="h-7 w-7 p-0"
+                                              title="Edit opening"
+                                            >
+                                              <Edit className="h-3 w-3" />
+                                            </Button>
+                                            <Button
+                                              size="sm"
+                                              variant="ghost"
+                                              onClick={() => {
+                                                if (confirm('Delete this opening reading?')) {
+                                                  deleteMeterReadingMutation.mutate(openingReading.id);
+                                                }
+                                              }}
+                                              className="h-7 w-7 p-0 text-red-600 hover:text-red-700"
+                                              title="Delete opening"
+                                            >
+                                              <Trash2 className="h-3 w-3" />
+                                            </Button>
+                                          </div>
                                         </div>
                                       ) : (
                                         <Button
@@ -1018,17 +1084,32 @@ export function BackdatedEntries() {
                                               {toNumber(closingReading?.meter_value ?? closingReading?.reading_value).toFixed(3)}
                                             </span>
                                           </div>
-                                          <Button
-                                            size="sm"
-                                            variant="ghost"
-                                            onClick={() =>
-                                              openMeterReadingDialog(nozzle, shiftTemplate, 'closing', closingReading)
-                                            }
-                                            className="h-7 w-7 p-0"
-                                            title="Edit closing"
-                                          >
-                                            <Edit className="h-3 w-3" />
-                                          </Button>
+                                          <div className="flex items-center gap-1">
+                                            <Button
+                                              size="sm"
+                                              variant="ghost"
+                                              onClick={() =>
+                                                openMeterReadingDialog(nozzle, shiftTemplate, 'closing', closingReading)
+                                              }
+                                              className="h-7 w-7 p-0"
+                                              title="Edit closing"
+                                            >
+                                              <Edit className="h-3 w-3" />
+                                            </Button>
+                                            <Button
+                                              size="sm"
+                                              variant="ghost"
+                                              onClick={() => {
+                                                if (confirm('Delete this closing reading?')) {
+                                                  deleteMeterReadingMutation.mutate(closingReading.id);
+                                                }
+                                              }}
+                                              className="h-7 w-7 p-0 text-red-600 hover:text-red-700"
+                                              title="Delete closing"
+                                            >
+                                              <Trash2 className="h-3 w-3" />
+                                            </Button>
+                                          </div>
                                         </div>
                                       ) : (
                                         <Button
@@ -1435,12 +1516,14 @@ export function BackdatedEntries() {
                 <MeterReadingCapture
                   nozzleId={selectedMeterNozzle.id}
                   nozzleName={`${selectedShiftForReading.name} – ${selectedMeterNozzle.name || `Nozzle ${selectedMeterNozzle.nozzleNumber}`} (${selectedMeterNozzle.fuelType?.name || 'Unknown'})`}
-                  previousReading={getPreviousReading(selectedMeterNozzle.id, selectedReadingType)}
+                  previousReading={_editingReadingValue ?? getPreviousReading(selectedMeterNozzle.id, selectedReadingType)}
                   onCapture={handleMeterReadingCapture}
                   onCancel={() => {
                     setIsMeterReadingOpen(false);
                     setSelectedMeterNozzle(null);
                     setSelectedShiftForReading(null);
+                    setEditingReadingId(null);
+                    setEditingReadingValue(null);
                   }}
                 />
               )}
