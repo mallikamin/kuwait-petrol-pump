@@ -7,7 +7,7 @@ export const createSupplierSchema = z.object({
   phone: z.string().optional(),
   email: z.string().email('Invalid email format').optional().or(z.literal('')),
   paymentTerms: z.string().optional(),
-  creditDays: z.number().int().positive().optional(),
+  creditDays: z.number().int().nonnegative().optional(),
 });
 
 export const updateSupplierSchema = z.object({
@@ -17,7 +17,7 @@ export const updateSupplierSchema = z.object({
   phone: z.string().optional(),
   email: z.string().email('Invalid email format').optional().or(z.literal('')),
   paymentTerms: z.string().optional(),
-  creditDays: z.number().int().positive().optional(),
+  creditDays: z.number().int().nonnegative().optional(),
   isActive: z.boolean().optional(),
 });
 

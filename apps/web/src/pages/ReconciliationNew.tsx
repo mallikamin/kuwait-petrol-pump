@@ -4,7 +4,7 @@
  * Purpose: Identify days that need reconciliation, show what's missing, provide audit trail
  * Data Source: Backdated Meter Readings API (shift-segregated daily read model)
  */
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Calendar, CheckCircle, AlertTriangle, XCircle, ChevronDown, ChevronRight, Download } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -43,6 +43,8 @@ interface DailySummary {
 
 export function ReconciliationNew() {
   const { user } = useAuthStore();
+  const branchId = user?.branch_id || (user as any)?.branch?.id;
+
   const [startDate, setStartDate] = useState(() => {
     const date = new Date();
     date.setDate(date.getDate() - 30); // Last 30 days
@@ -53,9 +55,9 @@ export function ReconciliationNew() {
 
   // Fetch daily summaries for date range
   const { data: summaries, isLoading, error } = useQuery({
-    queryKey: ['reconciliation-summary', user?.branch_id, startDate, endDate],
+    queryKey: ['reconciliation-summary', branchId, startDate, endDate],
     queryFn: async () => {
-      if (!user?.branch_id) throw new Error('Branch not found. Please log in again.');
+      if (!branchId) throw new Error('Branch not found. Please log in again.');
 
       const start = new Date(startDate);
       const end = new Date(endDate);
@@ -67,7 +69,7 @@ export function ReconciliationNew() {
         try {
           const response = await apiClient.get('/api/backdated-meter-readings/daily', {
             params: {
-              branchId: user.branch_id,
+              branchId: branchId,
               businessDate,
             },
           });
@@ -127,7 +129,7 @@ export function ReconciliationNew() {
 
       return days.reverse(); // Most recent first
     },
-    enabled: !!user?.branch_id,
+    enabled: !!branchId,
     staleTime: 30000, // Cache for 30 seconds
   });
 
@@ -174,7 +176,7 @@ export function ReconciliationNew() {
     totalMissing: summaries.reduce((sum, s) => sum + s.totalReadingsMissing, 0),
   } : null;
 
-  if (!user?.branch_id) {
+  if (!branchId) {
     return (
       <div className="space-y-6">
         <Alert variant="destructive">
