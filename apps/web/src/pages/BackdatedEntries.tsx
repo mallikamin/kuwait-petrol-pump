@@ -16,11 +16,12 @@ import {
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle, Users, Copy, Search } from 'lucide-react';
+import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle, Users, Copy, Search, Gauge, Camera } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { branchesApi, customersApi, meterReadingsApi } from '@/api';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
+import { MeterReadingCapture, type MeterReadingData } from '@/components/MeterReadingCapture';
 
 interface Transaction {
   id?: string;
@@ -283,6 +284,11 @@ export function BackdatedEntries() {
   const [isAddGroupOpen, setIsAddGroupOpen] = useState(false);
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
 
+  // Meter reading dialog state
+  const [isMeterReadingOpen, setIsMeterReadingOpen] = useState(false);
+  const [selectedMeterNozzle, setSelectedMeterNozzle] = useState<any>(null);
+  const [selectedReadingType, setSelectedReadingType] = useState<'opening' | 'closing'>('opening');
+
   // Filtered customers for dialog
   const filteredCustomers = useMemo(() => {
     if (!customerSearchQuery.trim()) return customersData || [];
@@ -516,6 +522,75 @@ export function BackdatedEntries() {
     await finalizeDayMutation.mutateAsync();
   };
 
+  // Save backdated meter reading mutation
+  const saveMeterReadingMutation = useMutation({
+    mutationFn: async ({ nozzleId, readingType, meterValue, imageUrl, ocrConfidence, isManual }: {
+      nozzleId: string;
+      readingType: 'opening' | 'closing';
+      meterValue: number;
+      imageUrl?: string;
+      ocrConfidence?: number;
+      isManual: boolean;
+    }) => {
+      const res = await apiClient.post('/api/meter-readings', {
+        nozzle_id: nozzleId,
+        reading_type: readingType,
+        reading_value: meterValue,
+        meter_value: meterValue,
+        recorded_at: `${businessDate}T12:00:00.000Z`, // Use business date
+        image_url: imageUrl,
+        ocr_confidence: ocrConfidence,
+        is_manual: isManual,
+      });
+      return res.data;
+    },
+    onSuccess: () => {
+      toast.success('Meter reading saved successfully');
+      setIsMeterReadingOpen(false);
+      setSelectedMeterNozzle(null);
+      refetchDailySummary(); // Refresh data to update meter totals
+    },
+    onError: (error: any) => {
+      const errorMsg = error?.response?.data?.error || error.message || 'Failed to save meter reading';
+      toast.error(errorMsg);
+    },
+  });
+
+  const handleMeterReadingCapture = async (data: MeterReadingData) => {
+    if (!selectedMeterNozzle) return;
+    await saveMeterReadingMutation.mutateAsync({
+      nozzleId: selectedMeterNozzle.id,
+      readingType: selectedReadingType,
+      meterValue: data.currentReading,
+      imageUrl: data.imageUrl,
+      ocrConfidence: data.ocrConfidence,
+      isManual: data.isManualReading,
+    });
+  };
+
+  const openMeterReadingDialog = (nozzle: any, type: 'opening' | 'closing') => {
+    setSelectedMeterNozzle(nozzle);
+    setSelectedReadingType(type);
+    setIsMeterReadingOpen(true);
+  };
+
+  // Get previous reading for a nozzle
+  const getPreviousReading = (nozzleId: string, type: 'opening' | 'closing'): number => {
+    const readings = (meterReadingsData || []).filter((r: any) => r.nozzle_id === nozzleId);
+    if (type === 'opening') {
+      // For opening reading, use previous day's closing (if available)
+      // For backdated entries, we'll just return 0 or latest reading
+      const latestReading = readings
+        .filter((r: any) => r.reading_type === 'closing')
+        .sort((a: any, b: any) => new Date(b.recorded_at).getTime() - new Date(a.recorded_at).getTime())[0];
+      return latestReading ? toNumber(latestReading.meter_value ?? latestReading.reading_value) : 0;
+    } else {
+      // For closing reading, use today's opening
+      const openingReading = readings.find((r: any) => r.reading_type === 'opening');
+      return openingReading ? toNumber(openingReading.meter_value ?? openingReading.reading_value) : 0;
+    }
+  };
+
   const resetForm = () => {
     setBusinessDate(format(new Date(), 'yyyy-MM-dd'));
     setSelectedBranchId('');
@@ -611,6 +686,92 @@ export function BackdatedEntries() {
               )}
             </CardContent>
           </Card>
+
+          {/* Meter Readings Section */}
+          {selectedBranchId && businessDate && nozzlesData && nozzlesData.length > 0 && (
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <Gauge className="h-5 w-5" />
+                    Backdated Meter Readings
+                  </CardTitle>
+                  <Badge variant="outline" className="text-blue-600 border-blue-600">
+                    <Camera className="h-3 w-3 mr-1" />
+                    OCR Supported
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {(nozzlesData || []).map((nozzle: any) => {
+                    const nozzleReadings = (meterReadingsData || []).filter((r: any) => r.nozzle_id === nozzle.id);
+                    const hasOpening = nozzleReadings.some((r: any) => r.reading_type === 'opening');
+                    const hasClosing = nozzleReadings.some((r: any) => r.reading_type === 'closing');
+                    const openingReading = nozzleReadings.find((r: any) => r.reading_type === 'opening');
+                    const closingReading = nozzleReadings.find((r: any) => r.reading_type === 'closing');
+
+                    return (
+                      <div key={nozzle.id} className="border rounded-lg p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="font-semibold">{nozzle.name || `Nozzle ${nozzle.nozzleNumber}`}</div>
+                            <div className="text-sm text-muted-foreground">{nozzle.fuelType?.name || 'Unknown'}</div>
+                          </div>
+                          <Badge variant="outline">{nozzle.fuelType?.code || 'N/A'}</Badge>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-2">
+                            <div className="text-xs text-muted-foreground">Opening Reading</div>
+                            {hasOpening ? (
+                              <div className="flex items-center gap-2">
+                                <CheckCircle className="h-4 w-4 text-green-600" />
+                                <span className="font-mono font-semibold">
+                                  {toNumber(openingReading?.meter_value ?? openingReading?.reading_value).toFixed(3)} L
+                                </span>
+                              </div>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => openMeterReadingDialog(nozzle, 'opening')}
+                                className="w-full"
+                              >
+                                <Camera className="h-3 w-3 mr-1" />
+                                Add Opening
+                              </Button>
+                            )}
+                          </div>
+                          <div className="space-y-2">
+                            <div className="text-xs text-muted-foreground">Closing Reading</div>
+                            {hasClosing ? (
+                              <div className="flex items-center gap-2">
+                                <CheckCircle className="h-4 w-4 text-green-600" />
+                                <span className="font-mono font-semibold">
+                                  {toNumber(closingReading?.meter_value ?? closingReading?.reading_value).toFixed(3)} L
+                                </span>
+                              </div>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => openMeterReadingDialog(nozzle, 'closing')}
+                                className="w-full"
+                                disabled={!hasOpening}
+                              >
+                                <Camera className="h-3 w-3 mr-1" />
+                                Add Closing
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* HSD/PMG Dashboard Cards */}
           {selectedBranchId && businessDate && (
@@ -943,6 +1104,31 @@ export function BackdatedEntries() {
                   Cancel
                 </Button>
               </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Meter Reading Capture Dialog */}
+          <Dialog open={isMeterReadingOpen} onOpenChange={(open) => {
+            setIsMeterReadingOpen(open);
+            if (!open) {
+              setSelectedMeterNozzle(null);
+            }
+          }}>
+            <DialogContent className="sm:max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>
+                  {selectedReadingType === 'opening' ? 'Opening' : 'Closing'} Reading - {selectedMeterNozzle?.name || 'Nozzle'}
+                </DialogTitle>
+              </DialogHeader>
+              {selectedMeterNozzle && (
+                <MeterReadingCapture
+                  nozzleId={selectedMeterNozzle.id}
+                  nozzleName={`${selectedMeterNozzle.name || `Nozzle ${selectedMeterNozzle.nozzleNumber}`} (${selectedMeterNozzle.fuelType?.name || 'Unknown'})`}
+                  previousReading={getPreviousReading(selectedMeterNozzle.id, selectedReadingType)}
+                  onCapture={handleMeterReadingCapture}
+                  onCancel={() => setIsMeterReadingOpen(false)}
+                />
+              )}
             </DialogContent>
           </Dialog>
         </div>
