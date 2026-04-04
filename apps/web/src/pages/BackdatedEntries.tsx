@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,24 +37,6 @@ interface Transaction {
   paymentMethod: 'cash' | 'credit_card' | 'bank_card' | 'pso_card' | 'credit_customer';
 }
 
-interface BackdatedEntryResponse {
-  id: string;
-  shiftId?: string | null;
-  transactions?: Array<{
-    id: string;
-    customerId?: string | null;
-    customer?: { name?: string | null } | null;
-    nozzleId?: string | null;
-    vehicleNumber?: string | null;
-    slipNumber?: string | null;
-    productName?: string | null;
-    quantity: number | string;
-    unitPrice: number | string;
-    lineTotal: number | string;
-    paymentMethod: Transaction['paymentMethod'];
-  }>;
-}
-
 interface MeterReadingRow {
   id: string;
   nozzle_id?: string;
@@ -83,14 +65,11 @@ export function BackdatedEntries() {
 
   // Transaction fields
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [currentEntryId, setCurrentEntryId] = useState<string | null>(null);
   const [syncMessage, setSyncMessage] = useState('');
 
   // Auto-save state
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [isDirty, setIsDirty] = useState(false);
-
-  const queryClient = useQueryClient();
 
   // Fetch branches
   const { data: branchesData } = useQuery({
@@ -143,20 +122,19 @@ export function BackdatedEntries() {
     },
   });
 
-  // Fetch existing backdated entry for selected day/branch/(optional)shift
-  const { data: existingEntriesData } = useQuery({
-    queryKey: ['backdated-entries', selectedBranchId, businessDate, selectedShiftId],
+  // Fetch daily summary from new consolidated API
+  const { data: dailySummaryData, refetch: refetchDailySummary } = useQuery({
+    queryKey: ['backdated-entries-daily', selectedBranchId, businessDate, selectedShiftId],
     enabled: !!selectedBranchId && !!businessDate,
     queryFn: async () => {
-      const res = await apiClient.get('/api/backdated-entries', {
+      const res = await apiClient.get('/api/backdated-entries/daily', {
         params: {
           branchId: selectedBranchId,
-          businessDateFrom: businessDate,
-          businessDateTo: businessDate,
+          businessDate: businessDate,
           shiftId: selectedShiftId || undefined,
         },
       });
-      return (res.data?.data || []) as BackdatedEntryResponse[];
+      return res.data?.data;
     },
   });
 
@@ -353,25 +331,18 @@ export function BackdatedEntries() {
 
   useEffect(() => {
     if (!selectedBranchId || !businessDate) {
-      setCurrentEntryId(null);
       setTransactions([]);
       setSyncMessage('');
       return;
     }
 
-    const matchedEntry = (existingEntriesData || []).find((entry) => {
-      if (selectedShiftId) return entry.shiftId === selectedShiftId;
-      return true;
-    });
-
-    if (matchedEntry) {
-      setCurrentEntryId(matchedEntry.id);
+    if (dailySummaryData?.transactions && dailySummaryData.transactions.length > 0) {
       setTransactions(
-        (matchedEntry.transactions || []).map((txn) => ({
+        dailySummaryData.transactions.map((txn: any) => ({
           id: txn.id,
-          customerId: txn.customerId || '',
+          customerId: txn.customer?.id || '',
           customerName: txn.customer?.name || '',
-          nozzleId: txn.nozzleId || '',
+          nozzleId: txn.nozzle?.id || '',
           vehicleNumber: txn.vehicleNumber || '',
           slipNumber: txn.slipNumber || '',
           productName: txn.productName || 'Fuel',
@@ -381,18 +352,16 @@ export function BackdatedEntries() {
           paymentMethod: txn.paymentMethod,
         }))
       );
-      setSyncMessage('Loaded existing backdated entry for selected context.');
-      return;
+      setSyncMessage(`Loaded ${dailySummaryData.transactions.length} existing transactions.`);
+    } else {
+      setTransactions([]);
+      setSyncMessage('No existing transactions. Start adding customer groups.');
     }
-
-    setCurrentEntryId(null);
-    setTransactions([]);
-    setSyncMessage('No existing backdated entry found. Start adding transactions.');
   }, [
     selectedBranchId,
     businessDate,
     selectedShiftId,
-    existingEntriesData,
+    dailySummaryData,
   ]);
 
   // Auto-save effect (mark dirty on transaction changes)
@@ -402,15 +371,17 @@ export function BackdatedEntries() {
 
   // Auto-save timer (2 minutes)
   useEffect(() => {
-    if (!isDirty || transactions.length === 0) return;
-    const timer = setTimeout(() => {
-      // Auto-save draft (call API when backend ready)
-      console.log('Auto-saving draft...');
-      setLastSaved(new Date());
-      setIsDirty(false);
+    if (!isDirty || transactions.length === 0 || !selectedBranchId) return;
+    const timer = setTimeout(async () => {
+      try {
+        await saveDailyDraftMutation.mutateAsync();
+        console.log('Auto-saved draft at', new Date().toLocaleTimeString());
+      } catch (error) {
+        console.error('Auto-save failed:', error);
+      }
     }, 120000); // 2 minutes
     return () => clearTimeout(timer);
-  }, [isDirty, transactions]);
+  }, [isDirty, transactions, selectedBranchId]);
 
   // Remove transaction row
   const removeTransaction = (index: number) => {
@@ -449,101 +420,95 @@ export function BackdatedEntries() {
     setTransactions(updated);
   };
 
-  // Create backdated entry mutation
-  const createEntryMutation = useMutation({
+  // Save daily draft mutation (new consolidated API)
+  const saveDailyDraftMutation = useMutation({
     mutationFn: async () => {
       if (!selectedBranchId) {
         throw new Error('Please select a branch');
       }
 
-      const res = await apiClient.post('/api/backdated-entries', {
-        branchId: selectedBranchId,
-        businessDate,
-        shiftId: selectedShiftId || undefined,
-      });
-
-      return res.data.data;
-    },
-    onSuccess: (data) => {
-      setCurrentEntryId(data.id);
-      toast.success('Backdated entry created - now add transactions');
-    },
-    onError: (error: any) => {
-      const errorMsg = error?.response?.data?.error || error.message || 'Failed to create entry';
-      toast.error(errorMsg);
-    },
-  });
-
-  // Create transaction mutation
-  const createTransactionMutation = useMutation({
-    mutationFn: async ({ entryId, transaction }: { entryId: string; transaction: Transaction }) => {
-      if (!entryId) {
-        throw new Error('Create entry first');
+      if (transactions.length === 0) {
+        throw new Error('No transactions to save');
       }
 
       // Validate credit customer requirements
-      if (transaction.paymentMethod === 'credit_customer') {
-        if (!transaction.customerId || !transaction.vehicleNumber || !transaction.slipNumber) {
-          throw new Error('Credit customer requires customer, vehicle, and slip number');
+      for (const txn of transactions) {
+        if (txn.paymentMethod === 'credit_customer') {
+          if (!txn.customerId || !txn.vehicleNumber || !txn.slipNumber) {
+            throw new Error(`Credit customer transaction requires customer, vehicle#, and slip# (row with ${txn.quantity}L)`);
+          }
         }
       }
 
-      // Get nozzle details for fuelTypeId
-      const nozzle = (nozzlesData || []).find((n: any) => n.id === transaction.nozzleId);
-      const fuelTypeId = nozzle?.fuelType?.id;
-
-      const res = await apiClient.post(`/api/backdated-entries/${entryId}/transactions`, {
-        customerId: transaction.customerId || undefined,
-        nozzleId: transaction.nozzleId || undefined,
-        vehicleNumber: transaction.vehicleNumber || undefined,
-        slipNumber: transaction.slipNumber || undefined,
-        fuelTypeId: fuelTypeId || undefined,
-        productName: transaction.productName,
-        quantity: toNumber(transaction.quantity),
-        unitPrice: toNumber(transaction.unitPrice),
-        lineTotal: toNumber(transaction.lineTotal),
-        paymentMethod: transaction.paymentMethod,
-        transactionDateTime: `${businessDate}T12:00:00+05:00`,
+      const res = await apiClient.post('/api/backdated-entries/daily', {
+        branchId: selectedBranchId,
+        businessDate,
+        shiftId: selectedShiftId || undefined,
+        transactions: transactions.map(txn => ({
+          customerId: txn.customerId || undefined,
+          nozzleId: txn.nozzleId || undefined,
+          vehicleNumber: txn.vehicleNumber || undefined,
+          slipNumber: txn.slipNumber || undefined,
+          productName: txn.productName,
+          quantity: toNumber(txn.quantity),
+          unitPrice: toNumber(txn.unitPrice),
+          lineTotal: toNumber(txn.lineTotal),
+          paymentMethod: txn.paymentMethod,
+        })),
       });
 
       return res.data.data;
     },
     onSuccess: () => {
-      toast.success('Transaction added');
+      toast.success('Draft saved successfully');
+      setLastSaved(new Date());
+      setIsDirty(false);
+      refetchDailySummary();
     },
     onError: (error: any) => {
-      const errorMsg = error?.response?.data?.error || error.message || 'Failed to create transaction';
+      const errorMsg = error?.response?.data?.error || error.message || 'Failed to save draft';
       toast.error(errorMsg);
     },
   });
 
-  // Save all transactions
-  const handleSaveAll = async () => {
-    let entryId = currentEntryId;
-    if (!entryId) {
-      const createdEntry = await createEntryMutation.mutateAsync();
-      entryId = createdEntry.id;
-      setCurrentEntryId(entryId);
-    }
-
-    if (!entryId) return;
-
-    for (const txn of transactions) {
-      if (!txn.id && toNumber(txn.quantity) > 0) {
-        await createTransactionMutation.mutateAsync({ entryId, transaction: txn });
+  // Finalize day mutation (enqueue QB sync)
+  const finalizeDayMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedBranchId) {
+        throw new Error('Please select a branch');
       }
-    }
 
-    toast.success('All transactions saved');
-    queryClient.invalidateQueries({ queryKey: ['backdated-entries'] });
+      const res = await apiClient.post('/api/backdated-entries/daily/finalize', {
+        branchId: selectedBranchId,
+        businessDate,
+      });
+
+      return res.data.data;
+    },
+    onSuccess: (data: any) => {
+      toast.success(data.message || 'Day finalized and queued for QuickBooks sync');
+      refetchDailySummary();
+    },
+    onError: (error: any) => {
+      const errorMsg = error?.response?.data?.error || error.message || 'Failed to finalize day';
+      toast.error(errorMsg);
+    },
+  });
+
+  const handleSaveDraft = async () => {
+    await saveDailyDraftMutation.mutateAsync();
   };
 
-  const handleSaveDraft = () => {
-    // TODO: Implement draft saving when backend endpoint is ready
-    console.log('Saving draft...');
-    setLastSaved(new Date());
-    setIsDirty(false);
-    toast.success('Draft saved locally');
+  const handleFinalizeDay = async () => {
+    if (isDirty) {
+      toast.error('Please save draft first before finalizing');
+      return;
+    }
+    if (transactions.length === 0) {
+      toast.error('No transactions to finalize');
+      return;
+    }
+    await finalizeDayMutation.mutateAsync();
   };
 
   const resetForm = () => {
@@ -551,7 +516,6 @@ export function BackdatedEntries() {
     setSelectedBranchId('');
     setSelectedShiftId('');
     setTransactions([]);
-    setCurrentEntryId(null);
     setSyncMessage('');
   };
 
@@ -880,14 +844,22 @@ export function BackdatedEntries() {
               {transactions.length > 0 && (
                 <div className="flex justify-end gap-2 mt-6 pt-4 border-t">
                   <Button variant="outline" onClick={resetForm}>Cancel</Button>
-                  <Button variant="outline" onClick={handleSaveDraft}>
+                  <Button
+                    variant="outline"
+                    onClick={handleSaveDraft}
+                    disabled={saveDailyDraftMutation.isPending}
+                  >
                     <Save className="h-4 w-4 mr-2" />
                     Save Draft
                     {lastSaved && <span className="text-xs ml-2">({format(lastSaved, 'HH:mm')})</span>}
                   </Button>
-                  <Button onClick={handleSaveAll} disabled={createEntryMutation.isPending || createTransactionMutation.isPending}>
-                    <Save className="h-4 w-4 mr-2" />
-                    {currentEntryId ? 'Save Transactions' : 'Create Entry & Save'}
+                  <Button
+                    onClick={handleFinalizeDay}
+                    disabled={finalizeDayMutation.isPending || isDirty}
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    Finalize Day
                   </Button>
                 </div>
               )}
