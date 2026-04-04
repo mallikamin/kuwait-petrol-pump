@@ -32,6 +32,9 @@ validateQuickBooksConfig();
 export function createApp() {
   const app = express();
 
+  // Trust nginx proxy so rate limiter uses X-Forwarded-For (real client IP)
+  app.set('trust proxy', 1);
+
   // Security middleware
   app.use(helmet());
 
@@ -54,10 +57,11 @@ export function createApp() {
     })
   );
 
-  // Rate limiting - SPA makes 5-10 calls per page load, so 100/15min is too low
+  // Rate limiting - nginx handles primary rate limiting, this is a safety net
+  // trust proxy is set above so this uses real client IP, not nginx container IP
   const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 500, // Limit each IP to 500 requests per windowMs
+    max: 1000, // Per real client IP (nginx does stricter limiting)
   });
   app.use('/api/', limiter);
 
