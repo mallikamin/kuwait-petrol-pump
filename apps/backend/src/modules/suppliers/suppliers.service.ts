@@ -87,6 +87,32 @@ export class SuppliersService {
   }
 
   /**
+   * Generate next supplier code (SUP-001, SUP-002, etc.)
+   */
+  private async generateSupplierCode(organizationId: string): Promise<string> {
+    // Find the highest existing code number
+    const suppliers = await prisma.supplier.findMany({
+      where: { organizationId },
+      select: { code: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    let maxNumber = 0;
+    for (const supplier of suppliers) {
+      if (supplier.code) {
+        const match = supplier.code.match(/^SUP-(\d+)$/);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (num > maxNumber) maxNumber = num;
+        }
+      }
+    }
+
+    const nextNumber = maxNumber + 1;
+    return `SUP-${nextNumber.toString().padStart(3, '0')}`;
+  }
+
+  /**
    * Create new supplier
    */
   async createSupplier(organizationId: string, data: CreateSupplierInput) {
@@ -102,11 +128,14 @@ export class SuppliersService {
       throw new AppError(400, 'Supplier with this name already exists');
     }
 
+    // Auto-generate supplier code (ignore user input)
+    const supplierCode = await this.generateSupplierCode(organizationId);
+
     const supplier = await prisma.supplier.create({
       data: {
         organization: { connect: { id: organizationId } },
         name: data.name,
-        code: data.code,
+        code: supplierCode, // Auto-generated, not from user input
         contactPerson: data.contactPerson,
         phone: data.phone,
         email: data.email || undefined,

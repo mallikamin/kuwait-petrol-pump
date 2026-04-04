@@ -314,7 +314,7 @@ export function Reconciliation() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Reconciliation</h1>
-          <p className="text-muted-foreground">End-of-day sales reconciliation and cash variance tracking</p>
+          <p className="text-muted-foreground">Identify unbalanced days, missing entries, track missing transactions</p>
         </div>
         <Button onClick={() => setIsWizardOpen(true)}>
           <Plus className="mr-2 h-4 w-4" />
@@ -667,20 +667,40 @@ export function Reconciliation() {
                       </CardHeader>
                       <CardContent className="space-y-2">
                         <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Credit Sales:</span>
-                          <span className="font-medium">{formatCurrency(formData.creditAmount)}</span>
+                          <span className="text-muted-foreground">Credit Customer Sales:</span>
+                          <div className="text-right">
+                            <span className="font-medium">{formatCurrency(formData.creditAmount)}</span>
+                            {posData && posData.creditCount !== undefined && (
+                              <span className="ml-2 text-xs text-muted-foreground">({posData.creditCount} entries)</span>
+                            )}
+                          </div>
                         </div>
                         <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">PSO Card:</span>
-                          <span className="font-medium">{formatCurrency(formData.psoCardAmount)}</span>
+                          <span className="text-muted-foreground">PSO Card Sales:</span>
+                          <div className="text-right">
+                            <span className="font-medium">{formatCurrency(formData.psoCardAmount)}</span>
+                            {posData && posData.psoCardCount !== undefined && (
+                              <span className="ml-2 text-xs text-muted-foreground">({posData.psoCardCount} entries)</span>
+                            )}
+                          </div>
                         </div>
                         <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Bank Card:</span>
-                          <span className="font-medium">{formatCurrency(formData.cardAmount)}</span>
+                          <span className="text-muted-foreground">Bank Card Sales:</span>
+                          <div className="text-right">
+                            <span className="font-medium">{formatCurrency(formData.cardAmount)}</span>
+                            {posData && posData.cardCount !== undefined && (
+                              <span className="ml-2 text-xs text-muted-foreground">({posData.cardCount} entries)</span>
+                            )}
+                          </div>
                         </div>
                         <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Cash (POS Posted):</span>
-                          <span className="font-medium">{formatCurrency(formData.cashAmount)}</span>
+                          <span className="text-muted-foreground">Cash Sales (Walk-in):</span>
+                          <div className="text-right">
+                            <span className="font-medium">{formatCurrency(formData.cashAmount)}</span>
+                            {posData && posData.cashCount !== undefined && (
+                              <span className="ml-2 text-xs text-muted-foreground">({posData.cashCount} entries)</span>
+                            )}
+                          </div>
                         </div>
                         <div className="flex justify-between text-lg font-bold border-t pt-2 mt-2 bg-blue-50 p-2 rounded">
                           <span>Expected Cash (From Meters):</span>

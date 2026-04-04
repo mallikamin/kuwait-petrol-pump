@@ -165,10 +165,21 @@ export function Suppliers() {
       return;
     }
 
+    // Clean up empty strings to undefined for optional fields
+    const cleanedData = {
+      name: formData.name,
+      code: formData.code.trim() || undefined,
+      contactPerson: formData.contactPerson.trim() || undefined,
+      phone: formData.phone.trim() || undefined,
+      email: formData.email.trim() || undefined,
+      paymentTerms: formData.paymentTerms.trim() || undefined,
+      creditDays: formData.creditDays,
+    };
+
     if (selectedSupplierId) {
-      updateMutation.mutate({ id: selectedSupplierId, data: formData });
+      updateMutation.mutate({ id: selectedSupplierId, data: cleanedData });
     } else {
-      createMutation.mutate(formData);
+      createMutation.mutate(cleanedData);
     }
   };
 
@@ -306,10 +317,14 @@ export function Suppliers() {
               <Label htmlFor="code">Supplier Code</Label>
               <Input
                 id="code"
-                value={formData.code}
-                onChange={(e) => setFormData({ ...formData, code: e.target.value })}
-                placeholder="e.g., KNP-001"
+                value={selectedSupplierId ? formData.code : 'Auto-generated (SUP-XXX)'}
+                disabled
+                className="bg-muted"
+                placeholder="Auto-generated"
               />
+              <p className="text-xs text-muted-foreground">
+                {selectedSupplierId ? 'Code cannot be changed' : 'Code will be auto-generated on save'}
+              </p>
             </div>
 
             <div className="space-y-2">

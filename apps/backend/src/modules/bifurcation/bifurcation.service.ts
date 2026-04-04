@@ -538,6 +538,12 @@ export class BifurcationService {
     let cardAmount = 0; // Bank cards
     let psoCardAmount = 0;
 
+    // Transaction counts per payment method
+    let cashCount = 0;
+    let creditCount = 0;
+    let cardCount = 0;
+    let psoCardCount = 0;
+
     // Process each fuel sale
     for (const fuelSale of fuelSales) {
       const liters = parseFloat(fuelSale.quantityLiters.toString());
@@ -554,15 +560,19 @@ export class BifurcationService {
         hsdTotalAmount += amount;
       }
 
-      // Sum by payment method
+      // Sum by payment method (with counts)
       if (paymentMethod === 'cash') {
         cashAmount += amount;
+        cashCount++;
       } else if (paymentMethod === 'credit') {
         creditAmount += amount;
+        creditCount++;
       } else if (paymentMethod === 'card') {
         cardAmount += amount;
+        cardCount++;
       } else if (paymentMethod === 'pso_card') {
         psoCardAmount += amount;
+        psoCardCount++;
       }
     }
 
@@ -597,6 +607,11 @@ export class BifurcationService {
       expectedTotalFromMeters = meterTotal;
     }
 
+    // Check if day is balanced (all payment methods add up to meter total)
+    const isBalanced = meterReadings
+      ? Math.abs((pmgLagAmount + hsdLagAmount)) < 1 // Within 1 PKR tolerance
+      : true; // If no meter readings, assume balanced
+
     return {
       date,
       branchId,
@@ -612,6 +627,11 @@ export class BifurcationService {
         psoCardAmount: Number(psoCardAmount.toFixed(2)),
         totalAmount: Number(posExpectedTotal.toFixed(2)),
         salesCount: fuelSales.length,
+        // Transaction counts per payment method
+        cashCount,
+        creditCount,
+        cardCount,
+        psoCardCount,
       },
       // Meter readings (source of truth)
       meterReadings: meterReadings ? {
@@ -635,6 +655,15 @@ export class BifurcationService {
       // Expected totals for bifurcation
       expectedTotal: Number(expectedTotalFromMeters.toFixed(2)),
       expectedCash: Number((expectedTotalFromMeters - creditAmount - cardAmount - psoCardAmount).toFixed(2)),
+      // Day balance status
+      isBalanced,
+      missingEntries: {
+        hasLag: Math.abs((pmgLagAmount + hsdLagAmount)) > 1,
+        lagAmount: Number((pmgLagAmount + hsdLagAmount).toFixed(2)),
+        message: isBalanced
+          ? 'All transactions posted'
+          : `Missing ${Math.abs((pmgLagAmount + hsdLagAmount)).toFixed(2)} PKR in entries`,
+      },
     };
   }
 }

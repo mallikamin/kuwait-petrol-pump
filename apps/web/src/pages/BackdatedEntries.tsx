@@ -638,15 +638,24 @@ export function BackdatedEntries() {
       ocrConfidence?: number;
       isManual: boolean;
     }) => {
+      // Find a shift for the business date (required by backend validation)
+      const shiftsForDate = shiftInstancesData || [];
+      const shiftId = shiftsForDate.length > 0 ? shiftsForDate[0].id : selectedShiftId;
+
+      if (!shiftId) {
+        throw new Error('No shift found for this business date. Please ensure shifts are configured.');
+      }
+
       const res = await apiClient.post('/api/meter-readings', {
-        nozzle_id: nozzleId,
-        reading_type: readingType,
-        reading_value: meterValue,
-        meter_value: meterValue,
-        recorded_at: `${businessDate}T12:00:00.000Z`, // Use business date (Asia/Karachi)
-        image_url: imageUrl,
-        ocr_confidence: ocrConfidence,
-        is_manual: isManual,
+        nozzleId,                    // ← camelCase (was nozzle_id)
+        shiftInstanceId: shiftId,    // ← REQUIRED field (was missing!)
+        readingType,                 // ← camelCase (was reading_type)
+        meterValue,                  // ← camelCase (was meter_value)
+        customTimestamp: `${businessDate}T12:00:00.000Z`, // ← Use customTimestamp for backdated entries
+        imageUrl,                    // ← camelCase (was image_url)
+        ocrConfidence,               // ← camelCase (was ocr_confidence)
+        isManualOverride: isManual,  // ← camelCase (was is_manual)
+        isOcr: !!ocrConfidence,      // ← Add isOcr flag
       });
       return res.data;
     },
