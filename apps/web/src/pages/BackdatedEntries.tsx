@@ -757,7 +757,7 @@ export function BackdatedEntries() {
       setLastSaved(new Date());
       setIsDirty(false);
       justSavedRef.current = true; // Prevent useEffect from overwriting local state
-      loadedKeyRef.current = ''; // Allow reload on next navigation (fresh data from server)
+      setLoadedKey(''); // Allow reload on next navigation (fresh data from server)
       refetchDailySummary();
     },
     onError: (error: any) => {
