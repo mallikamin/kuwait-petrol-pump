@@ -374,10 +374,11 @@ export function BackdatedEntries() {
 
   // Totals Integrity: Track missing readings
   const readingsIntegrity = useMemo(() => {
-    if (!nozzlesData || !shiftTemplatesData) return { expected: 0, found: 0, missing: [] };
+    if (!nozzlesData || !shiftTemplatesData) return { expected: 0, foundDb: 0, autoFilled: 0, missing: [] };
 
     const expected = (nozzlesData || []).length * (shiftTemplatesData || []).length * 2; // 2 = opening + closing
-    const found = (meterReadingsData || []).length;
+    const foundDb = (meterReadingsData || []).length;
+    let autoFilled = 0;
     const missing: Array<{ shift: string; nozzle: string; type: string }> = [];
 
     (nozzlesData || []).forEach((nozzle: any) => {
@@ -395,16 +396,19 @@ export function BackdatedEntries() {
         // Check for auto-filled opening (not in DB but computed)
         const computedOpening = !hasOpening ? getPreviousReading(nozzle.id, 'opening', shiftTemplate) : 0;
 
-        if (!hasOpening && computedOpening === 0) {
+        if (!hasOpening && computedOpening > 0) {
+          autoFilled++; // Count as auto-filled (functionally complete)
+        } else if (!hasOpening && computedOpening === 0) {
           missing.push({ shift: shiftTemplate.name, nozzle: nozzle.name, type: 'Opening' });
         }
+
         if (!hasClosing) {
           missing.push({ shift: shiftTemplate.name, nozzle: nozzle.name, type: 'Closing' });
         }
       });
     });
 
-    return { expected, found, missing };
+    return { expected, foundDb, autoFilled, missing };
   }, [nozzlesData, shiftTemplatesData, shiftInstancesData, meterReadingsData]);
 
   // Estimated variance amount (using average price from transactions)
@@ -1707,9 +1711,21 @@ export function BackdatedEntries() {
                       <span className="font-mono font-semibold">{readingsIntegrity.expected}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">Found Points:</span>
-                      <span className="font-mono font-semibold">{readingsIntegrity.found}</span>
+                      <span className="text-muted-foreground">Effective Points:</span>
+                      <span className="font-mono font-semibold">{readingsIntegrity.foundDb + readingsIntegrity.autoFilled}</span>
                     </div>
+                    {readingsIntegrity.autoFilled > 0 && (
+                      <div className="flex justify-between text-[11px] text-muted-foreground pl-2">
+                        <span>├─ Database:</span>
+                        <span className="font-mono">{readingsIntegrity.foundDb}</span>
+                      </div>
+                    )}
+                    {readingsIntegrity.autoFilled > 0 && (
+                      <div className="flex justify-between text-[11px] text-muted-foreground pl-2">
+                        <span>└─ Auto-filled:</span>
+                        <span className="font-mono">{readingsIntegrity.autoFilled}</span>
+                      </div>
+                    )}
                     {readingsIntegrity.missing.length > 0 && (
                       <>
                         <div className="pt-2 border-t border-orange-200">
@@ -1727,7 +1743,7 @@ export function BackdatedEntries() {
                         </div>
                         <div className="pt-2 border-t border-orange-200">
                           <div className="text-orange-900 font-medium">
-                            ⚠️ Totals partial due to missing readings ({readingsIntegrity.found}/{readingsIntegrity.expected})
+                            ⚠️ Totals partial due to missing readings ({readingsIntegrity.foundDb + readingsIntegrity.autoFilled}/{readingsIntegrity.expected})
                           </div>
                         </div>
                       </>
