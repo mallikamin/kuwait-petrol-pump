@@ -182,6 +182,9 @@ export class MeterReadingsService {
           organizationId,
         },
       },
+      include: {
+        shift: true, // Include shift details for auto-propagation logic
+      },
     });
 
     if (!shiftInstance) {
@@ -329,132 +332,180 @@ export class MeterReadingsService {
       },
     });
 
-    // AUTO-PROPAGATE: Closing of Day X → Opening of Day X+1 (FORWARD)
+    // AUTO-PROPAGATE: Closing → Next Opening (SHIFT-AWARE)
+    // - Day Shift closing → Same day Night Shift opening
+    // - Night Shift closing → Next day Day Shift opening
     if (readingType === 'closing') {
       try {
-        const nextDay = new Date(shiftInstance.date);
-        nextDay.setDate(nextDay.getDate() + 1);
-        nextDay.setHours(0, 0, 0, 0);
+        const isNightShift = shiftInstance.shift.name.toLowerCase().includes('night');
+        let targetDate: Date;
+        let targetShiftName: string;
 
-        // Find or create next day's shift instance for the same shift template
-        let nextDayShiftInstance = await prisma.shiftInstance.findFirst({
+        if (isNightShift) {
+          // Night shift closing → Next day Day shift opening
+          targetDate = new Date(shiftInstance.date);
+          targetDate.setDate(targetDate.getDate() + 1);
+          targetDate.setHours(0, 0, 0, 0);
+          targetShiftName = 'Day Shift';
+        } else {
+          // Day shift closing → Same day Night shift opening
+          targetDate = new Date(shiftInstance.date);
+          targetDate.setHours(0, 0, 0, 0);
+          targetShiftName = 'Night Shift';
+        }
+
+        // Find target shift template
+        const targetShift = await prisma.shift.findFirst({
           where: {
-            shiftId: shiftInstance.shiftId,
-            date: nextDay,
+            branchId: shiftInstance.branchId,
+            name: targetShiftName,
+            isActive: true,
           },
         });
 
-        // Auto-create next day's shift instance if it doesn't exist (for backdated entries)
-        if (!nextDayShiftInstance) {
-          nextDayShiftInstance = await prisma.shiftInstance.create({
+        if (!targetShift) {
+          console.warn(`[FORWARD] Target shift "${targetShiftName}" not found, skipping auto-propagation`);
+          return meterReading;
+        }
+
+        // Find or create target shift instance
+        let targetShiftInstance = await prisma.shiftInstance.findFirst({
+          where: {
+            shiftId: targetShift.id,
+            date: targetDate,
+          },
+        });
+
+        if (!targetShiftInstance) {
+          targetShiftInstance = await prisma.shiftInstance.create({
             data: {
-              shiftId: shiftInstance.shiftId,
+              shiftId: targetShift.id,
               branchId: shiftInstance.branchId,
-              date: nextDay,
-              openedAt: customTimestamp ? new Date(new Date(customTimestamp).getTime() + 86400000) : new Date(), // +1 day
+              date: targetDate,
+              openedAt: customTimestamp ? new Date(customTimestamp) : new Date(),
               openedBy: userId,
               status: 'open',
             },
           });
-          console.log(`✅ [FORWARD] Auto-created shift instance for ${nextDay.toISOString().split('T')[0]}`);
+          console.log(`✅ [FORWARD] Auto-created ${targetShiftName} instance for ${targetDate.toISOString().split('T')[0]}`);
         }
 
-        // Auto-create opening reading
-        if (nextDayShiftInstance) {
-          // Check if opening already exists
-          const existingNextOpening = await prisma.meterReading.findFirst({
-            where: {
+        // Check if opening already exists
+        const existingOpening = await prisma.meterReading.findFirst({
+          where: {
+            nozzleId,
+            shiftInstanceId: targetShiftInstance.id,
+            readingType: 'opening',
+          },
+        });
+
+        // Create opening if missing
+        if (!existingOpening) {
+          await prisma.meterReading.create({
+            data: {
               nozzleId,
-              shiftInstanceId: nextDayShiftInstance.id,
+              shiftInstanceId: targetShiftInstance.id,
               readingType: 'opening',
+              meterValue: new Decimal(meterValue),
+              isManualOverride: false,
+              isOcr: false,
+              recordedBy: userId,
+              recordedAt: new Date(),
             },
           });
 
-          // If no opening exists, auto-create it with today's closing value
-          if (!existingNextOpening) {
-            await prisma.meterReading.create({
-              data: {
-                nozzleId,
-                shiftInstanceId: nextDayShiftInstance.id,
-                readingType: 'opening',
-                meterValue: new Decimal(meterValue), // Use today's closing value
-                isManualOverride: false,
-                isOcr: false,
-                recordedBy: userId,
-                recordedAt: new Date(), // Record at current time
-              },
-            });
-
-            console.log(`✅ [FORWARD] Auto-created opening for nozzle ${nozzleId} on ${nextDay.toISOString().split('T')[0]} = ${meterValue}L (from today's closing)`);
-          }
+          console.log(`✅ [FORWARD] ${shiftInstance.shift.name} closing → ${targetShiftName} opening (${targetDate.toISOString().split('T')[0]}) = ${meterValue}L`);
         }
       } catch (error) {
-        // Log but don't fail the main operation
         console.error('[FORWARD] Failed to auto-propagate closing to next opening:', error);
       }
     }
 
-    // AUTO-PROPAGATE: Opening of Day X → Closing of Day X-1 (BACKWARD)
+    // AUTO-PROPAGATE: Opening → Previous Closing (SHIFT-AWARE)
+    // - Day Shift opening → Previous day Night Shift closing
+    // - Night Shift opening → Same day Day Shift closing
     if (readingType === 'opening') {
       try {
-        const prevDay = new Date(shiftInstance.date);
-        prevDay.setDate(prevDay.getDate() - 1);
-        prevDay.setHours(0, 0, 0, 0);
+        const isNightShift = shiftInstance.shift.name.toLowerCase().includes('night');
+        let targetDate: Date;
+        let targetShiftName: string;
 
-        // Find or create previous day's shift instance for the same shift template
-        let prevDayShiftInstance = await prisma.shiftInstance.findFirst({
+        if (isNightShift) {
+          // Night shift opening → Same day Day shift closing
+          targetDate = new Date(shiftInstance.date);
+          targetDate.setHours(0, 0, 0, 0);
+          targetShiftName = 'Day Shift';
+        } else {
+          // Day shift opening → Previous day Night shift closing
+          targetDate = new Date(shiftInstance.date);
+          targetDate.setDate(targetDate.getDate() - 1);
+          targetDate.setHours(0, 0, 0, 0);
+          targetShiftName = 'Night Shift';
+        }
+
+        // Find target shift template
+        const targetShift = await prisma.shift.findFirst({
           where: {
-            shiftId: shiftInstance.shiftId,
-            date: prevDay,
+            branchId: shiftInstance.branchId,
+            name: targetShiftName,
+            isActive: true,
           },
         });
 
-        // Auto-create previous day's shift instance if it doesn't exist (for backdated entries)
-        if (!prevDayShiftInstance) {
-          prevDayShiftInstance = await prisma.shiftInstance.create({
+        if (!targetShift) {
+          console.warn(`[BACKWARD] Target shift "${targetShiftName}" not found, skipping auto-propagation`);
+          return meterReading;
+        }
+
+        // Find or create target shift instance
+        let targetShiftInstance = await prisma.shiftInstance.findFirst({
+          where: {
+            shiftId: targetShift.id,
+            date: targetDate,
+          },
+        });
+
+        if (!targetShiftInstance) {
+          targetShiftInstance = await prisma.shiftInstance.create({
             data: {
-              shiftId: shiftInstance.shiftId,
+              shiftId: targetShift.id,
               branchId: shiftInstance.branchId,
-              date: prevDay,
-              openedAt: customTimestamp ? new Date(new Date(customTimestamp).getTime() - 86400000) : new Date(), // -1 day
+              date: targetDate,
+              openedAt: customTimestamp ? new Date(customTimestamp) : new Date(),
               openedBy: userId,
               status: 'open',
             },
           });
-          console.log(`✅ [BACKWARD] Auto-created shift instance for ${prevDay.toISOString().split('T')[0]}`);
+          console.log(`✅ [BACKWARD] Auto-created ${targetShiftName} instance for ${targetDate.toISOString().split('T')[0]}`);
         }
 
-        // Auto-create closing reading
-        if (prevDayShiftInstance) {
-          // Check if closing already exists
-          const existingPrevClosing = await prisma.meterReading.findFirst({
-            where: {
+        // Check if closing already exists
+        const existingClosing = await prisma.meterReading.findFirst({
+          where: {
+            nozzleId,
+            shiftInstanceId: targetShiftInstance.id,
+            readingType: 'closing',
+          },
+        });
+
+        // Create closing if missing
+        if (!existingClosing) {
+          await prisma.meterReading.create({
+            data: {
               nozzleId,
-              shiftInstanceId: prevDayShiftInstance.id,
+              shiftInstanceId: targetShiftInstance.id,
               readingType: 'closing',
+              meterValue: new Decimal(meterValue),
+              isManualOverride: false,
+              isOcr: false,
+              recordedBy: userId,
+              recordedAt: new Date(),
             },
           });
 
-          // If no closing exists, auto-create it with today's opening value
-          if (!existingPrevClosing) {
-            await prisma.meterReading.create({
-              data: {
-                nozzleId,
-                shiftInstanceId: prevDayShiftInstance.id,
-                readingType: 'closing',
-                meterValue: new Decimal(meterValue), // Use today's opening value
-                isManualOverride: false,
-                isOcr: false,
-                recordedBy: userId,
-                recordedAt: new Date(), // Record at current time
-              },
-            });
-
-            console.log(`✅ [BACKWARD] Auto-created closing for nozzle ${nozzleId} on ${prevDay.toISOString().split('T')[0]} = ${meterValue}L (from today's opening)`);
-          }
+          console.log(`✅ [BACKWARD] ${shiftInstance.shift.name} opening → ${targetShiftName} closing (${targetDate.toISOString().split('T')[0]}) = ${meterValue}L`);
         }
       } catch (error) {
-        // Log but don't fail the main operation
         console.error('[BACKWARD] Failed to auto-propagate opening to prev closing:', error);
       }
     }
