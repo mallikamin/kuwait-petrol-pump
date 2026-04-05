@@ -316,6 +316,13 @@ export function BackdatedEntries() {
       else if (txn.fuelCode === 'PMG') posted.PMG += qty;
       else if (txn.fuelCode === 'OTHER') posted.other += qty;
     });
+
+    console.log('[Posted Calculation]', {
+      transactionsCount: transactions.length,
+      posted,
+      sampleFuelCodes: transactions.slice(0, 3).map(t => ({ qty: t.quantity, fuelCode: t.fuelCode }))
+    });
+
     return posted;
   }, [transactions]);
 
@@ -799,6 +806,24 @@ export function BackdatedEntries() {
       toast.error('No transactions to finalize');
       return;
     }
+
+    // Calculate reconciliation percentage
+    const totalMeter = fuelTotals.HSD + fuelTotals.PMG;
+    const totalPosted = postedByFuel.HSD + postedByFuel.PMG;
+    const reconciledPercent = totalMeter > 0 ? (totalPosted / totalMeter) * 100 : 0;
+
+    // Warn if not fully reconciled
+    if (reconciledPercent < 95) {
+      const proceed = window.confirm(
+        `WARNING: Only ${reconciledPercent.toFixed(1)}% reconciled.\n\n` +
+        `Meter Total: ${totalMeter.toFixed(0)}L\n` +
+        `Posted: ${totalPosted.toFixed(0)}L\n` +
+        `Remaining: ${(totalMeter - totalPosted).toFixed(0)}L\n\n` +
+        `Finalize anyway? (Not recommended - add remaining transactions first)`
+      );
+      if (!proceed) return;
+    }
+
     await finalizeDayMutation.mutateAsync();
   };
 
