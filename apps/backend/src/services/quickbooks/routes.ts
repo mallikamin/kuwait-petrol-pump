@@ -1182,10 +1182,11 @@ router.post('/match/run', authenticate, authorize('admin', 'manager'), async (re
       metadata: {
         userId,
         organizationId,
-        healthGrade: result.healthGrade,
-        matched: result.matched,
-        candidates: result.candidates,
-        unmatched: result.unmatched,
+        overallHealthGrade: result.overallHealthGrade,
+        accountsMatched: result.accountsMatched,
+        customersMatched: result.customersMatched,
+        itemsMatched: result.itemsMatched,
+        banksMatched: result.banksMatched,
       },
     });
 
@@ -1239,16 +1240,7 @@ router.get('/match/:matchId', authenticate, async (req: Request, res: Response) 
  * GET /api/quickbooks/match/results/list
  * List all match results (authenticated)
  */
-router.get('/match/results/list', authenticate, async (req: Request, res: Response) => {
-  try {
-    const results = AutoMatchService.listResults();
-    res.json({ success: true, results });
-  } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-});
+// Removed listResults endpoint - not needed for multi-entity matching
 
 /**
  * POST /api/quickbooks/match/:matchId/decisions

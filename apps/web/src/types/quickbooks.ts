@@ -114,12 +114,18 @@ export interface AccountingNeed {
 }
 
 export interface MatchCandidate {
-  qbAccountId: string;
-  qbAccountName: string;
-  qbAccountType: string;
-  qbAccountSubType?: string;
+  qbEntityId: string;
+  qbEntityName: string;
+  qbEntityType: string;
+  qbEntitySubType?: string;
   score: number;
-  reason: string;
+  matchReason: string;
+  // Legacy support
+  qbAccountId?: string;
+  qbAccountName?: string;
+  qbAccountType?: string;
+  qbAccountSubType?: string;
+  reason?: string;
 }
 
 export interface MatchItem {

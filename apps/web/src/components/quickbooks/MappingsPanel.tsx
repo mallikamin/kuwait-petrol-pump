@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Plus, Upload, RefreshCw, Wand2, CheckCircle, AlertCircle, XCircle } from 'lucide-react';
 import { quickbooksApi } from '@/api/quickbooks';
 import { toast } from 'sonner';
-import type { QBEntityMapping, CreateMappingRequest, MatchResult, MatchItem } from '@/types/quickbooks';
+import type { QBEntityMapping, CreateMappingRequest, MatchResult } from '@/types/quickbooks';
 
 interface MappingsPanelProps {
   userRole: string;
@@ -269,16 +269,9 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
       const totalMappings =
         accountDecisions.length + customerDecisions.length + itemDecisions.length + bankDecisions.length;
       toast.success(`Applied ${totalMappings} mappings`);
-      const result = { result: { success: true } }; // Dummy for rest of code
-
-      if (result.result.success) {
-        toast.success(`Applied: ${result.result.mappingsCreated} mappings created`);
-        setShowAutoMatch(false);
-        setMatchResult(null);
-        await fetchMappings();
-      } else {
-        toast.error(`Errors: ${result.result.errors.join(', ')}`);
-      }
+      setShowAutoMatch(false);
+      setMatchResult(null);
+      await fetchMappings();
     } catch (err: any) {
       if (err.response?.status === 401 || err.response?.data?.error?.includes('token')) {
         setQbTokenExpired(true);
@@ -491,8 +484,8 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                             </SelectTrigger>
                             <SelectContent>
                               {item.candidates.slice(1).map((candidate) => (
-                                <SelectItem key={candidate.qbAccountId} value={candidate.qbAccountId}>
-                                  {candidate.qbAccountName} ({(candidate.score * 100).toFixed(0)}%)
+                                <SelectItem key={candidate.qbAccountId || candidate.qbEntityId} value={candidate.qbAccountId || candidate.qbEntityId}>
+                                  {candidate.qbAccountName || candidate.qbEntityName} ({(candidate.score * 100).toFixed(0)}%)
                                 </SelectItem>
                               ))}
                             </SelectContent>
