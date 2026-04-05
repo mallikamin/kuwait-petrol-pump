@@ -959,6 +959,37 @@ model QBEntityMapping {
   @@map("qb_entity_mappings")
 }
 
+/// QB Entities Snapshot (Cached QB entities for browsing)
+model QBEntitySnapshot {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+
+  // Organization link
+  organizationId String       @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Entity type
+  entityType String @map("entity_type") @db.VarChar(50) // 'customer', 'item', 'account', 'payment_method'
+
+  // QuickBooks entity data
+  qbId   String @map("qb_id") @db.VarChar(100)
+  qbName String @map("qb_name") @db.VarChar(255)
+  qbData Json   @map("qb_data") @db.JsonB // Full QB entity JSON
+
+  // Active status
+  isActive Boolean @default(true) @map("is_active")
+
+  // Sync tracking
+  lastSyncedAt DateTime @default(now()) @map("last_synced_at") @db.Timestamptz
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // Unique constraints
+  @@unique([organizationId, entityType, qbId], name: "uq_qb_snapshot_org_type_qbid")
+  @@index([organizationId, entityType], name: "idx_qb_snapshot_org_type")
+  @@index([qbId], name: "idx_qb_snapshot_qbid")
+  @@index([qbName], name: "idx_qb_snapshot_name")
+  @@map("qb_entities_snapshot")
+}
+
 // ============================================================
 // AUDIT
 // ============================================================
