@@ -117,7 +117,7 @@ export class DailyBackdatedEntriesController {
           transactions: validatedData.transactions as any[], // Zod validation ensures shape
         },
         req.user.organizationId,
-        req.user.id // Pass user ID for audit trail
+        req.user.userId // Pass user ID for audit trail
       );
 
       res.status(200).json({

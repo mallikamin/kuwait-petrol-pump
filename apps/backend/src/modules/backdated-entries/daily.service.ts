@@ -561,7 +561,6 @@ export class DailyBackdatedEntriesService {
         const fuelTypes = await prisma.fuelType.findMany({
           where: {
             code: { in: uniqueFuelCodes as string[] },
-            organizationId,
           },
         });
         fuelTypes.forEach(ft => fuelTypesMap.set(ft.code, ft.id));
