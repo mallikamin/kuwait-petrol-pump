@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -76,6 +76,7 @@ export function BackdatedEntries() {
   // Auto-save state
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [isDirty, setIsDirty] = useState(false);
+  const justSavedRef = useRef(false); // Track if we just saved to prevent useEffect from overwriting
 
   // Fetch branches
   const { data: branchesData } = useQuery({
@@ -515,40 +516,8 @@ export function BackdatedEntries() {
     [shiftInstancesData]
   );
 
-  useEffect(() => {
-    if (!selectedBranchId || !businessDate) {
-      setTransactions([]);
-      setSyncMessage('');
-      return;
-    }
-
-    if (dailySummaryData?.transactions && dailySummaryData.transactions.length > 0) {
-      setTransactions(
-        dailySummaryData.transactions.map((txn: any) => ({
-          id: txn.id,
-          customerId: txn.customer?.id || '',
-          customerName: txn.customer?.name || '',
-          fuelCode: txn.fuelCode || txn.nozzle?.fuelType?.code || '',
-          vehicleNumber: txn.vehicleNumber || '',
-          slipNumber: txn.slipNumber || '',
-          productName: txn.productName || 'Fuel',
-          quantity: toNumber(txn.quantity).toString(),
-          unitPrice: toNumber(txn.unitPrice).toFixed(2),
-          lineTotal: toNumber(txn.lineTotal).toFixed(2),
-          paymentMethod: txn.paymentMethod,
-        }))
-      );
-      setSyncMessage(`Loaded ${dailySummaryData.transactions.length} existing transactions.`);
-    } else {
-      setTransactions([]);
-      setSyncMessage('No existing transactions. Start adding customer groups.');
-    }
-  }, [
-    selectedBranchId,
-    businessDate,
-    selectedShiftId,
-    dailySummaryData,
-  ]);
+  // REMOVED: Duplicate useEffect that was overwriting transactions after save.
+  // The second useEffect (below) handles both API data and localStorage backup properly.
 
   // Auto-save effect (mark dirty on transaction changes)
   useEffect(() => {
@@ -568,6 +537,12 @@ export function BackdatedEntries() {
 
   // Restore from localStorage if API returns empty but backup exists
   useEffect(() => {
+    // Skip if we just saved (prevents overwriting local state after save)
+    if (justSavedRef.current) {
+      justSavedRef.current = false;
+      return;
+    }
+
     if (!selectedBranchId || !businessDate) {
       setTransactions([]);
       setSyncMessage('');
@@ -719,6 +694,7 @@ export function BackdatedEntries() {
       toast.success('Draft saved successfully');
       setLastSaved(new Date());
       setIsDirty(false);
+      justSavedRef.current = true; // Prevent useEffect from overwriting local state
       refetchDailySummary();
     },
     onError: (error: any) => {
