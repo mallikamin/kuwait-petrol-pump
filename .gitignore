@@ -65,3 +65,4 @@ manual-test-evidence-*/
 apps/desktop-pos/out/
 apps/desktop-pos/dist-electron/
 build-mobile-isolated/
+apps/web/dist.tar.gz

@@ -32,6 +32,8 @@ import { authenticate, authorize } from '../../middleware/auth.middleware';
 import { runPreflightChecks } from './preflight.service';
 import { OpLog } from './error-classifier';
 import OAuthClient from 'intuit-oauth';
+import { AutoMatchService } from './auto-match.service';
+import { getAllNeedsAsDicts } from './kuwait-needs';
 
 const prisma = new PrismaClient();
 
@@ -1053,6 +1055,198 @@ router.post('/mappings/bulk', authenticate, authorize('admin', 'manager'), async
     res.status(500).json({
       error: error instanceof Error ? error.message : String(error)
     });
+  }
+});
+
+// ============================================================
+// AUTO-MATCHING ENDPOINTS (Wizard-based mapping setup)
+// ============================================================
+
+/**
+ * GET /api/quickbooks/needs
+ * List POS accounting needs catalog (authenticated)
+ */
+router.get('/needs', authenticate, async (req: Request, res: Response) => {
+  try {
+    const needs = getAllNeedsAsDicts();
+    res.json({ success: true, needs });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/**
+ * POST /api/quickbooks/match/run
+ * Run auto-matching against QB Chart of Accounts (authenticated admin/manager)
+ */
+router.post('/match/run', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { organizationId, userId } = req.user;
+
+    console.log(`[QB Auto-Match] Starting for org ${organizationId} by user ${userId}`);
+
+    const result = await AutoMatchService.runMatching(organizationId);
+
+    await AuditLogger.log({
+      operation: 'QB_AUTO_MATCH_RUN',
+      entity_type: 'match_result',
+      entity_id: result.id,
+      direction: 'APP_TO_QB',
+      status: 'SUCCESS',
+      metadata: {
+        userId,
+        organizationId,
+        healthGrade: result.healthGrade,
+        matched: result.matched,
+        candidates: result.candidates,
+        unmatched: result.unmatched,
+      },
+    });
+
+    res.json({ success: true, result });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+
+    await AuditLogger.log({
+      operation: 'QB_AUTO_MATCH_RUN_FAILED',
+      entity_type: 'match_result',
+      direction: 'APP_TO_QB',
+      status: 'FAILURE',
+      metadata: { error: errorMsg },
+    });
+
+    res.status(500).json({ error: errorMsg });
+  }
+});
+
+/**
+ * GET /api/quickbooks/match/:matchId
+ * Get stored match result (authenticated)
+ */
+router.get('/match/:matchId', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { matchId } = req.params;
+
+    const result = AutoMatchService.getResult(matchId);
+
+    if (!result) {
+      return res.status(404).json({ error: 'Match result not found' });
+    }
+
+    res.json({ success: true, result });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/**
+ * GET /api/quickbooks/match/results/list
+ * List all match results (authenticated)
+ */
+router.get('/match/results/list', authenticate, async (req: Request, res: Response) => {
+  try {
+    const results = AutoMatchService.listResults();
+    res.json({ success: true, results });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/**
+ * POST /api/quickbooks/match/:matchId/decisions
+ * Update admin decisions on match results (authenticated admin/manager)
+ */
+router.post('/match/:matchId/decisions', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { matchId } = req.params;
+    const { decisions } = req.body;
+
+    if (!decisions || !Array.isArray(decisions)) {
+      return res.status(400).json({ error: 'decisions (array) required' });
+    }
+
+    const result = AutoMatchService.updateDecisions(matchId, decisions);
+
+    await AuditLogger.log({
+      operation: 'QB_MATCH_DECISIONS_SAVED',
+      entity_type: 'match_result',
+      entity_id: matchId,
+      direction: 'APP_TO_QB',
+      status: 'SUCCESS',
+      metadata: {
+        userId: req.user.userId,
+        organizationId: req.user.organizationId,
+        decisionsCount: decisions.length,
+      },
+    });
+
+    res.json({ success: true, result });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/**
+ * POST /api/quickbooks/match/:matchId/apply
+ * Apply decisions: create QB entities and mappings (authenticated admin/manager)
+ */
+router.post('/match/:matchId/apply', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { matchId } = req.params;
+    const { organizationId, userId } = req.user;
+
+    console.log(`[QB Auto-Match] Applying decisions for match ${matchId}`);
+
+    const result = await AutoMatchService.applyDecisions(matchId, organizationId);
+
+    await AuditLogger.log({
+      operation: 'QB_MATCH_APPLY_COMPLETE',
+      entity_type: 'match_result',
+      entity_id: matchId,
+      direction: 'APP_TO_QB',
+      status: result.success ? 'SUCCESS' : 'PARTIAL',
+      metadata: {
+        userId,
+        organizationId,
+        mappingsCreated: result.mappingsCreated,
+        qbAccountsCreated: result.qbAccountsCreated,
+        errors: result.errors,
+      },
+    });
+
+    res.json({ success: result.success, result });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+
+    await AuditLogger.log({
+      operation: 'QB_MATCH_APPLY_FAILED',
+      entity_type: 'match_result',
+      direction: 'APP_TO_QB',
+      status: 'FAILURE',
+      metadata: { error: errorMsg },
+    });
+
+    res.status(500).json({ error: errorMsg });
   }
 });
 
