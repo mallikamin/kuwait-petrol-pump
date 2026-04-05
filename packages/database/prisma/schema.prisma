@@ -713,9 +713,8 @@ model QBConnection {
   companyInfo Json?    @map("company_info") @db.JsonB // Cached QB company data
 
   // Relations
-  syncQueue       QBSyncQueue[]
-  syncLogs        QBSyncLog[]
-  entitySnapshots QBEntitySnapshot[]
+  syncQueue QBSyncQueue[]
+  syncLogs  QBSyncLog[]
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
