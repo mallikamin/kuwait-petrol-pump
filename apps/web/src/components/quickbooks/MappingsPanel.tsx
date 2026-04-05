@@ -471,7 +471,7 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                         <div className="mt-2">
                           <Label className="text-xs">Other candidates:</Label>
                           <Select
-                            value={item.decisionAccountId || ''}
+                            value={item.decisionAccountId || undefined}
                             onValueChange={(value) => {
                               const candidate = item.candidates.find((c) => c.qbAccountId === value);
                               if (candidate) {
@@ -530,7 +530,7 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                           <div className="mt-2">
                             <Label className="text-xs">Other candidates:</Label>
                             <Select
-                              value={item.decisionEntityId || ''}
+                              value={item.decisionEntityId || undefined}
                               onValueChange={(value) => {
                                 const candidate = item.candidates.find((c) => c.qbEntityId === value);
                                 if (candidate) {
