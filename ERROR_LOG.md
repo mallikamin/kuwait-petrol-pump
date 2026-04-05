@@ -488,3 +488,38 @@ Each entry follows:
 - **Rule**: Document data model clearly — distinguish inventory tracking vs transaction tracking. If UI shows "Sales", clarify whether it means transactions or calculated volume.
 
 ---
+
+## 2026-04-05 — Posted calculation showing 0L after finalize (RESOLVED ✅)
+
+- **Error**: All fuel transactions persisted in backdated entries but Posted calculation showed 0L after finalize. Fuel selections appeared erased.
+- **Context**: User finalized Mar 1 backdated entries with 6 fuel transactions. Transactions visible in UI but Posted HSD/PMG both showed 0.000L.
+- **Root Cause**: Walk-in transactions (those without `nozzleId`) were saved with `fuelTypeId: null`. When finalize logic checked `if (txn.fuelTypeId)` to create sales records, it skipped all transactions with null fuelTypeId.
+- **Fix**: RESOLVED (commits dc52a5b, a76bfa4)
+  1. Added `fuelCode` ("HSD"/"PMG") to transaction schema validation in `daily.controller.ts`
+  2. Added `fuelCode` to `DailyTransactionInput` interface in `daily.service.ts`
+  3. Lookup `fuelTypeId` from `fuelCode` via DB query before saving walk-in transactions
+  4. Save walk-in transactions with correct `fuelTypeId` instead of null
+  5. Fixed TypeScript errors: `req.user.userId` (not `.id`), removed `organizationId` from FuelType query
+- **Rule**: Walk-in/backdated transactions without nozzle detail must still have `fuelTypeId` for finalize to work. Always accept `fuelCode` from frontend and map to ID before saving. Never save fuel transactions with `fuelTypeId: null`.
+
+---
+
+## 2026-04-05 — Auto-sync created wrong readings (12 instead of 6) (RESOLVED ✅)
+
+- **Error**: Mar 2 auto-sync created 12 opening readings (both Day and Night) instead of 6 (only Day). Should only populate Day openings from Mar 1 Night closings.
+- **Context**: After implementing auto-propagation, Mar 2 showed all 12 shift instances with openings populated, but Night openings should be empty until user enters Day closings.
+- **Root Cause**: Auto-sync logic propagated to **same shift next day** instead of following **shift sequence**. Logic assumed "closing → same shift next day opening" without checking shift type (Day vs Night).
+- **Fix**: RESOLVED (commit 61484b4)
+  1. Include `shift` relation when fetching `shiftInstance` to access shift name
+  2. Implement shift-aware logic:
+     - **Day Shift closing** → Same day **Night Shift opening**
+     - **Night Shift closing** → Next day **Day Shift opening**
+  3. Backward sync follows inverse:
+     - **Day Shift opening** ← Previous day **Night Shift closing**
+     - **Night Shift opening** ← Same day **Day Shift closing**
+  4. Auto-create target shift instances if missing (no manual creation needed)
+  5. Removed `status: 'open'` requirement (works for backdated entries)
+- **Manual cleanup**: Deleted 6 incorrect Mar 2 Night openings, created correct 6 Mar 2 Day openings from Mar 1 Night closings
+- **Rule**: Petrol pump auto-sync must follow shift sequence, not same-shift-next-day. Always check shift type (Day/Night) to determine target shift and date. Within same day: Day→Night. Across days: Night→Day.
+
+---
