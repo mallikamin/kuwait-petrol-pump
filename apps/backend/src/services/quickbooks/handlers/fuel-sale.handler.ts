@@ -23,6 +23,7 @@ export interface FuelSalePayload {
   saleId: string;
   organizationId: string;
   customerId?: string;
+  bankId?: string; // Required if paymentMethod='card'
   txnDate: string;
   paymentMethod: string;
   lineItems: Array<{
@@ -387,6 +388,32 @@ async function buildSalesReceiptPayload(
     );
   }
 
+  // 2a. Resolve bank account mapping for card payments
+  let depositToAccountQbId: string | undefined;
+
+  if (payload.paymentMethod === 'card' || payload.paymentMethod === 'debit' || payload.paymentMethod === 'credit') {
+    if (!payload.bankId) {
+      throw new Error(
+        `Bank ID required for card payments but not provided. ` +
+        `paymentMethod=${payload.paymentMethod} requires bankId field.`
+      );
+    }
+
+    // Map local bank ID to QB bank account ID
+    depositToAccountQbId = await EntityMappingService.getQbId(
+      organizationId,
+      'bank',
+      payload.bankId
+    );
+
+    if (!depositToAccountQbId) {
+      throw new Error(
+        `Bank account mapping not found: localId=${payload.bankId}. ` +
+        `Please create bank mapping via /api/quickbooks/mappings before syncing card transactions.`
+      );
+    }
+  }
+
   // 3. Map line items to QB format (with item mapping lookups)
   const lines = [];
 
@@ -449,7 +476,7 @@ async function buildSalesReceiptPayload(
   }
 
   // 5. Build final SalesReceipt payload
-  return {
+  const salesReceiptPayload: any = {
     TxnDate: payload.txnDate,
     PrivateNote: `Kuwait POS Sale #${payload.saleId}`,
     CustomerRef: {
@@ -461,6 +488,15 @@ async function buildSalesReceiptPayload(
       value: paymentMethodQbId
     }
   };
+
+  // Add bank deposit account for card payments
+  if (depositToAccountQbId) {
+    salesReceiptPayload.DepositToAccountRef = {
+      value: depositToAccountQbId
+    };
+  }
+
+  return salesReceiptPayload;
 }
 
 /**
