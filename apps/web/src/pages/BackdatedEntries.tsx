@@ -19,6 +19,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle, Users, Copy, Search, Gauge, Camera, Edit } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { branchesApi, customersApi, meterReadingsApi } from '@/api';
+import { banksApi } from '@/api/banks';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { MeterReadingCapture, type MeterReadingData } from '@/components/MeterReadingCapture';
@@ -35,6 +36,7 @@ interface Transaction {
   unitPrice: string;
   lineTotal: string;
   paymentMethod: 'cash' | 'credit_card' | 'bank_card' | 'pso_card' | 'credit_customer';
+  bankId?: string; // Required for card payments (credit_card, bank_card)
   _localStatus?: 'draft' | 'saved'; // Local status for UI feedback
   // Audit fields
   createdBy?: string;
@@ -119,6 +121,15 @@ export function BackdatedEntries() {
     queryFn: async () => {
       const res = await customersApi.getAll();
       return res.items;
+    },
+  });
+
+  // Fetch QB banks for card payment selection
+  const { data: banksData } = useQuery({
+    queryKey: ['quickbooks', 'banks'],
+    queryFn: async () => {
+      const res = await banksApi.getAll();
+      return res.banks;
     },
   });
 
@@ -1473,6 +1484,7 @@ export function BackdatedEntries() {
                               <TableHead className="min-w-[140px] text-right">Price/L</TableHead>
                               <TableHead className="min-w-[180px] text-right">Total (PKR)</TableHead>
                               <TableHead className="min-w-[200px]">Payment</TableHead>
+                              <TableHead className="min-w-[200px]">Bank (Cards)</TableHead>
                               <TableHead className="w-[100px] text-center">Save</TableHead>
                               <TableHead className="w-[60px]"></TableHead>
                             </TableRow>
@@ -1556,6 +1568,33 @@ export function BackdatedEntries() {
                                         <SelectItem value="credit_customer">Credit Customer</SelectItem>
                                       </SelectContent>
                                     </Select>
+                                  </TableCell>
+                                  <TableCell className="p-2">
+                                    {(txn.paymentMethod === 'credit_card' || txn.paymentMethod === 'bank_card') ? (
+                                      <Select
+                                        value={txn.bankId || ''}
+                                        onValueChange={(v: any) => updateTransaction(globalIdx, 'bankId', v)}
+                                      >
+                                        <SelectTrigger className="h-11 text-base">
+                                          <SelectValue placeholder="Select bank..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {banksData && banksData.length > 0 ? (
+                                            banksData.map((bank) => (
+                                              <SelectItem key={bank.id} value={bank.id}>
+                                                {bank.name}
+                                              </SelectItem>
+                                            ))
+                                          ) : (
+                                            <SelectItem value="" disabled>
+                                              No banks available
+                                            </SelectItem>
+                                          )}
+                                        </SelectContent>
+                                      </Select>
+                                    ) : (
+                                      <span className="text-sm text-muted-foreground italic">N/A</span>
+                                    )}
                                   </TableCell>
                                   <TableCell className="p-2 text-center" title={
                                     txn.createdByUser || txn.updatedByUser

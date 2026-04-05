@@ -606,11 +606,13 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
 
                         {item.candidates.length > 1 && (
                           <div className="mt-2">
-                            <Label className="text-xs">Other candidates:</Label>
+                            <Label className="text-xs">All candidates:</Label>
                             <Select
                               value={item.decisionEntityId || undefined}
                               onValueChange={(value) => {
+                                console.log('[Dropdown] Selected value:', value);
                                 const candidate = item.candidates.find((c) => c.qbEntityId === value);
+                                console.log('[Dropdown] Found candidate:', candidate);
                                 if (candidate) {
                                   handleEntityDecisionChange(
                                     item.localId,
@@ -623,12 +625,12 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                               }}
                             >
                               <SelectTrigger className="mt-1 h-8 text-xs">
-                                <SelectValue placeholder="Select alternate..." />
+                                <SelectValue placeholder="Select..." />
                               </SelectTrigger>
                               <SelectContent>
-                                {item.candidates.slice(1).map((candidate) => (
+                                {item.candidates.map((candidate, idx) => (
                                   <SelectItem key={candidate.qbEntityId} value={candidate.qbEntityId}>
-                                    {candidate.qbEntityName} ({(candidate.score * 100).toFixed(0)}%)
+                                    {idx === 0 && '⭐ '}{candidate.qbEntityName} ({(candidate.score * 100).toFixed(0)}%)
                                   </SelectItem>
                                 ))}
                               </SelectContent>
