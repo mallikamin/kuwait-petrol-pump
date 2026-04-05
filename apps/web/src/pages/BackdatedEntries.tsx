@@ -1310,7 +1310,7 @@ export function BackdatedEntries() {
                     <span className="font-mono font-semibold text-orange-600">{(fuelTotals.HSD - postedByFuel.HSD).toFixed(3)} L</span>
                   </div>
                   <div className="space-y-1">
-                    <div className="flex justify-between text-xs text-muted-foreground">
+                    <div className="flex justify-between text-sm font-medium text-muted-foreground">
                       <span>{fuelTotals.HSD > 0 ? Math.round((postedByFuel.HSD / fuelTotals.HSD) * 100) : 0}% Reconciled</span>
                     </div>
                     <div className="h-2 bg-muted rounded-full overflow-hidden">
@@ -1342,7 +1342,7 @@ export function BackdatedEntries() {
                     <span className="font-mono font-semibold text-orange-600">{(fuelTotals.PMG - postedByFuel.PMG).toFixed(3)} L</span>
                   </div>
                   <div className="space-y-1">
-                    <div className="flex justify-between text-xs text-muted-foreground">
+                    <div className="flex justify-between text-sm font-medium text-muted-foreground">
                       <span>{fuelTotals.PMG > 0 ? Math.round((postedByFuel.PMG / fuelTotals.PMG) * 100) : 0}% Reconciled</span>
                     </div>
                     <div className="h-2 bg-muted rounded-full overflow-hidden">
@@ -1783,8 +1783,8 @@ export function BackdatedEntries() {
 
               {/* Fuel Totals */}
               <div className="pt-2 border-t">
-                <div className="font-semibold mb-2">Fuel Totals</div>
-                <div className="space-y-1 text-xs">
+                <div className="font-semibold mb-2 text-base">Fuel Totals</div>
+                <div className="space-y-1 text-sm">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">HSD Meter:</span>
                     <span className="font-mono">{fuelTotals.HSD.toFixed(3)} L</span>
@@ -1878,8 +1878,8 @@ export function BackdatedEntries() {
               {/* Status */}
               {transactions.length > 0 && Math.abs(varianceLiters) < 1 && Math.abs(cashGapAmount) < 0.01 && readingsIntegrity.missing.length === 0 && (
                 <div className="pt-2 border-t">
-                  <Badge variant="outline" className="w-full justify-center text-green-600 border-green-600">
-                    <CheckCircle className="h-3 w-3 mr-1" />
+                  <Badge variant="outline" className="w-full justify-center text-green-600 border-green-600 text-base font-medium py-2">
+                    <CheckCircle className="h-4 w-4 mr-1" />
                     Balanced
                   </Badge>
                 </div>
@@ -1887,11 +1887,11 @@ export function BackdatedEntries() {
 
               {transactions.length > 0 && Math.abs(varianceLiters) < 1 && Math.abs(cashGapAmount) < 0.01 && readingsIntegrity.missing.length > 0 && (
                 <div className="pt-2 border-t">
-                  <Badge variant="outline" className="w-full justify-center text-blue-600 border-blue-600">
-                    <CheckCircle className="h-3 w-3 mr-1" />
+                  <Badge variant="outline" className="w-full justify-center text-blue-600 border-blue-600 text-base font-medium py-2">
+                    <CheckCircle className="h-4 w-4 mr-1" />
                     Balanced (Provisional)
                   </Badge>
-                  <div className="text-xs text-blue-700 mt-1 text-center">
+                  <div className="text-sm text-blue-700 mt-1 text-center">
                     Missing {readingsIntegrity.missing.length} reading(s)
                   </div>
                 </div>
@@ -1899,12 +1899,12 @@ export function BackdatedEntries() {
 
               {(Math.abs(varianceLiters) >= 1 || Math.abs(cashGapAmount) >= 0.01) && transactions.length > 0 && (
                 <div className="pt-2 border-t">
-                  <Badge variant="outline" className="w-full justify-center text-orange-600 border-orange-600">
-                    <AlertCircle className="h-3 w-3 mr-1" />
+                  <Badge variant="outline" className="w-full justify-center text-orange-600 border-orange-600 text-base font-medium py-2">
+                    <AlertCircle className="h-4 w-4 mr-1" />
                     Reconciliation Pending
                   </Badge>
                   {readingsIntegrity.missing.length > 0 && (
-                    <div className="text-xs text-orange-700 mt-1 text-center">
+                    <div className="text-sm text-orange-700 mt-1 text-center">
                       Missing {readingsIntegrity.missing.length} reading(s)
                     </div>
                   )}
