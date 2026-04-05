@@ -310,7 +310,7 @@ router.get('/banks', authenticate, authorize('admin', 'manager'), async (req: Re
     const { organizationId } = req.user;
 
     // Get QB connection
-    const connection = await prisma.qBConnection.findUnique({
+    const connection = await prisma.qBConnection.findFirst({
       where: { organizationId },
     });
 
@@ -319,7 +319,7 @@ router.get('/banks', authenticate, authorize('admin', 'manager'), async (req: Re
     }
 
     // Decrypt tokens
-    const accessToken = decryptToken(connection.encryptedAccessToken);
+    const accessToken = decryptToken(connection.accessTokenEncrypted);
 
     // Fetch bank accounts from QB
     const oauthClient = getOAuthClient();
