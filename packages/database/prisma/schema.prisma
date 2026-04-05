@@ -165,16 +165,18 @@ model User {
   updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
-  organization     Organization    @relation(fields: [organizationId], references: [id])
-  branch           Branch?         @relation(fields: [branchId], references: [id])
-  openedShifts     ShiftInstance[] @relation("ShiftOpenedBy")
-  closedShifts     ShiftInstance[] @relation("ShiftClosedBy")
-  meterReadings    MeterReading[]
-  sales            Sale[]
-  bifurcations     Bifurcation[]
-  auditLogs        AuditLog[]
-  fuelPriceChanges FuelPrice[]
-  stockReceipts    StockReceipt[]  @relation("StockReceiptUser")
+  organization              Organization            @relation(fields: [organizationId], references: [id])
+  branch                    Branch?                 @relation(fields: [branchId], references: [id])
+  openedShifts              ShiftInstance[]         @relation("ShiftOpenedBy")
+  closedShifts              ShiftInstance[]         @relation("ShiftClosedBy")
+  meterReadings             MeterReading[]
+  sales                     Sale[]
+  bifurcations              Bifurcation[]
+  auditLogs                 AuditLog[]
+  fuelPriceChanges          FuelPrice[]
+  stockReceipts             StockReceipt[]          @relation("StockReceiptUser")
+  createdBackdatedTxns      BackdatedTransaction[]  @relation("BackdatedTransactionCreatedBy")
+  updatedBackdatedTxns      BackdatedTransaction[]  @relation("BackdatedTransactionUpdatedBy")
 
   @@unique([organizationId, username], name: "unique_org_username") // Multi-tenant safety
   @@index([organizationId], name: "idx_users_org")
@@ -1057,11 +1059,14 @@ model BackdatedTransaction {
 
   notes               String?  @db.Text
   createdBy           String?  @map("created_by") @db.Uuid
+  updatedBy           String?  @map("updated_by") @db.Uuid
   createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt           DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
   backdatedEntry      BackdatedEntry @relation(fields: [backdatedEntryId], references: [id], onDelete: Cascade)
+  createdByUser       User?          @relation("BackdatedTransactionCreatedBy", fields: [createdBy], references: [id])
+  updatedByUser       User?          @relation("BackdatedTransactionUpdatedBy", fields: [updatedBy], references: [id])
   customer            Customer?      @relation(fields: [customerId], references: [id])
   product             Product?       @relation(fields: [productId], references: [id])
   fuelType            FuelType?      @relation(fields: [fuelTypeId], references: [id])

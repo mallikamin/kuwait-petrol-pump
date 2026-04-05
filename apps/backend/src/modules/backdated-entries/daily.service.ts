@@ -118,6 +118,20 @@ export class DailyBackdatedEntriesService {
             customer: true,
             product: true,
             fuelType: true,
+            createdByUser: {
+              select: {
+                id: true,
+                fullName: true,
+                username: true,
+              },
+            },
+            updatedByUser: {
+              select: {
+                id: true,
+                fullName: true,
+                username: true,
+              },
+            },
           },
           orderBy: {
             transactionDateTime: 'asc',
@@ -193,6 +207,13 @@ export class DailyBackdatedEntriesService {
         qbSyncStatus: (txn as any).qbSyncStatus || 'pending',
         qbId: (txn as any).qbId || null,
         notes: txn.notes,
+        // Audit fields
+        createdBy: txn.createdBy,
+        createdByUser: (txn as any).createdByUser || null,
+        updatedBy: (txn as any).updatedBy || null,
+        updatedByUser: (txn as any).updatedByUser || null,
+        createdAt: txn.createdAt,
+        updatedAt: txn.updatedAt,
       }))
     );
 
@@ -301,13 +322,14 @@ export class DailyBackdatedEntriesService {
    * - Save all transactions
    * - Return updated daily summary
    */
-  async saveDailyDraft(input: DailySaveInput, organizationId: string) {
+  async saveDailyDraft(input: DailySaveInput, organizationId: string, userId?: string) {
     const { branchId, businessDate, shiftId, transactions } = input;
 
     console.log('[BackdatedEntries] saveDailyDraft called:', {
       branchId,
       businessDate,
       shiftId,
+      userId, // Log for audit
       transactionCount: transactions.length,
       organizationId,
     });
@@ -453,6 +475,8 @@ export class DailyBackdatedEntriesService {
             paymentMethod: txn.paymentMethod,
             fuelTypeId: nozzle.fuelTypeId,
             transactionDateTime: businessDateObj, // Use business date as transaction time
+            createdBy: userId || null, // Audit: who created this transaction
+            updatedBy: userId || null, // Audit: who last updated this transaction
           })),
         });
 
@@ -542,6 +566,8 @@ export class DailyBackdatedEntriesService {
           paymentMethod: txn.paymentMethod,
           fuelTypeId: null, // Walk-in transactions may not have fuel type
           transactionDateTime: businessDateObj,
+          createdBy: userId || null, // Audit: who created this transaction
+          updatedBy: userId || null, // Audit: who last updated this transaction
         })),
       });
 

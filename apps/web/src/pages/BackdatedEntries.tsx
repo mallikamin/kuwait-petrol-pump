@@ -36,6 +36,13 @@ interface Transaction {
   lineTotal: string;
   paymentMethod: 'cash' | 'credit_card' | 'bank_card' | 'pso_card' | 'credit_customer';
   _localStatus?: 'draft' | 'saved'; // Local status for UI feedback
+  // Audit fields
+  createdBy?: string;
+  createdByUser?: { id: string; fullName: string; username: string } | null;
+  updatedBy?: string;
+  updatedByUser?: { id: string; fullName: string; username: string } | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 interface MeterReadingRow {
@@ -77,6 +84,7 @@ export function BackdatedEntries() {
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const justSavedRef = useRef(false); // Track if we just saved to prevent useEffect from overwriting
+  const loadedKeyRef = useRef<string>(''); // Track what we've loaded to prevent unnecessary reloads
 
   // Fetch branches
   const { data: branchesData } = useQuery({
@@ -500,12 +508,22 @@ export function BackdatedEntries() {
     ]);
   };
 
-  // Save individual transaction row (mark as saved locally, actual save happens in draft save)
-  const saveTransactionRow = (index: number) => {
+  // Save individual transaction row (triggers auto-save to server)
+  const saveTransactionRow = async (index: number) => {
     const updated = [...transactions];
     updated[index] = { ...updated[index], _localStatus: 'saved' };
     setTransactions(updated);
-    toast.success('Row marked as complete. Click "Save Draft" to persist.');
+
+    // Auto-save to server immediately
+    try {
+      await saveDailyDraftMutation.mutateAsync();
+      toast.success('Row saved successfully');
+    } catch (error) {
+      console.error('Auto-save failed:', error);
+      toast.error('Failed to save row. Please click "Save Draft" manually.');
+      updated[index]._localStatus = 'draft'; // Revert status on error
+      setTransactions(updated);
+    }
   };
 
   const mappedShiftOptions = useMemo(
@@ -549,13 +567,23 @@ export function BackdatedEntries() {
       console.log('[Transactions] Clearing (no branch/date selected)');
       setTransactions([]);
       setSyncMessage('');
+      loadedKeyRef.current = '';
+      return;
+    }
+
+    const currentKey = `${selectedBranchId}_${businessDate}_${selectedShiftId || 'all'}`;
+
+    // Only load if we haven't loaded this combination yet (prevents resets on refetch)
+    if (loadedKeyRef.current === currentKey) {
+      console.log('[Transactions] Already loaded this key, skipping:', currentKey);
       return;
     }
 
     const backupKey = `backdated_draft_${selectedBranchId}_${businessDate}${selectedShiftId ? '_' + selectedShiftId : ''}`;
     const backup = localStorage.getItem(backupKey);
 
-    console.log('[Transactions] Loading:', {
+    console.log('[Transactions] Loading NEW key:', {
+      currentKey,
       backupKey,
       hasAPIData: !!dailySummaryData?.transactions,
       apiCount: dailySummaryData?.transactions?.length || 0,
@@ -577,9 +605,17 @@ export function BackdatedEntries() {
           unitPrice: toNumber(txn.unitPrice).toFixed(2),
           lineTotal: toNumber(txn.lineTotal).toFixed(2),
           paymentMethod: txn.paymentMethod,
+          // Audit fields
+          createdBy: txn.createdBy,
+          createdByUser: txn.createdByUser,
+          updatedBy: txn.updatedBy,
+          updatedByUser: txn.updatedByUser,
+          createdAt: txn.createdAt,
+          updatedAt: txn.updatedAt,
         }))
       );
       setSyncMessage(`Loaded ${dailySummaryData.transactions.length} existing transactions.`);
+      loadedKeyRef.current = currentKey; // Mark as loaded
       // Clear backup when API data loads successfully
       localStorage.removeItem(backupKey);
     } else if (backup) {
@@ -590,15 +626,18 @@ export function BackdatedEntries() {
         setTransactions(parsed.transactions);
         setSyncMessage(`⚠️ Restored ${parsed.transactions.length} transactions from backup (${new Date(parsed.timestamp).toLocaleTimeString()}). Please save draft to persist.`);
         toast.warning('Draft restored from local backup. Click "Save Draft" to persist to server.');
+        loadedKeyRef.current = currentKey; // Mark as loaded
       } catch (err) {
         console.error('Failed to restore backup:', err);
         setTransactions([]);
         setSyncMessage('No existing transactions. Start adding customer groups.');
+        loadedKeyRef.current = currentKey; // Mark as loaded even if empty
       }
     } else {
       console.log('[Transactions] No API data or backup, clearing');
       setTransactions([]);
       setSyncMessage('No existing transactions. Start adding customer groups.');
+      loadedKeyRef.current = currentKey; // Mark as loaded even if empty
     }
   }, [
     selectedBranchId,
@@ -708,6 +747,7 @@ export function BackdatedEntries() {
       setLastSaved(new Date());
       setIsDirty(false);
       justSavedRef.current = true; // Prevent useEffect from overwriting local state
+      loadedKeyRef.current = ''; // Allow reload on next navigation (fresh data from server)
       refetchDailySummary();
     },
     onError: (error: any) => {
@@ -1489,7 +1529,11 @@ export function BackdatedEntries() {
                                       </SelectContent>
                                     </Select>
                                   </TableCell>
-                                  <TableCell className="p-2 text-center">
+                                  <TableCell className="p-2 text-center" title={
+                                    txn.createdByUser || txn.updatedByUser
+                                      ? `Created: ${txn.createdByUser?.fullName || 'System'} (${new Date(txn.createdAt!).toLocaleString()})\nUpdated: ${txn.updatedByUser?.fullName || txn.createdByUser?.fullName || 'System'} (${new Date(txn.updatedAt!).toLocaleString()})`
+                                      : undefined
+                                  }>
                                     {txn._localStatus === 'saved' ? (
                                       <CheckCircle className="h-5 w-5 text-green-600 mx-auto" />
                                     ) : (
@@ -1498,7 +1542,7 @@ export function BackdatedEntries() {
                                         variant="ghost"
                                         onClick={() => saveTransactionRow(globalIdx)}
                                         className="h-9 w-9 p-0"
-                                        title="Mark row as complete"
+                                        title="Save row to server"
                                       >
                                         <Plus className="h-5 w-5 text-blue-600" />
                                       </Button>
