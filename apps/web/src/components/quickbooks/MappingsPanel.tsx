@@ -452,9 +452,29 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                   <div className="flex items-start gap-3">
                     {getStatusIcon(item.status)}
                     <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">{item.needLabel}</span>
-                        {item.required && <Badge variant="outline" className="text-xs">Required</Badge>}
+                      <div className="flex items-center gap-2 justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{item.needLabel}</span>
+                          {item.required && <Badge variant="outline" className="text-xs">Required</Badge>}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            id={`needs-review-${item.needKey}`}
+                            className="h-4 w-4 rounded border-gray-300"
+                            checked={item.needsClientReview || false}
+                            onChange={(e) => {
+                              if (!matchResult) return;
+                              const updatedItems = matchResult.accountItems.map((i) =>
+                                i.needKey === item.needKey ? { ...i, needsClientReview: e.target.checked } : i
+                              );
+                              setMatchResult({ ...matchResult, accountItems: updatedItems });
+                            }}
+                          />
+                          <Label htmlFor={`needs-review-${item.needKey}`} className="text-xs text-muted-foreground cursor-pointer">
+                            Ask Client
+                          </Label>
+                        </div>
                       </div>
                       <p className="text-sm text-muted-foreground">{item.needDescription}</p>
 
@@ -529,9 +549,30 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                     <div className="flex items-start gap-3">
                       {getStatusIcon(item.status)}
                       <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium">{item.localName}</span>
-                          <Badge variant="outline" className="text-xs">{item.entityType}</Badge>
+                        <div className="flex items-center gap-2 justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{item.localName}</span>
+                            <Badge variant="outline" className="text-xs">{item.entityType}</Badge>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              id={`needs-review-${item.localId}`}
+                              className="h-4 w-4 rounded border-gray-300"
+                              checked={item.needsClientReview || false}
+                              onChange={(e) => {
+                                if (!matchResult) return;
+                                const itemsKey = item.entityType === 'customer' ? 'customerItems' : item.entityType === 'item' ? 'itemItems' : 'bankItems';
+                                const updatedItems = matchResult[itemsKey].map((i) =>
+                                  i.localId === item.localId ? { ...i, needsClientReview: e.target.checked } : i
+                                );
+                                setMatchResult({ ...matchResult, [itemsKey]: updatedItems });
+                              }}
+                            />
+                            <Label htmlFor={`needs-review-${item.localId}`} className="text-xs text-muted-foreground cursor-pointer">
+                              Ask Client
+                            </Label>
+                          </div>
                         </div>
 
                         {item.bestMatch && (
