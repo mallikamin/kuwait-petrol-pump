@@ -459,11 +459,28 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                       <p className="text-sm text-muted-foreground">{item.needDescription}</p>
 
                       {item.bestMatch && (
-                        <div className="mt-2 p-2 bg-muted rounded text-sm">
-                          <div className="font-medium">{item.bestMatch.qbAccountName}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {item.bestMatch.qbAccountType} • Score: {(item.bestMatch.score * 100).toFixed(0)}%
+                        <div className="mt-2 p-2 bg-muted rounded text-sm flex items-center justify-between gap-2">
+                          <div className="flex-1">
+                            <div className="font-medium">{item.bestMatch.qbAccountName}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {item.bestMatch.qbAccountType} • Score: {(item.bestMatch.score * 100).toFixed(0)}%
+                            </div>
                           </div>
+                          <Button
+                            size="sm"
+                            variant={item.decisionAccountId === item.bestMatch.qbAccountId ? "default" : "outline"}
+                            className="h-7 text-xs"
+                            onClick={() => {
+                              handleDecisionChange(
+                                item.needKey,
+                                'use_existing',
+                                item.bestMatch.qbAccountId,
+                                item.bestMatch.qbAccountName
+                              );
+                            }}
+                          >
+                            {item.decisionAccountId === item.bestMatch.qbAccountId ? 'Selected' : 'Accept'}
+                          </Button>
                         </div>
                       )}
 
@@ -518,11 +535,29 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                         </div>
 
                         {item.bestMatch && (
-                          <div className="mt-2 p-2 bg-muted rounded text-sm">
-                            <div className="font-medium">{item.bestMatch.qbEntityName}</div>
-                            <div className="text-xs text-muted-foreground">
-                              Score: {(item.bestMatch.score * 100).toFixed(0)}%
+                          <div className="mt-2 p-2 bg-muted rounded text-sm flex items-center justify-between gap-2">
+                            <div className="flex-1">
+                              <div className="font-medium">{item.bestMatch.qbEntityName}</div>
+                              <div className="text-xs text-muted-foreground">
+                                Score: {(item.bestMatch.score * 100).toFixed(0)}%
+                              </div>
                             </div>
+                            <Button
+                              size="sm"
+                              variant={item.decisionEntityId === item.bestMatch.qbEntityId ? "default" : "outline"}
+                              className="h-7 text-xs"
+                              onClick={() => {
+                                handleEntityDecisionChange(
+                                  item.localId,
+                                  item.entityType,
+                                  'use_existing',
+                                  item.bestMatch.qbEntityId,
+                                  item.bestMatch.qbEntityName
+                                );
+                              }}
+                            >
+                              {item.decisionEntityId === item.bestMatch.qbEntityId ? 'Selected' : 'Accept'}
+                            </Button>
                           </div>
                         )}
 
