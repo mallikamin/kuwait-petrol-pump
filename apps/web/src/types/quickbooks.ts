@@ -101,3 +101,77 @@ export interface BulkMappingResponse {
   failureCount: number;
   results: BulkMappingResult[];
 }
+
+// Auto-Matching Types
+export interface AccountingNeed {
+  key: string;
+  label: string;
+  description: string;
+  expectedQBTypes: string[];
+  expectedQBSubType?: string;
+  required: boolean;
+  searchHints: string[];
+}
+
+export interface MatchCandidate {
+  qbAccountId: string;
+  qbAccountName: string;
+  qbAccountType: string;
+  qbAccountSubType?: string;
+  score: number;
+  reason: string;
+}
+
+export interface MatchItem {
+  needKey: string;
+  needLabel: string;
+  needDescription: string;
+  expectedQBTypes: string[];
+  expectedQBSubType?: string;
+  required: boolean;
+  status: 'matched' | 'candidates' | 'unmatched';
+  bestMatch: MatchCandidate | null;
+  candidates: MatchCandidate[];
+  decision: 'use_existing' | 'create_new' | null;
+  decisionAccountId: string | null;
+  decisionAccountName: string | null;
+}
+
+export interface MatchResult {
+  id: string;
+  createdAt: string;
+  isLive: boolean;
+  totalNeeds: number;
+  totalQBAccounts: number;
+  matched: number;
+  candidates: number;
+  unmatched: number;
+  requiredTotal: number;
+  requiredMatched: number;
+  coveragePct: number;
+  healthGrade: string;
+  items: MatchItem[];
+  unmappedQBAccounts: Array<{
+    qbAccountId: string;
+    qbAccountName: string;
+    qbAccountType: string;
+    qbAccountSubType?: string;
+    fullyQualifiedName?: string;
+    active: boolean;
+    suggestedMappingType: string | null;
+  }>;
+}
+
+export interface MatchDecision {
+  needKey: string;
+  decision: 'use_existing' | 'create_new';
+  accountId?: string;
+  accountName?: string;
+}
+
+export interface ApplyMatchResult {
+  success: boolean;
+  mappingsCreated: number;
+  qbAccountsCreated: number;
+  errors: string[];
+}

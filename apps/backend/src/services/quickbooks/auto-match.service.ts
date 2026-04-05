@@ -20,6 +20,14 @@ import {
 
 const prisma = new PrismaClient();
 
+// Custom error for QB token expiration
+export class QBTokenExpiredError extends Error {
+  constructor(message: string = 'QuickBooks token expired. Please reconnect.') {
+    super(message);
+    this.name = 'QBTokenExpiredError';
+  }
+}
+
 export interface MatchItem {
   needKey: string;
   needLabel: string;
@@ -105,9 +113,10 @@ export class AutoMatchService {
    * Run matching: fetch QB accounts and match against POS needs
    */
   static async runMatching(organizationId: string): Promise<MatchResult> {
-    // 1. Fetch QB entities
-    const snapshot = await QuickBooksEntityFetcher.fetchAllEntities(organizationId);
-    const qbAccounts = snapshot.accounts;
+    try {
+      // 1. Fetch QB entities
+      const snapshot = await QuickBooksEntityFetcher.fetchAllEntities(organizationId);
+      const qbAccounts = snapshot.accounts;
 
     // 2. Match each POS need against QB accounts
     const items: MatchItem[] = [];
@@ -206,27 +215,34 @@ export class AutoMatchService {
     ).length;
     const healthGrade = computeHealthGrade(matchedCount, candidateCount, total);
 
-    // 4. Build result
-    const resultId = `match_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const result: MatchResult = {
-      id: resultId,
-      createdAt: new Date().toISOString(),
-      isLive: true,
-      totalNeeds: total,
-      totalQBAccounts: qbAccounts.length,
-      matched: matchedCount,
-      candidates: candidateCount,
-      unmatched: unmatchedCount,
-      requiredTotal,
-      requiredMatched,
-      coveragePct: total > 0 ? Math.round((matchedCount / total) * 100) : 0,
-      healthGrade,
-      items,
-      unmappedQBAccounts: unmappedQB,
-    };
+      // 4. Build result
+      const resultId = `match_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const result: MatchResult = {
+        id: resultId,
+        createdAt: new Date().toISOString(),
+        isLive: true,
+        totalNeeds: total,
+        totalQBAccounts: qbAccounts.length,
+        matched: matchedCount,
+        candidates: candidateCount,
+        unmatched: unmatchedCount,
+        requiredTotal,
+        requiredMatched,
+        coveragePct: total > 0 ? Math.round((matchedCount / total) * 100) : 0,
+        healthGrade,
+        items,
+        unmappedQBAccounts: unmappedQB,
+      };
 
-    matchStore.set(resultId, result);
-    return result;
+      matchStore.set(resultId, result);
+      return result;
+    } catch (error: any) {
+      // Check if error is from QB API unauthorized response
+      if (error.message?.includes('401') || error.message?.includes('Unauthorized') || error.message?.includes('expired')) {
+        throw new QBTokenExpiredError();
+      }
+      throw error;
+    }
   }
 
   /**

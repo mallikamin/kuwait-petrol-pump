@@ -32,7 +32,7 @@ import { authenticate, authorize } from '../../middleware/auth.middleware';
 import { runPreflightChecks } from './preflight.service';
 import { OpLog } from './error-classifier';
 import OAuthClient from 'intuit-oauth';
-import { AutoMatchService } from './auto-match.service';
+import { AutoMatchService, QBTokenExpiredError } from './auto-match.service';
 import { getAllNeedsAsDicts } from './kuwait-needs';
 
 const prisma = new PrismaClient();
@@ -1121,6 +1121,14 @@ router.post('/match/run', authenticate, authorize('admin', 'manager'), async (re
       metadata: { error: errorMsg },
     });
 
+    if (error instanceof QBTokenExpiredError) {
+      return res.status(401).json({
+        error: errorMsg,
+        code: 'QB_TOKEN_EXPIRED',
+        message: 'QuickBooks token expired. Please reconnect.',
+      });
+    }
+
     res.status(500).json({ error: errorMsg });
   }
 });
@@ -1245,6 +1253,14 @@ router.post('/match/:matchId/apply', authenticate, authorize('admin', 'manager')
       status: 'FAILURE',
       metadata: { error: errorMsg },
     });
+
+    if (error instanceof QBTokenExpiredError) {
+      return res.status(401).json({
+        error: errorMsg,
+        code: 'QB_TOKEN_EXPIRED',
+        message: 'QuickBooks token expired. Please reconnect.',
+      });
+    }
 
     res.status(500).json({ error: errorMsg });
   }

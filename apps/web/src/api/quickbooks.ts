@@ -65,4 +65,35 @@ export const quickbooksApi = {
     const response = await apiClient.post('/api/quickbooks/mappings/bulk', payload);
     return response.data;
   },
+
+  // Auto-Matching Workflow
+  async getNeeds(): Promise<{ success: boolean; needs: any[] }> {
+    const response = await apiClient.get('/api/quickbooks/needs');
+    return response.data;
+  },
+
+  async runMatch(): Promise<{ success: boolean; result: any }> {
+    const response = await apiClient.post('/api/quickbooks/match/run');
+    return response.data;
+  },
+
+  async getMatchResult(matchId: string): Promise<{ success: boolean; result: any }> {
+    const response = await apiClient.get(`/api/quickbooks/match/${matchId}`);
+    return response.data;
+  },
+
+  async updateMatchDecisions(
+    matchId: string,
+    decisions: any[]
+  ): Promise<{ success: boolean; result: any }> {
+    const response = await apiClient.post(`/api/quickbooks/match/${matchId}/decisions`, {
+      decisions,
+    });
+    return response.data;
+  },
+
+  async applyMatch(matchId: string): Promise<{ success: boolean; result: any }> {
+    const response = await apiClient.post(`/api/quickbooks/match/${matchId}/apply`);
+    return response.data;
+  },
 };

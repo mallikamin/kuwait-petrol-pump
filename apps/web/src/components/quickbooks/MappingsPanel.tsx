@@ -5,10 +5,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Upload, RefreshCw } from 'lucide-react';
+import { Plus, Upload, RefreshCw, Wand2, CheckCircle, AlertCircle, XCircle } from 'lucide-react';
 import { quickbooksApi } from '@/api/quickbooks';
 import { toast } from 'sonner';
-import type { QBEntityMapping, CreateMappingRequest } from '@/types/quickbooks';
+import type { QBEntityMapping, CreateMappingRequest, MatchResult, MatchItem } from '@/types/quickbooks';
 
 interface MappingsPanelProps {
   userRole: string;
@@ -20,6 +20,11 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
+  const [showAutoMatch, setShowAutoMatch] = useState(false);
+  const [matchResult, setMatchResult] = useState<MatchResult | null>(null);
+  const [matchLoading, setMatchLoading] = useState(false);
+  const [applyingMatch, setApplyingMatch] = useState(false);
+  const [qbTokenExpired, setQbTokenExpired] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState<CreateMappingRequest>({
@@ -143,6 +148,92 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
     }
   };
 
+  const handleRunAutoMatch = async () => {
+    try {
+      setMatchLoading(true);
+      setQbTokenExpired(false);
+      const result = await quickbooksApi.runMatch();
+      setMatchResult(result.result);
+      setShowAutoMatch(true);
+      toast.success(`Auto-match complete: ${result.result.healthGrade} grade`);
+    } catch (err: any) {
+      if (err.response?.status === 401 || err.response?.data?.error?.includes('token')) {
+        setQbTokenExpired(true);
+        toast.error('QuickBooks token expired. Please reconnect.');
+      } else {
+        toast.error(err.response?.data?.error || 'Failed to run auto-match');
+      }
+    } finally {
+      setMatchLoading(false);
+    }
+  };
+
+  const handleDecisionChange = (needKey: string, decision: 'use_existing' | 'create_new', accountId?: string, accountName?: string) => {
+    if (!matchResult) return;
+
+    const updatedItems = matchResult.items.map((item) =>
+      item.needKey === needKey
+        ? { ...item, decision, decisionAccountId: accountId || null, decisionAccountName: accountName || null }
+        : item
+    );
+
+    setMatchResult({ ...matchResult, items: updatedItems });
+  };
+
+  const handleApplyMatch = async () => {
+    if (!matchResult) return;
+
+    try {
+      setApplyingMatch(true);
+
+      // Save decisions first
+      const decisions = matchResult.items
+        .filter((item) => item.decision)
+        .map((item) => ({
+          needKey: item.needKey,
+          decision: item.decision!,
+          accountId: item.decisionAccountId || undefined,
+          accountName: item.decisionAccountName || undefined,
+        }));
+
+      await quickbooksApi.updateMatchDecisions(matchResult.id, decisions);
+
+      // Apply decisions
+      const result = await quickbooksApi.applyMatch(matchResult.id);
+
+      if (result.result.success) {
+        toast.success(`Applied: ${result.result.mappingsCreated} mappings created`);
+        setShowAutoMatch(false);
+        setMatchResult(null);
+        await fetchMappings();
+      } else {
+        toast.error(`Errors: ${result.result.errors.join(', ')}`);
+      }
+    } catch (err: any) {
+      if (err.response?.status === 401 || err.response?.data?.error?.includes('token')) {
+        setQbTokenExpired(true);
+        toast.error('QuickBooks token expired. Please reconnect.');
+      } else {
+        toast.error(err.response?.data?.error || 'Failed to apply match');
+      }
+    } finally {
+      setApplyingMatch(false);
+    }
+  };
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'matched':
+        return <CheckCircle className="h-4 w-4 text-green-600" />;
+      case 'candidates':
+        return <AlertCircle className="h-4 w-4 text-yellow-600" />;
+      case 'unmatched':
+        return <XCircle className="h-4 w-4 text-red-600" />;
+      default:
+        return null;
+    }
+  };
+
   // Delete functionality not implemented in backend
   // const handleDelete = async (id: string) => {
   //   if (!confirm('Delete this mapping?')) return;
@@ -180,6 +271,16 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
             {canEdit && (
               <>
                 <Button
+                  onClick={handleRunAutoMatch}
+                  disabled={matchLoading}
+                  size="sm"
+                  variant="outline"
+                  className="gap-2"
+                >
+                  <Wand2 className={`h-4 w-4 ${matchLoading ? 'animate-spin' : ''}`} />
+                  Auto-Match
+                </Button>
+                <Button
                   onClick={() => setShowBulk(!showBulk)}
                   size="sm"
                   variant="outline"
@@ -200,6 +301,118 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
       <CardContent>
         {error && (
           <div className="p-3 mb-4 bg-red-50 text-red-900 rounded-md text-sm">{error}</div>
+        )}
+
+        {qbTokenExpired && (
+          <div className="p-4 mb-4 bg-yellow-50 border border-yellow-200 rounded-md">
+            <p className="text-sm font-medium text-yellow-900 mb-2">QuickBooks Token Expired</p>
+            <p className="text-sm text-yellow-700 mb-3">
+              Your QuickBooks connection has expired. Please reconnect to continue.
+            </p>
+            <Button
+              onClick={async () => {
+                try {
+                  const result = await quickbooksApi.initiateOAuth();
+                  window.open(result.authorizationUrl, '_blank');
+                } catch (err: any) {
+                  toast.error('Failed to initiate OAuth');
+                }
+              }}
+              size="sm"
+              variant="default"
+            >
+              Reconnect QuickBooks
+            </Button>
+          </div>
+        )}
+
+        {/* Auto-Match Results */}
+        {showAutoMatch && matchResult && (
+          <div className="mb-6 p-4 border rounded-md space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-medium">Auto-Match Results</h3>
+                <p className="text-sm text-muted-foreground">
+                  Health Grade: <Badge>{matchResult.healthGrade}</Badge> | Coverage: {matchResult.coveragePct}%
+                </p>
+              </div>
+              <Button
+                onClick={() => setShowAutoMatch(false)}
+                size="sm"
+                variant="outline"
+              >
+                Close
+              </Button>
+            </div>
+
+            <div className="space-y-2">
+              {matchResult.items.map((item) => (
+                <div key={item.needKey} className="p-3 border rounded-md">
+                  <div className="flex items-start gap-3">
+                    {getStatusIcon(item.status)}
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{item.needLabel}</span>
+                        {item.required && <Badge variant="outline" className="text-xs">Required</Badge>}
+                      </div>
+                      <p className="text-sm text-muted-foreground">{item.needDescription}</p>
+
+                      {item.bestMatch && (
+                        <div className="mt-2 p-2 bg-muted rounded text-sm">
+                          <div className="font-medium">{item.bestMatch.qbAccountName}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {item.bestMatch.qbAccountType} • Score: {(item.bestMatch.score * 100).toFixed(0)}%
+                          </div>
+                        </div>
+                      )}
+
+                      {item.candidates.length > 1 && (
+                        <div className="mt-2">
+                          <Label className="text-xs">Other candidates:</Label>
+                          <Select
+                            value={item.decisionAccountId || ''}
+                            onValueChange={(value) => {
+                              const candidate = item.candidates.find((c) => c.qbAccountId === value);
+                              if (candidate) {
+                                handleDecisionChange(item.needKey, 'use_existing', value, candidate.qbAccountName);
+                              }
+                            }}
+                          >
+                            <SelectTrigger className="mt-1 h-8 text-xs">
+                              <SelectValue placeholder="Select alternate..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {item.candidates.slice(1).map((candidate) => (
+                                <SelectItem key={candidate.qbAccountId} value={candidate.qbAccountId}>
+                                  {candidate.qbAccountName} ({(candidate.score * 100).toFixed(0)}%)
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4 border-t">
+              <Button
+                onClick={() => setShowAutoMatch(false)}
+                variant="outline"
+                disabled={applyingMatch}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleApplyMatch}
+                disabled={applyingMatch}
+              >
+                {applyingMatch ? 'Applying...' : 'Apply Decisions'}
+              </Button>
+            </div>
+          </div>
         )}
 
         {/* Single Mapping Form */}
