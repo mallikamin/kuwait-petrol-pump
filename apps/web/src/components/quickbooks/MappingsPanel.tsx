@@ -488,9 +488,10 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                           </div>
                           <Button
                             size="sm"
-                            variant={item.decisionAccountId === item.bestMatch.qbAccountId ? "default" : "outline"}
+                            variant={item.decisionAccountId === item.bestMatch?.qbAccountId ? "default" : "outline"}
                             className="h-7 text-xs"
                             onClick={() => {
+                              if (!item.bestMatch) return;
                               handleDecisionChange(
                                 item.needKey,
                                 'use_existing',
@@ -499,7 +500,7 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                               );
                             }}
                           >
-                            {item.decisionAccountId === item.bestMatch.qbAccountId ? 'Selected' : 'Accept'}
+                            {item.decisionAccountId === item.bestMatch?.qbAccountId ? 'Selected' : 'Accept'}
                           </Button>
                         </div>
                       )}
@@ -585,9 +586,10 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                             </div>
                             <Button
                               size="sm"
-                              variant={item.decisionEntityId === item.bestMatch.qbEntityId ? "default" : "outline"}
+                              variant={item.decisionEntityId === item.bestMatch?.qbEntityId ? "default" : "outline"}
                               className="h-7 text-xs"
                               onClick={() => {
+                                if (!item.bestMatch) return;
                                 handleEntityDecisionChange(
                                   item.localId,
                                   item.entityType,
@@ -597,7 +599,7 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                                 );
                               }}
                             >
-                              {item.decisionEntityId === item.bestMatch.qbEntityId ? 'Selected' : 'Accept'}
+                              {item.decisionEntityId === item.bestMatch?.qbEntityId ? 'Selected' : 'Accept'}
                             </Button>
                           </div>
                         )}

@@ -141,6 +141,7 @@ export interface MatchItem {
   decision: 'use_existing' | 'create_new' | null;
   decisionAccountId: string | null;
   decisionAccountName: string | null;
+  needsClientReview?: boolean;
 }
 
 export interface EntityMatchItem {
@@ -153,6 +154,7 @@ export interface EntityMatchItem {
   decision: 'use_existing' | 'create_new' | null;
   decisionEntityId: string | null;
   decisionEntityName: string | null;
+  needsClientReview?: boolean;
 }
 
 export interface MatchResult {
