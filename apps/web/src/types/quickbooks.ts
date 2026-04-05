@@ -137,29 +137,61 @@ export interface MatchItem {
   decisionAccountName: string | null;
 }
 
+export interface EntityMatchItem {
+  localId: string;
+  localName: string;
+  entityType: 'customer' | 'item' | 'bank';
+  status: 'matched' | 'candidates' | 'unmatched';
+  bestMatch: MatchCandidate | null;
+  candidates: MatchCandidate[];
+  decision: 'use_existing' | 'create_new' | null;
+  decisionEntityId: string | null;
+  decisionEntityName: string | null;
+}
+
 export interface MatchResult {
   id: string;
   createdAt: string;
   isLive: boolean;
-  totalNeeds: number;
-  totalQBAccounts: number;
-  matched: number;
-  candidates: number;
-  unmatched: number;
-  requiredTotal: number;
-  requiredMatched: number;
-  coveragePct: number;
-  healthGrade: string;
-  items: MatchItem[];
+  // Accounts
+  accountsTotal: number;
+  accountsMatched: number;
+  accountsCandidates: number;
+  accountsUnmatched: number;
+  accountsRequired: number;
+  accountsRequiredMatched: number;
+  accountsCoveragePct: number;
+  accountsHealthGrade: string;
+  accountItems: MatchItem[];
   unmappedQBAccounts: Array<{
     qbAccountId: string;
     qbAccountName: string;
     qbAccountType: string;
     qbAccountSubType?: string;
-    fullyQualifiedName?: string;
     active: boolean;
     suggestedMappingType: string | null;
   }>;
+  // Customers
+  customersTotal: number;
+  customersMatched: number;
+  customersCandidates: number;
+  customersUnmatched: number;
+  customerItems: EntityMatchItem[];
+  // Items
+  itemsTotal: number;
+  itemsMatched: number;
+  itemsCandidates: number;
+  itemsUnmatched: number;
+  itemItems: EntityMatchItem[];
+  // Banks
+  banksTotal: number;
+  banksMatched: number;
+  banksCandidates: number;
+  banksUnmatched: number;
+  bankItems: EntityMatchItem[];
+  // Overall
+  overallHealthGrade: string;
+  overallCoveragePct: number;
 }
 
 export interface MatchDecision {
@@ -169,9 +201,15 @@ export interface MatchDecision {
   accountName?: string;
 }
 
+export interface EntityDecision {
+  localId: string;
+  decision: 'use_existing' | 'create_new';
+  qbEntityId?: string;
+  qbEntityName?: string;
+}
+
 export interface ApplyMatchResult {
   success: boolean;
   mappingsCreated: number;
-  qbAccountsCreated: number;
   errors: string[];
 }
