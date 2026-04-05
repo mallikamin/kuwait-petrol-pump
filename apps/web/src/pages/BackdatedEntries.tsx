@@ -116,7 +116,8 @@ export function BackdatedEntries() {
     queryKey: ['fuel-prices', 'current'],
     queryFn: async () => {
       const res = await apiClient.get('/api/fuel-prices/current');
-      return res.data?.prices || [];
+      // API returns array directly, not wrapped in prices property
+      return res.data || [];
     },
   });
 
@@ -539,11 +540,13 @@ export function BackdatedEntries() {
   useEffect(() => {
     // Skip if we just saved (prevents overwriting local state after save)
     if (justSavedRef.current) {
+      console.log('[Transactions] Skipping reset after save');
       justSavedRef.current = false;
       return;
     }
 
     if (!selectedBranchId || !businessDate) {
+      console.log('[Transactions] Clearing (no branch/date selected)');
       setTransactions([]);
       setSyncMessage('');
       return;
@@ -552,7 +555,15 @@ export function BackdatedEntries() {
     const backupKey = `backdated_draft_${selectedBranchId}_${businessDate}${selectedShiftId ? '_' + selectedShiftId : ''}`;
     const backup = localStorage.getItem(backupKey);
 
+    console.log('[Transactions] Loading:', {
+      backupKey,
+      hasAPIData: !!dailySummaryData?.transactions,
+      apiCount: dailySummaryData?.transactions?.length || 0,
+      hasBackup: !!backup,
+    });
+
     if (dailySummaryData?.transactions && dailySummaryData.transactions.length > 0) {
+      console.log('[Transactions] Loading from API:', dailySummaryData.transactions.length);
       setTransactions(
         dailySummaryData.transactions.map((txn: any) => ({
           id: txn.id,
@@ -573,6 +584,7 @@ export function BackdatedEntries() {
       localStorage.removeItem(backupKey);
     } else if (backup) {
       // API returned empty but we have a localStorage backup
+      console.log('[Transactions] Loading from localStorage backup');
       try {
         const parsed = JSON.parse(backup);
         setTransactions(parsed.transactions);
@@ -584,6 +596,7 @@ export function BackdatedEntries() {
         setSyncMessage('No existing transactions. Start adding customer groups.');
       }
     } else {
+      console.log('[Transactions] No API data or backup, clearing');
       setTransactions([]);
       setSyncMessage('No existing transactions. Start adding customer groups.');
     }
@@ -623,13 +636,13 @@ export function BackdatedEntries() {
       const fuelPrice = (fuelPricesData || []).find((fp: any) => fp.fuelType?.code === value);
       if (value === 'HSD') {
         updated[index].productName = 'High Speed Diesel';
-        updated[index].unitPrice = fuelPrice?.price?.toString() || '287.33'; // Fallback to default
+        updated[index].unitPrice = fuelPrice?.pricePerLiter?.toString() || '340'; // Live price or fallback
       } else if (value === 'PMG') {
         updated[index].productName = 'Premium Motor Gasoline';
-        updated[index].unitPrice = fuelPrice?.price?.toString() || '290.50'; // Fallback to default
+        updated[index].unitPrice = fuelPrice?.pricePerLiter?.toString() || '458'; // Live price or fallback
       } else if (value === 'OTHER') {
         updated[index].productName = 'Other Fuel';
-        updated[index].unitPrice = fuelPrice?.price?.toString() || '0.00';
+        updated[index].unitPrice = fuelPrice?.pricePerLiter?.toString() || '0.00';
       }
     }
 
@@ -710,20 +723,26 @@ export function BackdatedEntries() {
         throw new Error('Please select a branch');
       }
 
+      console.log('[Finalize] Sending:', { branchId: selectedBranchId, businessDate });
+
       const res = await apiClient.post('/api/backdated-entries/daily/finalize', {
         branchId: selectedBranchId,
         businessDate,
       });
 
+      console.log('[Finalize] Response:', res.data);
       return res.data.data;
     },
     onSuccess: (data: any) => {
-      toast.success(data.message || 'Day finalized and queued for QuickBooks sync');
+      const message = data?.message || `Day finalized! ${data?.transactionsCount || 0} transactions queued for QuickBooks sync. ${data?.salesCount || 0} sales created.`;
+      toast.success(message);
+      console.log('[Finalize] Success:', data);
       refetchDailySummary();
     },
     onError: (error: any) => {
       const errorMsg = error?.response?.data?.error || error.message || 'Failed to finalize day';
-      toast.error(errorMsg);
+      console.error('[Finalize] Error:', error.response?.data || error);
+      toast.error(`Finalize failed: ${errorMsg}`);
     },
   });
 
