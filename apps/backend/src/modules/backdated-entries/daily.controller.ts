@@ -23,6 +23,7 @@ const saveDailyDraftSchema = z.object({
     z.object({
       customerId: z.string().uuid().optional(),
       nozzleId: z.string().uuid().optional(), // Optional - backlog slips may lack nozzle detail
+      fuelCode: z.string().optional(), // HSD, PMG, etc. - used when nozzleId not available
       vehicleNumber: z.string().optional(),
       slipNumber: z.string().optional(),
       productName: z.string(),

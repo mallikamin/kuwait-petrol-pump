@@ -18,6 +18,7 @@ interface DailyQueryParams {
 interface DailyTransactionInput {
   customerId?: string;
   nozzleId?: string; // Optional - some slips don't specify nozzle
+  fuelCode?: string; // HSD, PMG, etc. - used when nozzleId not available
   vehicleNumber?: string;
   slipNumber?: string;
   productName: string;
@@ -552,6 +553,20 @@ export class DailyBackdatedEntriesService {
         walkInEntryId = walkInEntry.id;
       }
 
+      // Lookup fuelTypeIds for walk-in transactions by fuelCode
+      const fuelTypesMap = new Map<string, string>();
+      const uniqueFuelCodes = [...new Set(txnsWithoutNozzle.map(t => t.fuelCode).filter(Boolean))];
+
+      if (uniqueFuelCodes.length > 0) {
+        const fuelTypes = await prisma.fuelType.findMany({
+          where: {
+            code: { in: uniqueFuelCodes as string[] },
+            organizationId,
+          },
+        });
+        fuelTypes.forEach(ft => fuelTypesMap.set(ft.code, ft.id));
+      }
+
       // Create all walk-in transactions
       await prisma.backdatedTransaction.createMany({
         data: txnsWithoutNozzle.map((txn) => ({
@@ -564,7 +579,7 @@ export class DailyBackdatedEntriesService {
           unitPrice: new Prisma.Decimal(txn.unitPrice),
           lineTotal: new Prisma.Decimal(txn.lineTotal),
           paymentMethod: txn.paymentMethod,
-          fuelTypeId: null, // Walk-in transactions may not have fuel type
+          fuelTypeId: txn.fuelCode ? (fuelTypesMap.get(txn.fuelCode) || null) : null,
           transactionDateTime: businessDateObj,
           createdBy: userId || null, // Audit: who created this transaction
           updatedBy: userId || null, // Audit: who last updated this transaction
