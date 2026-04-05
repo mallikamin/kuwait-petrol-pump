@@ -108,7 +108,7 @@ export class QuickBooksEntityFetcher {
       throw new Error(`Failed to fetch customers: ${response.statusText}`);
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as any;
     return data.QueryResponse?.Customer || [];
   }
 
@@ -134,7 +134,7 @@ export class QuickBooksEntityFetcher {
       throw new Error(`Failed to fetch items: ${response.statusText}`);
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as any;
     return data.QueryResponse?.Item || [];
   }
 
@@ -160,7 +160,7 @@ export class QuickBooksEntityFetcher {
       throw new Error(`Failed to fetch accounts: ${response.statusText}`);
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as any;
     return data.QueryResponse?.Account || [];
   }
 
@@ -186,7 +186,7 @@ export class QuickBooksEntityFetcher {
       throw new Error(`Failed to fetch payment methods: ${response.statusText}`);
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as any;
     return data.QueryResponse?.PaymentMethod || [];
   }
 

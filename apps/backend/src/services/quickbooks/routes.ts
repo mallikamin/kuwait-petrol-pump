@@ -1224,7 +1224,7 @@ router.post('/match/:matchId/apply', authenticate, authorize('admin', 'manager')
       entity_type: 'match_result',
       entity_id: matchId,
       direction: 'APP_TO_QB',
-      status: result.success ? 'SUCCESS' : 'PARTIAL',
+      status: result.success ? 'SUCCESS' : 'FAILURE',
       metadata: {
         userId,
         organizationId,

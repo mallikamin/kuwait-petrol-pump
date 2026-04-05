@@ -333,26 +333,22 @@ export class AutoMatchService {
           // Create mapping to existing QB account
           await prisma.qBEntityMapping.upsert({
             where: {
-              organizationId_entityType_entityId: {
+              uq_qb_mapping_org_type_local: {
                 organizationId,
                 entityType: 'account',
-                entityId: item.needKey, // Use need key as pseudo entity ID
+                localId: item.needKey, // Use need key as pseudo entity ID
               },
             },
             create: {
               organizationId,
               entityType: 'account',
-              entityId: item.needKey,
-              entityName: item.needLabel,
+              localId: item.needKey,
               qbId: item.decisionAccountId,
               qbName: item.decisionAccountName || '',
-              qbData: { needKey: item.needKey },
-              lastSyncedAt: new Date(),
             },
             update: {
               qbId: item.decisionAccountId,
               qbName: item.decisionAccountName || '',
-              lastSyncedAt: new Date(),
             },
           });
           mappingsCreated++;
