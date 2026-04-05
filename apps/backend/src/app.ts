@@ -15,6 +15,8 @@ import meterReadingsRoutes from './modules/meter-readings/meter-readings.routes'
 import salesRoutes from './modules/sales/sales.routes';
 import customersRoutes from './modules/customers/customers.routes';
 import productsRoutes from './modules/products/products.routes';
+import suppliersRoutes from './modules/suppliers/suppliers.routes';
+import purchaseOrdersRoutes from './modules/purchase-orders/purchase-orders.routes';
 import bifurcationRoutes from './modules/bifurcation/bifurcation.routes';
 import reportsRoutes from './modules/reports/reports.routes';
 import dashboardRoutes from './modules/dashboard/dashboard.routes';
@@ -22,12 +24,17 @@ import usersRoutes from './modules/users/users.routes';
 import syncRoutes from './modules/sync/sync.routes';
 import quickbooksRoutes from './services/quickbooks/routes';
 import { validateQuickBooksConfig } from './services/quickbooks/startup-validation';
+import backdatedEntriesRoutes from './modules/backdated-entries/backdated-entries.routes';
+import backdatedMeterReadingsRoutes from './modules/backdated-entries/backdated-meter-readings.routes';
 
 // Validate QB config on startup (P0: fail fast if missing)
 validateQuickBooksConfig();
 
 export function createApp() {
   const app = express();
+
+  // Trust nginx proxy so rate limiter uses X-Forwarded-For (real client IP)
+  app.set('trust proxy', 1);
 
   // Security middleware
   app.use(helmet());
@@ -51,10 +58,11 @@ export function createApp() {
     })
   );
 
-  // Rate limiting
+  // Rate limiting - nginx handles primary rate limiting, this is a safety net
+  // trust proxy is set above so this uses real client IP, not nginx container IP
   const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // Limit each IP to 100 requests per windowMs
+    max: 1000, // Per real client IP (nginx does stricter limiting)
   });
   app.use('/api/', limiter);
 
@@ -87,11 +95,15 @@ export function createApp() {
   app.use('/api/sales', salesRoutes);
   app.use('/api/customers', customersRoutes);
   app.use('/api/products', productsRoutes);
+  app.use('/api/suppliers', suppliersRoutes);
+  app.use('/api/purchase-orders', purchaseOrdersRoutes);
   app.use('/api/bifurcation', bifurcationRoutes);
   app.use('/api/reports', reportsRoutes);
   app.use('/api/dashboard', dashboardRoutes);
   app.use('/api/sync', syncRoutes); // Sprint 1: Offline Foundation
   app.use('/api/quickbooks', quickbooksRoutes); // QuickBooks OAuth & sync
+  app.use('/api/backdated-entries', backdatedEntriesRoutes); // Backdated entries for accountant backlog
+  app.use('/api/backdated-meter-readings', backdatedMeterReadingsRoutes); // Meter readings view for backdated workflow (reads from meter_readings table)
 
   app.use('/api/users', usersRoutes);
 
@@ -114,6 +126,8 @@ export function createApp() {
         sales: '/api/sales/*',
         customers: '/api/customers/*',
         products: '/api/products/*',
+        suppliers: '/api/suppliers/*',
+        purchaseOrders: '/api/purchase-orders/*',
         bifurcation: '/api/bifurcation/*',
         reports: '/api/reports/*',
         dashboard: '/api/dashboard/*',

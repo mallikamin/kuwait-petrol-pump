@@ -11,3 +11,5 @@ export { meterReadingsApi } from './meter-readings';
 export { bifurcationsApi } from './bifurcations';
 export { usersApi } from './users';
 export { reportsApi } from './reports';
+export { suppliersApi } from './suppliers';
+export { purchaseOrdersApi } from './purchase-orders';

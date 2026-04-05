@@ -57,6 +57,18 @@ export class ReportsService {
     const paymentBreakdown: { [key: string]: { count: number; amount: number } } = {};
     const shiftBreakdown: { [key: string]: { count: number; amount: number } } = {};
 
+    // Product Variant × Payment Type breakdown
+    type VariantPaymentKey = string; // Format: "HSD|Cash", "PMG|Credit", "NonFuel|Card"
+    const variantPaymentBreakdown: {
+      [key: VariantPaymentKey]: {
+        variant: string;
+        paymentMethod: string;
+        count: number;
+        amount: number;
+        liters?: number
+      }
+    } = {};
+
     for (const sale of sales) {
       // Fuel sales breakdown
       if (sale.saleType === 'fuel') {
@@ -70,12 +82,40 @@ export class ReportsService {
           }
           fuelByType[fuelTypeName].liters += fuelSale.quantityLiters.toNumber();
           fuelByType[fuelTypeName].amount += fuelSale.totalAmount.toNumber();
+
+          // Product variant × payment type tracking
+          const variantKey = `${fuelTypeName}|${sale.paymentMethod}`;
+          if (!variantPaymentBreakdown[variantKey]) {
+            variantPaymentBreakdown[variantKey] = {
+              variant: fuelTypeName,
+              paymentMethod: sale.paymentMethod,
+              count: 0,
+              amount: 0,
+              liters: 0,
+            };
+          }
+          variantPaymentBreakdown[variantKey].count += 1;
+          variantPaymentBreakdown[variantKey].amount += fuelSale.totalAmount.toNumber();
+          variantPaymentBreakdown[variantKey].liters! += fuelSale.quantityLiters.toNumber();
         }
       }
 
       // Non-fuel sales breakdown
       if (sale.saleType === 'non_fuel') {
         totalNonFuelAmount += sale.totalAmount.toNumber();
+
+        // Non-fuel variant × payment type tracking
+        const variantKey = `Non-Fuel|${sale.paymentMethod}`;
+        if (!variantPaymentBreakdown[variantKey]) {
+          variantPaymentBreakdown[variantKey] = {
+            variant: 'Non-Fuel',
+            paymentMethod: sale.paymentMethod,
+            count: 0,
+            amount: 0,
+          };
+        }
+        variantPaymentBreakdown[variantKey].count += 1;
+        variantPaymentBreakdown[variantKey].amount += sale.totalAmount.toNumber();
       }
 
       // Payment method breakdown
@@ -125,6 +165,8 @@ export class ReportsService {
         name,
         ...data,
       })),
+      // NEW: Product Variant × Payment Type Breakdown
+      variantPaymentBreakdown: Object.values(variantPaymentBreakdown),
     };
   }
 
@@ -569,15 +611,20 @@ export class ReportsService {
     });
 
     // Calculate running balance and aggregate
-    let totalAmount = 0;
+    let runningBalance = 0;
     const transactions = sales.map(sale => {
-      totalAmount += sale.totalAmount.toNumber();
+      const saleAmount = sale.totalAmount.toNumber();
+      runningBalance += saleAmount;
+
       return {
         id: sale.id,
+        slipNumber: sale.id.substring(0, 8).toUpperCase(), // Short slip number from ID
         date: sale.saleDate,
         type: sale.saleType,
-        amount: sale.totalAmount.toNumber(),
+        amount: saleAmount,
         paymentMethod: sale.paymentMethod,
+        vehicleNumber: sale.vehicleNumber || null, // Include vehicle number for each transaction
+        runningBalance,
         branch: {
           id: sale.branch.id,
           name: sale.branch.name,
@@ -594,6 +641,7 @@ export class ReportsService {
                 fuelSales: sale.fuelSales.map(fs => ({
                   fuelType: fs.fuelType.name,
                   liters: fs.quantityLiters.toNumber(),
+                  pricePerLiter: fs.pricePerLiter.toNumber(),
                   amount: fs.totalAmount.toNumber(),
                 })),
               }
@@ -614,6 +662,7 @@ export class ReportsService {
         name: customer.name,
         phone: customer.phone,
         email: customer.email,
+        vehicleNumbers: customer.vehicleNumbers || [],
       },
       dateRange: {
         startDate,
@@ -621,7 +670,7 @@ export class ReportsService {
       },
       summary: {
         totalTransactions: sales.length,
-        totalAmount,
+        totalAmount: runningBalance,
       },
       transactions,
     };
@@ -722,6 +771,256 @@ export class ReportsService {
           nozzleNumber: n.nozzleNumber,
         })),
       })),
+    };
+  }
+
+  /**
+   * Get fuel price history report with all price changes in a date range
+   */
+  async getFuelPriceHistoryReport(
+    startDate: Date,
+    endDate: Date,
+    organizationId: string
+  ) {
+    // Get all fuel price changes within the date range
+    const priceHistory = await prisma.fuelPrice.findMany({
+      where: {
+        effectiveFrom: {
+          gte: startDate,
+          lte: endDate,
+        },
+      },
+      include: {
+        fuelType: true,
+        changedByUser: {
+          select: {
+            id: true,
+            fullName: true,
+            username: true,
+          },
+        },
+      },
+      orderBy: {
+        effectiveFrom: 'desc',
+      },
+    });
+
+    // Group by fuel type to calculate old price vs new price
+    const priceChanges = priceHistory.map((current, index) => {
+      // Find previous price (next in array since we're sorted desc)
+      const previous = index < priceHistory.length - 1 ? priceHistory[index + 1] : null;
+
+      return {
+        id: current.id,
+        fuelType: current.fuelType.name,
+        fuelTypeCode: current.fuelType.code,
+        date: current.effectiveFrom,
+        oldPrice: previous ? previous.pricePerLiter.toNumber() : null,
+        newPrice: current.pricePerLiter.toNumber(),
+        priceChange: previous
+          ? current.pricePerLiter.toNumber() - previous.pricePerLiter.toNumber()
+          : null,
+        percentageChange: previous
+          ? ((current.pricePerLiter.toNumber() - previous.pricePerLiter.toNumber()) / previous.pricePerLiter.toNumber()) * 100
+          : null,
+        changedBy: current.changedByUser?.fullName || 'System',
+        notes: current.notes,
+      };
+    });
+
+    return {
+      dateRange: {
+        startDate,
+        endDate,
+      },
+      totalChanges: priceChanges.length,
+      priceChanges,
+    };
+  }
+
+  /**
+   * Get customer-wise sales report
+   * Shows all sales per customer with product variant and payment type segregation
+   */
+  async getCustomerWiseSalesReport(
+    branchId: string,
+    startDate: Date,
+    endDate: Date,
+    organizationId: string,
+    customerId?: string
+  ) {
+    // Verify branch belongs to organization
+    const branch = await prisma.branch.findFirst({
+      where: { id: branchId, organizationId },
+    });
+
+    if (!branch) {
+      throw new AppError(404, 'Branch not found');
+    }
+
+    // Build where clause
+    const whereClause: any = {
+      branchId,
+      saleDate: {
+        gte: startDate,
+        lte: endDate,
+      },
+    };
+
+    // Optional customer filter
+    if (customerId) {
+      whereClause.customerId = customerId;
+    } else {
+      // Only show sales with customers (exclude walk-in)
+      whereClause.customerId = { not: null };
+    }
+
+    // Get all sales with customer info
+    const sales = await prisma.sale.findMany({
+      where: whereClause,
+      include: {
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            email: true,
+          },
+        },
+        fuelSales: {
+          include: {
+            fuelType: true,
+          },
+        },
+        nonFuelSales: {
+          include: {
+            product: true,
+          },
+        },
+      },
+      orderBy: [
+        { customer: { name: 'asc' } },
+        { saleDate: 'desc' },
+      ],
+    });
+
+    // Transform sales into customer-wise breakdown
+    interface SaleDetail {
+      date: Date;
+      saleId: string;
+      slipNumber: string | null;
+      customerName: string;
+      productVariant: string; // 'HSD', 'PMG', 'Non-Fuel'
+      productName: string;
+      rate: number;
+      quantity: number;
+      amount: number;
+      paymentMethod: string;
+      vehicleNumber: string | null;
+    }
+
+    const saleDetails: SaleDetail[] = [];
+
+    for (const sale of sales) {
+      const customerName = sale.customer?.name || 'Walk-in';
+
+      // Process fuel sales
+      if (sale.saleType === 'fuel') {
+        for (const fuelSale of sale.fuelSales) {
+          saleDetails.push({
+            date: sale.saleDate,
+            saleId: sale.id,
+            slipNumber: sale.slipNumber,
+            customerName,
+            productVariant: fuelSale.fuelType.name, // HSD, PMG, etc.
+            productName: fuelSale.fuelType.name,
+            rate: fuelSale.pricePerLiter.toNumber(),
+            quantity: fuelSale.quantityLiters.toNumber(),
+            amount: fuelSale.totalAmount.toNumber(),
+            paymentMethod: sale.paymentMethod,
+            vehicleNumber: sale.vehicleNumber,
+          });
+        }
+      }
+
+      // Process non-fuel sales
+      if (sale.saleType === 'non_fuel') {
+        for (const item of sale.nonFuelSales) {
+          saleDetails.push({
+            date: sale.saleDate,
+            saleId: sale.id,
+            slipNumber: sale.slipNumber,
+            customerName,
+            productVariant: 'Non-Fuel',
+            productName: item.product.name,
+            rate: item.unitPrice.toNumber(),
+            quantity: item.quantity,
+            amount: item.totalAmount.toNumber(),
+            paymentMethod: sale.paymentMethod,
+            vehicleNumber: sale.vehicleNumber,
+          });
+        }
+      }
+    }
+
+    // Calculate summary by customer
+    const customerSummary: {
+      [customerId: string]: {
+        name: string;
+        totalTransactions: number;
+        totalAmount: number;
+        byVariant: {
+          [variant: string]: { count: number; amount: number };
+        };
+        byPaymentMethod: {
+          [method: string]: { count: number; amount: number };
+        };
+      };
+    } = {};
+
+    for (const detail of saleDetails) {
+      const custKey = detail.customerName;
+      if (!customerSummary[custKey]) {
+        customerSummary[custKey] = {
+          name: detail.customerName,
+          totalTransactions: 0,
+          totalAmount: 0,
+          byVariant: {},
+          byPaymentMethod: {},
+        };
+      }
+
+      customerSummary[custKey].totalTransactions += 1;
+      customerSummary[custKey].totalAmount += detail.amount;
+
+      // By variant
+      if (!customerSummary[custKey].byVariant[detail.productVariant]) {
+        customerSummary[custKey].byVariant[detail.productVariant] = { count: 0, amount: 0 };
+      }
+      customerSummary[custKey].byVariant[detail.productVariant].count += 1;
+      customerSummary[custKey].byVariant[detail.productVariant].amount += detail.amount;
+
+      // By payment method
+      if (!customerSummary[custKey].byPaymentMethod[detail.paymentMethod]) {
+        customerSummary[custKey].byPaymentMethod[detail.paymentMethod] = { count: 0, amount: 0 };
+      }
+      customerSummary[custKey].byPaymentMethod[detail.paymentMethod].count += 1;
+      customerSummary[custKey].byPaymentMethod[detail.paymentMethod].amount += detail.amount;
+    }
+
+    return {
+      dateRange: {
+        startDate,
+        endDate,
+      },
+      branch: {
+        id: branch.id,
+        name: branch.name,
+      },
+      totalSales: saleDetails.length,
+      totalAmount: saleDetails.reduce((sum, d) => sum + d.amount, 0),
+      saleDetails, // All transaction details
+      customerSummary: Object.values(customerSummary), // Aggregated by customer
     };
   }
 }

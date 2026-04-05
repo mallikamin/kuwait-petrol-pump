@@ -37,4 +37,9 @@ export const dashboardApi = {
     });
     return response.data;
   },
+
+  getLitersSold: async (): Promise<{ pmg_sold: number; hsd_sold: number }> => {
+    const response = await apiClient.get<{ pmg_sold: number; hsd_sold: number }>('/api/dashboard/liters-sold');
+    return response.data;
+  },
 };

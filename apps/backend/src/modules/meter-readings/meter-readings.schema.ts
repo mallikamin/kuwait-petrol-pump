@@ -6,7 +6,8 @@ export const createMeterReadingSchema = z.object({
   shiftId: z.string().uuid().optional(),
   readingType: z.enum(['opening', 'closing']),
   meterValue: z.number().nonnegative({ message: 'Meter reading must be a positive number or zero' }),
-  imageUrl: z.string().url().optional(),
+  // NOTE: Removed 7-digit minimum for UAT testing - can add back for production if needed
+  imageUrl: z.string().optional(), // Relative path or full URL
   imageBase64: z.string().optional(),
   ocrResult: z.number().positive().optional(),
   isOcr: z.boolean().default(false),

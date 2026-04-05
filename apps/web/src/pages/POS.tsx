@@ -20,12 +20,14 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { CustomerSelector } from '@/components/ui/customer-selector';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuthStore } from '@/store/auth';
-import { productsApi, branchesApi, fuelPricesApi, customersApi } from '@/api';
+import { productsApi, fuelPricesApi, customersApi, dashboardApi, salesApi } from '@/api';
 import { OfflineQueue, QueuedSale } from '@/db/indexeddb';
 import { SyncStatus } from '@/components/SyncStatus';
 import { Receipt, ReceiptData } from '@/components/Receipt';
+import { MeterReadingCapture, MeterReadingData } from '@/components/MeterReadingCapture';
 import { formatCurrency } from '@/utils/format';
 import { Product } from '@/types';
 import {
@@ -62,6 +64,7 @@ interface FuelCartItem {
   fuelTypeName: string;
   quantityLiters: number;
   pricePerLiter: number;
+  meterReading?: MeterReadingData;
 }
 
 export function POS() {
@@ -81,8 +84,9 @@ export function POS() {
   const [fuelCart, setFuelCart] = useState<FuelCartItem | null>(null);
 
   // Fuel sale form
-  const [selectedNozzleId, setSelectedNozzleId] = useState('');
+  const [selectedFuelTypeId, setSelectedFuelTypeId] = useState('');
   const [liters, setLiters] = useState('');
+  const [meterReadingData, setMeterReadingData] = useState<MeterReadingData | null>(null);
 
   // Customer selection (both tabs)
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
@@ -106,23 +110,10 @@ export function POS() {
     staleTime: 60000,
   });
 
-  // Fetch nozzles
-  const { data: nozzlesData } = useQuery({
-    queryKey: ['pos-nozzles', branchId],
-    queryFn: async () => {
-      if (!branchId) return [];
-      const branches = await branchesApi.getAll();
-      const branch = branches.items.find(b => b.id === branchId);
-      if (!branch) return [];
-      const dispensingUnits = await branchesApi.getDispensingUnits(branch.id);
-      return dispensingUnits.flatMap(unit =>
-        unit.nozzles.map(n => ({
-          ...n,
-          displayName: `${n.nozzleNumber} - ${n.fuelType?.name || 'Unknown'}`,
-        }))
-      );
-    },
-    enabled: !!branchId,
+  // Fetch fuel types
+  const { data: fuelTypes } = useQuery({
+    queryKey: ['fuel-types'],
+    queryFn: () => fuelPricesApi.getFuelTypes(),
   });
 
   // Fetch current fuel prices (with pricePerLiter)
@@ -145,6 +136,20 @@ export function POS() {
     queryKey: ['pos-customers'],
     queryFn: () => customersApi.getAll({ size: 500 }),
     staleTime: 300000,
+  });
+
+  // Fetch liters sold (PMG/HSD)
+  const { data: litersData } = useQuery({
+    queryKey: ['liters-sold'],
+    queryFn: () => dashboardApi.getLitersSold(),
+    refetchInterval: 30000, // Refetch every 30 seconds
+  });
+
+  // Fetch today's sales
+  const { data: todaysSalesData } = useQuery({
+    queryKey: ['todays-sales'],
+    queryFn: () => salesApi.getTodaysSales(),
+    refetchInterval: 10000, // Refetch every 10 seconds
   });
 
   const customers = customersData?.items || [];
@@ -200,7 +205,8 @@ export function POS() {
     setCart([]);
     setFuelCart(null);
     setLiters('');
-    setSelectedNozzleId('');
+    setSelectedFuelTypeId('');
+    setMeterReadingData(null);
     setSelectedCustomerId('');
     setVehicleNumber('');
     setSlipNumber('');
@@ -208,43 +214,45 @@ export function POS() {
 
   // Fuel cart helpers
   const addFuelToCart = useCallback(() => {
-    if (!selectedNozzleId || !liters || parseFloat(liters) <= 0) {
-      toast({ title: 'Invalid input', description: 'Select a nozzle and enter liters', variant: 'destructive' });
+    if (!selectedFuelTypeId || !liters || parseFloat(liters) <= 0) {
+      toast({ title: 'Invalid input', description: 'Select a fuel type and enter liters', variant: 'destructive' });
       return;
     }
 
-    const nozzle = nozzlesData?.find(n => n.id === selectedNozzleId);
-    if (!nozzle || !nozzle.fuelType) {
-      toast({ title: 'Error', description: 'Invalid nozzle or fuel type', variant: 'destructive' });
+    const fuelType = fuelTypes?.find(ft => ft.id === selectedFuelTypeId);
+    if (!fuelType) {
+      toast({ title: 'Error', description: 'Invalid fuel type', variant: 'destructive' });
       return;
     }
 
-    const pricePerLiter = priceLookup.get(nozzle.fuelTypeId) || 0;
+    const pricePerLiter = priceLookup.get(fuelType.id) || 0;
 
     if (pricePerLiter <= 0) {
-      toast({ title: 'Price not set', description: `No price configured for ${nozzle.fuelType.name}`, variant: 'destructive' });
+      toast({ title: 'Price not set', description: `No price configured for ${fuelType.name}`, variant: 'destructive' });
       return;
     }
 
     setFuelCart({
-      nozzleId: nozzle.id,
-      nozzleName: nozzle.displayName,
-      fuelTypeId: nozzle.fuelTypeId,
-      fuelTypeName: nozzle.fuelType.name,
+      nozzleId: '', // No nozzle tracking
+      nozzleName: fuelType.name,
+      fuelTypeId: fuelType.id,
+      fuelTypeName: fuelType.name,
       quantityLiters: parseFloat(liters),
       pricePerLiter,
+      meterReading: meterReadingData || undefined,
     });
 
-    toast({ title: 'Fuel added', description: `${liters}L ${nozzle.fuelType.name}` });
-  }, [selectedNozzleId, liters, nozzlesData, priceLookup, toast]);
+    toast({ title: 'Fuel added', description: `${liters}L ${fuelType.name}` });
+  }, [selectedFuelTypeId, liters, fuelTypes, priceLookup, toast]);
 
   // Totals
   const subtotalNonFuel = cart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
   const subtotalFuel = fuelCart ? fuelCart.quantityLiters * fuelCart.pricePerLiter : 0;
   const totalAmount = activeTab === 'fuel' ? subtotalFuel : subtotalNonFuel;
 
-  // Credit limit warning
-  const creditLimitExceeded = selectedCustomer && selectedCustomer.current_balance + totalAmount > selectedCustomer.credit_limit;
+  // Credit limit warning (current_balance not yet implemented in backend, using 0 for now)
+  const currentBalance = 0; // TODO: Fetch from backend
+  const creditLimitExceeded = selectedCustomer && currentBalance + totalAmount > (selectedCustomer.creditLimit || 0);
 
   // Submit sale
   const handleSubmit = async () => {
@@ -266,7 +274,7 @@ export function POS() {
     // Check credit limit
     if (creditLimitExceeded && paymentMethod === 'credit') {
       const confirmed = window.confirm(
-        `Credit limit exceeded!\nCurrent balance: ${formatCurrency(selectedCustomer!.current_balance)}\nCredit limit: ${formatCurrency(selectedCustomer!.credit_limit)}\n\nProceed anyway?`
+        `Credit limit exceeded!\nCurrent balance: ${formatCurrency(currentBalance)}\nCredit limit: ${formatCurrency(selectedCustomer!.creditLimit || 0)}\n\nProceed anyway?`
       );
       if (!confirmed) return;
     }
@@ -288,6 +296,12 @@ export function POS() {
           quantityLiters: fuelCart.quantityLiters,
           pricePerLiter: fuelCart.pricePerLiter,
           totalAmount: fuelCart.quantityLiters * fuelCart.pricePerLiter,
+          previousReading: fuelCart.meterReading?.previousReading,
+          currentReading: fuelCart.meterReading?.currentReading,
+          calculatedLiters: fuelCart.meterReading?.calculatedLiters,
+          imageUrl: fuelCart.meterReading?.imageUrl,
+          ocrConfidence: fuelCart.meterReading?.ocrConfidence,
+          isManualReading: fuelCart.meterReading?.isManualReading,
         }] : undefined,
         nonFuelSales: activeTab === 'product' ? cart.map(item => ({
           productId: item.productId,
@@ -426,6 +440,63 @@ export function POS() {
         </div>
       )}
 
+      {/* Liters Counter - PMG & HSD Available */}
+      <Card className="bg-gradient-to-r from-blue-50 to-green-50 dark:from-blue-950 dark:to-green-950">
+        <CardContent className="pt-6">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="text-center">
+              <p className="text-sm text-muted-foreground">PMG Available</p>
+              <p className="text-3xl font-bold text-blue-600">{litersData?.pmg_sold?.toLocaleString() || 0}</p>
+              <p className="text-xs text-muted-foreground">Liters</p>
+            </div>
+            <div className="text-center border-l">
+              <p className="text-sm text-muted-foreground">HSD Available</p>
+              <p className="text-3xl font-bold text-green-600">{litersData?.hsd_sold?.toLocaleString() || 0}</p>
+              <p className="text-xs text-muted-foreground">Liters</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Today's Posted Entries */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center justify-between">
+            <span>Today's Posted Sales</span>
+            {todaysSalesData && todaysSalesData.count > 0 && (
+              <Badge variant="secondary">{todaysSalesData.count} sale{todaysSalesData.count !== 1 ? 's' : ''}</Badge>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {!todaysSalesData || todaysSalesData.count === 0 ? (
+            <p className="text-sm text-muted-foreground">No sales posted today yet.</p>
+          ) : (
+            <div className="space-y-2 max-h-[300px] overflow-y-auto">
+              {todaysSalesData.sales.slice(0, 10).map((sale: any) => (
+                <div key={sale.id} className="flex items-center justify-between p-2 rounded-md bg-muted/50 text-sm">
+                  <div className="flex-1">
+                    <p className="font-medium">
+                      {sale.saleType === 'fuel'
+                        ? `${sale.items[0]?.fuelType} - ${sale.items[0]?.quantity}L`
+                        : `${sale.items[0]?.product}`
+                      }
+                    </p>
+                    {sale.customer && (
+                      <p className="text-xs text-muted-foreground">{sale.customer.name}</p>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    <p className="font-semibold">{formatCurrency(sale.totalAmount)}</p>
+                    <Badge variant="outline" className="text-xs">{sale.paymentMethod}</Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as SaleTab)} className="space-y-4">
         <TabsList className="grid w-full max-w-[400px] grid-cols-2">
           <TabsTrigger value="fuel" className="flex items-center gap-2">
@@ -450,30 +521,30 @@ export function POS() {
                 <CardContent className="space-y-4">
                   {/* Nozzle Selection */}
                   <div className="space-y-2">
-                    <Label>Nozzle *</Label>
-                    <Select value={selectedNozzleId} onValueChange={setSelectedNozzleId}>
+                    <Label>Fuel Type *</Label>
+                    <Select value={selectedFuelTypeId} onValueChange={setSelectedFuelTypeId}>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select nozzle" />
+                        <SelectValue placeholder="Select fuel type (PMG/HSD)" />
                       </SelectTrigger>
                       <SelectContent>
-                        {nozzlesData?.map(nozzle => (
-                          <SelectItem key={nozzle.id} value={nozzle.id}>
-                            {nozzle.displayName}
+                        {fuelTypes?.map(ft => (
+                          <SelectItem key={ft.id} value={ft.id}>
+                            {ft.name}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
 
-                  {/* Fuel Type & Price Display */}
-                  {selectedNozzleId && (() => {
-                    const nozzle = nozzlesData?.find(n => n.id === selectedNozzleId);
-                    const price = nozzle ? (priceLookup.get(nozzle.fuelTypeId) || 0) : 0;
+                  {/* Fuel Price Display */}
+                  {selectedFuelTypeId && (() => {
+                    const fuelType = fuelTypes?.find(ft => ft.id === selectedFuelTypeId);
+                    const price = fuelType ? (priceLookup.get(fuelType.id) || 0) : 0;
                     return (
                       <div className="p-3 rounded-lg border bg-muted/50">
                         <div className="flex justify-between items-center">
                           <div>
-                            <p className="text-sm font-medium">{nozzle?.fuelType?.name || 'Unknown'}</p>
+                            <p className="text-sm font-medium">{fuelType?.name || 'Unknown'}</p>
                             <p className="text-xs text-muted-foreground">Fuel Type</p>
                           </div>
                           <div className="text-right">
@@ -497,10 +568,25 @@ export function POS() {
                     />
                   </div>
 
+                  {/* Meter Reading Capture */}
+                  {selectedFuelTypeId && (
+                    <MeterReadingCapture
+                      nozzleId=""
+                      fuelTypeId={selectedFuelTypeId}
+                      onCapture={(data) => {
+                        setMeterReadingData(data);
+                        // Auto-fill liters if OCR captured it
+                        if (data.calculatedLiters && !liters) {
+                          setLiters(data.calculatedLiters.toFixed(2));
+                        }
+                      }}
+                    />
+                  )}
+
                   {/* Total Calculation Display */}
-                  {selectedNozzleId && liters && parseFloat(liters) > 0 && (() => {
-                    const nozzle = nozzlesData?.find(n => n.id === selectedNozzleId);
-                    const price = nozzle ? (priceLookup.get(nozzle.fuelTypeId) || 0) : 0;
+                  {selectedFuelTypeId && liters && parseFloat(liters) > 0 && (() => {
+                    const fuelType = fuelTypes?.find(ft => ft.id === selectedFuelTypeId);
+                    const price = fuelType ? (priceLookup.get(fuelType.id) || 0) : 0;
                     const total = parseFloat(liters) * price;
                     return (
                       <div className="p-4 rounded-lg border-2 border-primary bg-primary/5">
@@ -515,7 +601,7 @@ export function POS() {
                     );
                   })()}
 
-                  <Button onClick={addFuelToCart} className="w-full" disabled={!selectedNozzleId || !liters}>
+                  <Button onClick={addFuelToCart} className="w-full" disabled={!selectedFuelTypeId || !liters}>
                     <Plus className="mr-2 h-4 w-4" />
                     Add to Cart
                   </Button>
@@ -740,28 +826,21 @@ export function POS() {
             {/* Customer Selection */}
             <div className="space-y-1.5">
               <Label className="text-xs">Customer (optional)</Label>
-              <Select value={selectedCustomerId} onValueChange={setSelectedCustomerId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Walk-in customer" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Walk-in customer</SelectItem>
-                  {customers.map(customer => (
-                    <SelectItem key={customer.id} value={customer.id}>
-                      {customer.name} ({customer.code})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <CustomerSelector
+                customers={customers}
+                value={selectedCustomerId}
+                onChange={setSelectedCustomerId}
+                placeholder="Walk-in customer"
+              />
               {selectedCustomer && (
                 <div className="text-xs text-muted-foreground space-y-0.5">
                   <div className="flex justify-between">
                     <span>Balance:</span>
-                    <span className="font-medium">{formatCurrency(selectedCustomer.current_balance)}</span>
+                    <span className="font-medium">{formatCurrency(currentBalance)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Limit:</span>
-                    <span className="font-medium">{formatCurrency(selectedCustomer.credit_limit)}</span>
+                    <span className="font-medium">{formatCurrency(selectedCustomer.creditLimit || 0)}</span>
                   </div>
                 </div>
               )}
@@ -772,7 +851,7 @@ export function POS() {
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription className="text-xs">
-                  Credit limit exceeded! Current: {formatCurrency(selectedCustomer!.current_balance)}, Limit: {formatCurrency(selectedCustomer!.credit_limit)}
+                  Credit limit exceeded! Current: {formatCurrency(currentBalance)}, Limit: {formatCurrency(selectedCustomer!.creditLimit || 0)}
                 </AlertDescription>
               </Alert>
             )}

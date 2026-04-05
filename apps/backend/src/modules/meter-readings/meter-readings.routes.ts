@@ -13,11 +13,17 @@ router.use(authenticate);
 router.post('/ocr', OCRController.processOCR);
 router.get('/ocr/quota', OCRController.getQuota);
 
+// Image upload endpoints
+router.post('/upload', OCRController.uploadImage);
+router.get('/upload/stats', OCRController.getUploadStats);
+
 // Meter reading CRUD endpoints
 router.post('/', meterReadingsController.createMeterReading);
 router.get('/', meterReadingsController.getAllReadings);
 router.get('/:nozzleId/latest', meterReadingsController.getLatestReading);
 router.put('/:id/verify', meterReadingsController.verifyReading);
+router.patch('/:id', meterReadingsController.updateMeterReading);
+router.delete('/:id', meterReadingsController.deleteMeterReading);
 router.get('/shift/:shiftId', meterReadingsController.getReadingsByShift);
 router.get('/shift/:shiftId/variance', meterReadingsController.getVarianceReport);
 

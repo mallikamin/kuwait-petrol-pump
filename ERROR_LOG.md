@@ -16,6 +16,70 @@ Each entry follows:
 
 ---
 
+## 2026-04-04 — Radix UI SelectItem empty string crash (P0)
+
+- **Error**: `Uncaught Error: A <Select.Item /> must have a value prop that is not an empty string.`
+- **Context**: BackdatedEntries page crash on load. Customer dropdown and Shift dropdown both had `<SelectItem value="">` for "Walk-in" and "Any shift" options.
+- **Root Cause**: Radix UI Select component uses empty string as a reserved value to clear selection and show placeholder. Any `<SelectItem value="">` crashes at runtime.
+- **Fix**: RESOLVED (commit 68e64b9)
+  - Customer dropdown: Changed `value=""` to `value="__walkin__"`, map back to empty in `onValueChange`
+  - Shift dropdown: Changed `value=""` to `value="__none__"`, map back to empty in `onValueChange`
+- **Rule**: NEVER use `<SelectItem value="">` in Radix UI. Always use a sentinel string (e.g., `__none__`, `__walkin__`) for "no selection" options and map it back in the handler.
+
+---
+
+## 2026-04-04 — Meter Readings Date Boundary Bug (P0)
+
+- **Error**: Page header shows Apr 04, 2026 but shift cards show April 3 data. Active Day Shift opened shows "03 Apr" when it should be "04 Apr". POS PMG/HSD header totals out of sync.
+- **Context**: User viewing meter readings page at 4am Asia/Karachi (11pm UTC previous day). Server in UTC, business in Asia/Karachi.
+- **Root Cause**: Multiple timezone issues:
+  1. **Frontend**: UI displayed dates from `openedAt` UTC timestamps instead of `shift_instance.date` business date field
+  2. **Backend service**: `meter-readings.service.ts` used `new Date()` (server system time) instead of `getBusinessDate(organizationId)` for shift instance creation and validation
+  3. **Backend query**: No filtering by `shift_instance.date` (business date), allowing UTC date overlaps
+  4. **Sorting**: Shifts sorted by `openedAt` timestamp instead of business `date` field
+- **Fix**: RESOLVED
+  1. **Frontend** (`apps/web/src/pages/MeterReadings.tsx`):
+     - Line 951: Changed from `openedAt` fallback to ONLY use `shift_instance.date` for display
+     - Lines 1077-1098: Added business date display in shift section headers, format times separately
+     - Lines 440-451: Sort shifts by `date` field first, then `openedAt` as secondary
+  2. **Backend service** (`apps/backend/src/modules/meter-readings/meter-readings.service.ts`):
+     - Added `businessDate` parameter to `getAllReadings()` for date filtering
+     - Line 94-95: Replace `new Date()` with `await getBusinessDate(organizationId)` in shift instance creation
+     - Lines 175-177: Replace `new Date()` with `await getBusinessDate(organizationId)` in opening validation
+     - Updated yesterday's closing validation to query by `shift_instance.date` instead of `recordedAt` timestamp range
+     - Added Prisma filter for `shiftInstance.date` when businessDate parameter provided
+  3. **Backend controller** (`apps/backend/src/modules/meter-readings/meter-readings.controller.ts`):
+     - Added `date` query parameter support (format: YYYY-MM-DD)
+     - Pass `businessDate` to service for filtering
+  4. **Backfill script** (`apps/backend/src/scripts/backfill-shift-business-dates.ts`):
+     - Created migration script to recalculate business dates for existing shift instances
+     - Converts `openedAt` UTC timestamp to business timezone, extracts date
+     - Usage: `npx ts-node src/scripts/backfill-shift-business-dates.ts --dry-run`
+- **Rule**:
+  1. **ALWAYS use `shift_instance.date`** (business date) for date display/filtering, NEVER derive dates from UTC timestamps
+  2. **ALWAYS use `getBusinessDate(organizationId)`** instead of `new Date()` when creating or querying business dates
+  3. **Backend date queries**: Filter by `shift_instance.date` (business date field), NOT by timestamp ranges
+  4. **Sort by business date first**: Primary sort on `date`, secondary on `openedAt` timestamp
+  5. **Timestamp display**: Format `openedAt`/`closedAt` in organization timezone for time-of-day, but use `date` field for date display
+  6. **Run backfill after deployment**: Execute `backfill-shift-business-dates.ts` to fix any existing data
+
+---
+
+## 2026-04-03 — Frontend Bundle Not Updating Despite Hard Refresh
+
+- **Error**: User sees old build hash (44068cc) in browser despite new bundle (e110254) deployed to server. Hard refresh (Ctrl+Shift+R) doesn't load new code.
+- **Context**: Deployed 3 frontend updates in sequence (reconciliation, shift name fix, nozzle name fix). Server had correct bundles but browser showed stale version.
+- **Root Cause**: nginx.conf cached JS files for 30 days with `Cache-Control: "public, immutable"` header. The "immutable" flag tells browsers to NEVER revalidate cached files, even on hard refresh. Standard practice for production CDNs but wrong for active development.
+- **Fix**: RESOLVED
+  - Split nginx static asset caching into two blocks:
+    1. JS/CSS: 1 hour cache with `must-revalidate` (allows hard refresh to work)
+    2. Images/fonts: 30 day cache (rarely change)
+  - Removed "immutable" flag entirely from both
+  - Committed as 04cddf2
+- **Rule**: During active development, NEVER use `Cache-Control: immutable` for JS/CSS bundles. Use short cache times (1 hour) with `must-revalidate` to allow hard refresh. After project stabilizes, can increase to 24 hours but keep `must-revalidate`. Reserve 30-day immutable caching for production-only deployments with CDN.
+
+---
+
 ## 2026-03-30 — Backend 500 Error on Health Endpoint
 
 - **Error**: `HTTP/1.1 500 Internal Server Error` when accessing `http://localhost:3000/api/health`
@@ -386,5 +450,76 @@ Each entry follows:
 - **Root Cause**: Bypassing Git creates untraceable state
 - **Fix**: Established: git push → git pull on server → docker build → compose up
 - **Rule**: NEVER SCP source code to production. All changes through Git. Fix blockers first.
+
+---
+
+## 2026-04-05 — No DELETE/UPDATE endpoints for meter readings (P0)
+
+- **Error**: `Request failed with status code 400` when trying to edit/delete wrong meter reading entry
+- **Context**: User entered incorrect values (Opening: 100080, Closing: 1000500) in backdated meter readings, tried to edit/delete
+- **Root Cause**: API missing UPDATE and DELETE endpoints for meter readings
+  - Routes file (`meter-readings.routes.ts`) only has: POST (create), GET (read), PUT /verify
+  - Duplicate entry validation (line 268) throws 400 error on re-submit
+  - No way to correct mistakes once submitted
+- **Fix**: PENDING — Need to add:
+  1. `DELETE /api/meter-readings/:id` endpoint
+  2. `PATCH /api/meter-readings/:id` endpoint (update meter value)
+  3. Validation: Only allow edit/delete if shift not yet closed
+  4. Audit trail: Log who deleted/modified readings
+- **Rule**: All data entry APIs MUST provide UPDATE and DELETE endpoints, especially for manual data correction. Never ship CRUD without the UD.
+
+---
+
+## 2026-04-05 — Meter readings don't sync to sales tab (Architectural Gap)
+
+- **Error**: Sales tab empty after entering backdated meter readings
+- **Context**: User enters opening/closing meter readings for historical date, expects sales to appear in Sales tab
+- **Root Cause**: TWO separate systems with no sync mechanism:
+  1. **Meter Readings** (`meter_readings` table) = Shift inventory tracking (opening/closing per nozzle per shift)
+  2. **Fuel Sales** (`sales` + `fuel_sales` tables) = Individual POS transactions (customer sales with vehicle#, slip#)
+  - Meter readings create inventory records, NOT sales records
+  - Sales tab queries `sales` table which is empty for backdated dates
+  - No logic to auto-generate aggregate sales from meter reading diffs
+- **Fix**: PENDING — Need to decide approach:
+  - **Option A**: Auto-create aggregate fuel sale when BOTH opening AND closing entered (closing - opening = volume sold)
+  - **Option B**: Sales tab shows TWO views: "Individual Transactions" + "Meter Reading Summary"
+  - **Option C**: Keep separate, add clarification in UI that meter readings ≠ sales
+- **Temporary Workaround**: User must manually enter fuel sales in POS for sales tab to populate
+- **Rule**: Document data model clearly — distinguish inventory tracking vs transaction tracking. If UI shows "Sales", clarify whether it means transactions or calculated volume.
+
+---
+
+## 2026-04-05 — Posted calculation showing 0L after finalize (RESOLVED ✅)
+
+- **Error**: All fuel transactions persisted in backdated entries but Posted calculation showed 0L after finalize. Fuel selections appeared erased.
+- **Context**: User finalized Mar 1 backdated entries with 6 fuel transactions. Transactions visible in UI but Posted HSD/PMG both showed 0.000L.
+- **Root Cause**: Walk-in transactions (those without `nozzleId`) were saved with `fuelTypeId: null`. When finalize logic checked `if (txn.fuelTypeId)` to create sales records, it skipped all transactions with null fuelTypeId.
+- **Fix**: RESOLVED (commits dc52a5b, a76bfa4)
+  1. Added `fuelCode` ("HSD"/"PMG") to transaction schema validation in `daily.controller.ts`
+  2. Added `fuelCode` to `DailyTransactionInput` interface in `daily.service.ts`
+  3. Lookup `fuelTypeId` from `fuelCode` via DB query before saving walk-in transactions
+  4. Save walk-in transactions with correct `fuelTypeId` instead of null
+  5. Fixed TypeScript errors: `req.user.userId` (not `.id`), removed `organizationId` from FuelType query
+- **Rule**: Walk-in/backdated transactions without nozzle detail must still have `fuelTypeId` for finalize to work. Always accept `fuelCode` from frontend and map to ID before saving. Never save fuel transactions with `fuelTypeId: null`.
+
+---
+
+## 2026-04-05 — Auto-sync created wrong readings (12 instead of 6) (RESOLVED ✅)
+
+- **Error**: Mar 2 auto-sync created 12 opening readings (both Day and Night) instead of 6 (only Day). Should only populate Day openings from Mar 1 Night closings.
+- **Context**: After implementing auto-propagation, Mar 2 showed all 12 shift instances with openings populated, but Night openings should be empty until user enters Day closings.
+- **Root Cause**: Auto-sync logic propagated to **same shift next day** instead of following **shift sequence**. Logic assumed "closing → same shift next day opening" without checking shift type (Day vs Night).
+- **Fix**: RESOLVED (commit 61484b4)
+  1. Include `shift` relation when fetching `shiftInstance` to access shift name
+  2. Implement shift-aware logic:
+     - **Day Shift closing** → Same day **Night Shift opening**
+     - **Night Shift closing** → Next day **Day Shift opening**
+  3. Backward sync follows inverse:
+     - **Day Shift opening** ← Previous day **Night Shift closing**
+     - **Night Shift opening** ← Same day **Day Shift closing**
+  4. Auto-create target shift instances if missing (no manual creation needed)
+  5. Removed `status: 'open'` requirement (works for backdated entries)
+- **Manual cleanup**: Deleted 6 incorrect Mar 2 Night openings, created correct 6 Mar 2 Day openings from Mar 1 Night closings
+- **Rule**: Petrol pump auto-sync must follow shift sequence, not same-shift-next-day. Always check shift type (Day/Night) to determine target shift and date. Within same day: Day→Night. Across days: Night→Day.
 
 ---

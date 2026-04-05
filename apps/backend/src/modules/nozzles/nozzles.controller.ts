@@ -18,6 +18,7 @@ const updateNozzleStatusSchema = z.object({
 });
 
 const updateNozzleSchema = z.object({
+  name: z.string().max(100).optional(),
   nozzle_number: z.number().int().positive().optional(),
   fuel_type_id: z.string().uuid().optional(),
   meter_type: z.enum(['digital', 'analog']).optional(),
@@ -95,6 +96,7 @@ export class NozzlesController {
 
       // Convert snake_case to camelCase for service
       const updateData: any = {};
+      if (data.name !== undefined) updateData.name = data.name;
       if (data.nozzle_number !== undefined) updateData.nozzleNumber = data.nozzle_number;
       if (data.fuel_type_id !== undefined) updateData.fuelTypeId = data.fuel_type_id;
       if (data.meter_type !== undefined) updateData.meterType = data.meter_type;

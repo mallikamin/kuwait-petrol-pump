@@ -556,4 +556,101 @@ export class DashboardController {
       next(error);
     }
   };
+
+  /**
+   * GET /api/dashboard/liters-sold
+   * Returns sold liters for PMG and HSD fuel types from meter readings.
+   *
+   * Calculates: Sum of (closing - opening) readings for current shift or today.
+   *
+   * Response shape:
+   * { pmg_sold: number, hsd_sold: number }
+   */
+  getLitersSold = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      const { organizationId } = req.user;
+      const branchId = req.user.branchId;
+
+      if (!branchId) {
+        return res.status(400).json({ error: 'User has no assigned branch' });
+      }
+
+      // Get current open shift
+      const currentShift = await prisma.shiftInstance.findFirst({
+        where: {
+          branch: { organizationId },
+          status: 'open',
+        },
+        orderBy: { openedAt: 'desc' },
+      });
+
+      // Get PMG and HSD fuel type IDs
+      const fuelTypes = await prisma.fuelType.findMany({
+        where: {
+          code: { in: ['PMG', 'HSD'] },
+        },
+      });
+
+      const pmgFuelType = fuelTypes.find(ft => ft.code === 'PMG');
+      const hsdFuelType = fuelTypes.find(ft => ft.code === 'HSD');
+
+      if (!pmgFuelType || !hsdFuelType) {
+        return res.json({ pmg_sold: 0, hsd_sold: 0 });
+      }
+
+      // Calculate sold volumes from meter readings
+      // Get all nozzles and their opening/closing readings for current shift
+      const nozzles = await prisma.nozzle.findMany({
+        where: {
+          dispensingUnit: {
+            branchId,
+          },
+          isActive: true,
+        },
+        include: {
+          fuelType: true,
+          meterReadings: currentShift ? {
+            where: {
+              shiftInstanceId: currentShift.id,
+            },
+            orderBy: { recordedAt: 'asc' },
+          } : undefined,
+        },
+      });
+
+      let pmgSold = 0;
+      let hsdSold = 0;
+
+      // Calculate sold volume per nozzle
+      for (const nozzle of nozzles) {
+        const openingReading = nozzle.meterReadings.find(r => r.readingType === 'opening');
+        const closingReading = nozzle.meterReadings.find(r => r.readingType === 'closing');
+
+        if (openingReading && closingReading) {
+          const sold = closingReading.meterValue.toNumber() - openingReading.meterValue.toNumber();
+
+          if (nozzle.fuelTypeId === pmgFuelType.id) {
+            pmgSold += sold;
+          } else if (nozzle.fuelTypeId === hsdFuelType.id) {
+            hsdSold += sold;
+          }
+        }
+      }
+
+      res.json({
+        pmg_sold: Math.round(pmgSold * 100) / 100,
+        hsd_sold: Math.round(hsdSold * 100) / 100,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
 }

@@ -46,6 +46,7 @@ export function Nozzles() {
   const [unitNumber, setUnitNumber] = useState('');
 
   // Form states for nozzle
+  const [nozzleName, setNozzleName] = useState('');
   const [nozzleNumber, setNozzleNumber] = useState('');
   const [fuelTypeId, setFuelTypeId] = useState('');
   const [meterType, setMeterType] = useState('digital');
@@ -110,7 +111,7 @@ export function Nozzles() {
 
   // Update nozzle mutation
   const updateNozzleMutation = useMutation({
-    mutationFn: (data: { nozzleId: string; updates: Partial<{ nozzleNumber: number; fuelTypeId: string; meterType: string; isActive: boolean }> }) =>
+    mutationFn: (data: { nozzleId: string; updates: Partial<{ name: string; nozzleNumber: number; fuelTypeId: string; meterType: string; isActive: boolean }> }) =>
       branchesApi.updateNozzle(data.nozzleId, data.updates),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['branches'] });
@@ -130,6 +131,7 @@ export function Nozzles() {
   };
 
   const resetNozzleForm = () => {
+    setNozzleName('');
     setNozzleNumber('');
     setFuelTypeId('');
     setMeterType('digital');
@@ -159,6 +161,7 @@ export function Nozzles() {
       updateNozzleMutation.mutate({
         nozzleId: editingNozzle.id,
         updates: {
+          name: nozzleName || undefined,
           nozzleNumber: parseInt(nozzleNumber),
           fuelTypeId,
           meterType,
@@ -177,6 +180,7 @@ export function Nozzles() {
   const handleEditNozzle = (nozzle: Nozzle, unitId: string) => {
     setEditingNozzle(nozzle);
     setSelectedUnitId(unitId);
+    setNozzleName((nozzle as any).name || '');
     setNozzleNumber(nozzle.nozzleNumber?.toString() || '');
     setFuelTypeId(nozzle.fuelTypeId);
     setMeterType(nozzle.meterType || 'digital');
@@ -286,7 +290,7 @@ export function Nozzles() {
                         <Table>
                           <TableHeader>
                             <TableRow>
-                              <TableHead>Nozzle #</TableHead>
+                              <TableHead>Nozzle Name</TableHead>
                               <TableHead>Fuel Type</TableHead>
                               <TableHead>Meter Type</TableHead>
                               <TableHead>Status</TableHead>
@@ -297,9 +301,16 @@ export function Nozzles() {
                             {nozzles.map((nozzle) => (
                               <TableRow key={nozzle.id}>
                                 <TableCell className="font-medium">
-                                  <div className="flex items-center">
-                                    <Gauge className="mr-2 h-4 w-4 text-muted-foreground" />
-                                    Nozzle {nozzle.nozzleNumber}
+                                  <div className="flex flex-col">
+                                    <div className="flex items-center">
+                                      <Gauge className="mr-2 h-4 w-4 text-muted-foreground" />
+                                      {(nozzle as any).name || `Nozzle ${nozzle.nozzleNumber}`}
+                                    </div>
+                                    {(nozzle as any).name && (
+                                      <span className="text-xs text-muted-foreground ml-6">
+                                        Nozzle #{nozzle.nozzleNumber}
+                                      </span>
+                                    )}
                                   </div>
                                 </TableCell>
                                 <TableCell>
@@ -423,6 +434,19 @@ export function Nozzles() {
                 </Select>
               </div>
             )}
+
+            <div className="grid gap-2">
+              <Label htmlFor="nozzle-name">Custom Name (Optional)</Label>
+              <Input
+                id="nozzle-name"
+                placeholder="e.g., D1N2, Dispensing Unit 1 Nozzle 2"
+                value={nozzleName}
+                onChange={(e) => setNozzleName(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Custom name helps identify this nozzle during meter readings
+              </p>
+            </div>
 
             <div className="grid gap-2">
               <Label htmlFor="nozzle-number">Nozzle Number *</Label>

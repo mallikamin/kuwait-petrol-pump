@@ -10,9 +10,10 @@ import { v4 as uuidv4 } from 'uuid';
 import { apiClient } from '@/api/client';
 
 const DB_NAME = 'KuwaitPOS_OfflineQueue';
-const DB_VERSION = 1;
+const DB_VERSION = 2; // Increment for new stores
 const SALES_STORE = 'sales';
 const METER_READINGS_STORE = 'meter_readings';
+const BACKDATED_TRANSACTIONS_STORE = 'backdated_transactions';
 const META_STORE = 'metadata';
 
 export interface QueuedSale {
@@ -35,6 +36,12 @@ export interface QueuedSale {
     quantityLiters: number;
     pricePerLiter: number;
     totalAmount: number;
+    previousReading?: number;
+    currentReading?: number;
+    calculatedLiters?: number;
+    imageUrl?: string;
+    ocrConfidence?: number;
+    isManualReading?: boolean;
   }>;
   nonFuelSales?: Array<{
     productId: string;
@@ -49,12 +56,52 @@ export interface QueuedSale {
   error?: string;
 }
 
+export interface QueuedBackdatedTransaction {
+  offlineQueueId: string;
+  branchId: string;
+  businessDate: string;
+  shiftId?: string;
+  customerId?: string;
+  fuelCode?: string;
+  vehicleNumber?: string;
+  slipNumber?: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+  paymentMethod: string;
+  queuedAt: string;
+  attempts: number;
+  status: 'pending' | 'syncing' | 'synced' | 'failed';
+  error?: string;
+}
+
+export interface QueuedMeterReading {
+  offlineQueueId: string;
+  nozzleId: string;
+  shiftId: string;
+  readingType: 'opening' | 'closing';
+  meterValue: number;
+  customTimestamp: string;
+  imageUrl?: string;
+  ocrConfidence?: number;
+  isManualOverride: boolean;
+  isOcr: boolean;
+  queuedAt: string;
+  attempts: number;
+  status: 'pending' | 'syncing' | 'synced' | 'failed';
+  error?: string;
+}
+
 export interface QueueStatus {
   salesCount: number;
+  transactionsCount: number;
+  meterReadingsCount: number;
   pendingCount: number;
   syncedCount: number;
   failedCount: number;
   lastSyncAt?: string;
+  isOnline: boolean;
 }
 
 export class OfflineQueue {
@@ -87,12 +134,21 @@ export class OfflineQueue {
           salesStore.createIndex('queuedAt', 'queuedAt', { unique: false });
         }
 
-        // Create meter readings store (future Sprint 2)
+        // Create meter readings store
         if (!db.objectStoreNames.contains(METER_READINGS_STORE)) {
           const readingsStore = db.createObjectStore(METER_READINGS_STORE, {
             keyPath: 'offlineQueueId',
           });
           readingsStore.createIndex('status', 'status', { unique: false });
+        }
+
+        // Create backdated transactions store
+        if (!db.objectStoreNames.contains(BACKDATED_TRANSACTIONS_STORE)) {
+          const transactionsStore = db.createObjectStore(BACKDATED_TRANSACTIONS_STORE, {
+            keyPath: 'offlineQueueId',
+          });
+          transactionsStore.createIndex('status', 'status', { unique: false });
+          transactionsStore.createIndex('businessDate', 'businessDate', { unique: false });
         }
 
         // Create metadata store
@@ -313,18 +369,123 @@ export class OfflineQueue {
   }
 
   /**
+   * Enqueue backdated transaction for offline sync
+   */
+  static async enqueueBackdatedTransaction(
+    transaction: Omit<QueuedBackdatedTransaction, 'offlineQueueId' | 'queuedAt' | 'attempts' | 'status'>
+  ): Promise<string> {
+    const db = await this.initDB();
+    const offlineQueueId = uuidv4();
+    const queuedTransaction: QueuedBackdatedTransaction = {
+      ...transaction,
+      offlineQueueId,
+      queuedAt: new Date().toISOString(),
+      attempts: 0,
+      status: 'pending',
+    };
+
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction([BACKDATED_TRANSACTIONS_STORE], 'readwrite');
+      const store = tx.objectStore(BACKDATED_TRANSACTIONS_STORE);
+      const request = store.add(queuedTransaction);
+
+      request.onsuccess = () => {
+        console.log(`📥 Enqueued backdated transaction: ${offlineQueueId}`);
+        resolve(offlineQueueId);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Enqueue meter reading for offline sync
+   */
+  static async enqueueMeterReading(
+    reading: Omit<QueuedMeterReading, 'offlineQueueId' | 'queuedAt' | 'attempts' | 'status'>
+  ): Promise<string> {
+    const db = await this.initDB();
+    const offlineQueueId = uuidv4();
+    const queuedReading: QueuedMeterReading = {
+      ...reading,
+      offlineQueueId,
+      queuedAt: new Date().toISOString(),
+      attempts: 0,
+      status: 'pending',
+    };
+
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction([METER_READINGS_STORE], 'readwrite');
+      const store = tx.objectStore(METER_READINGS_STORE);
+      const request = store.add(queuedReading);
+
+      request.onsuccess = () => {
+        console.log(`📥 Enqueued meter reading: ${offlineQueueId}`);
+        resolve(offlineQueueId);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Get all pending backdated transactions
+   */
+  static async getPendingBackdatedTransactions(): Promise<QueuedBackdatedTransaction[]> {
+    const db = await this.initDB();
+
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([BACKDATED_TRANSACTIONS_STORE], 'readonly');
+      const store = transaction.objectStore(BACKDATED_TRANSACTIONS_STORE);
+      const index = store.index('status');
+      const request = index.getAll('pending');
+
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Get all pending meter readings
+   */
+  static async getPendingMeterReadings(): Promise<QueuedMeterReading[]> {
+    const db = await this.initDB();
+
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([METER_READINGS_STORE], 'readonly');
+      const store = transaction.objectStore(METER_READINGS_STORE);
+      const index = store.index('status');
+      const request = index.getAll('pending');
+
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
    * Get queue status
    */
   static async getStatus(): Promise<QueueStatus> {
     const allSales = await this.getAllSales();
+    const allTransactions = await this.getPendingBackdatedTransactions();
+    const allReadings = await this.getPendingMeterReadings();
     const lastSyncAt = await this.getMetadata('last_sync');
+
+    const totalPending = allSales.filter(s => s.status === 'pending').length +
+                        allTransactions.filter(t => t.status === 'pending').length +
+                        allReadings.filter(r => r.status === 'pending').length;
+
+    const totalFailed = allSales.filter(s => s.status === 'failed').length +
+                       allTransactions.filter(t => t.status === 'failed').length +
+                       allReadings.filter(r => r.status === 'failed').length;
 
     return {
       salesCount: allSales.length,
-      pendingCount: allSales.filter((s) => s.status === 'pending').length,
+      transactionsCount: allTransactions.length,
+      meterReadingsCount: allReadings.length,
+      pendingCount: totalPending,
       syncedCount: 0, // Synced items are removed from queue
-      failedCount: allSales.filter((s) => s.status === 'failed').length,
+      failedCount: totalFailed,
       lastSyncAt: lastSyncAt || undefined,
+      isOnline: navigator.onLine,
     };
   }
 

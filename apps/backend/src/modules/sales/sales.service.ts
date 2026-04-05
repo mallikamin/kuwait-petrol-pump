@@ -22,6 +22,12 @@ export class SalesService {
       customerId,
       vehicleNumber,
       slipNumber,
+      previousReading,
+      currentReading,
+      calculatedLiters,
+      imageUrl,
+      ocrConfidence,
+      isManualReading,
     } = data;
 
     // Verify branch belongs to organization
@@ -33,17 +39,20 @@ export class SalesService {
       throw new AppError(404, 'Branch not found');
     }
 
-    // Verify nozzle exists and is active
-    const nozzle = await prisma.nozzle.findFirst({
-      where: {
-        id: nozzleId,
-        isActive: true,
-        dispensingUnit: { branchId },
-      },
-    });
+    // Verify nozzle exists and is active (only if nozzleId provided)
+    // Client removed nozzle selection from POS, so nozzleId is now optional
+    if (nozzleId) {
+      const nozzle = await prisma.nozzle.findFirst({
+        where: {
+          id: nozzleId,
+          isActive: true,
+          dispensingUnit: { branchId },
+        },
+      });
 
-    if (!nozzle) {
-      throw new AppError(404, 'Nozzle not found or inactive');
+      if (!nozzle) {
+        throw new AppError(404, 'Nozzle not found or inactive');
+      }
     }
 
     // Verify customer if provided
@@ -78,6 +87,12 @@ export class SalesService {
             quantityLiters: new Decimal(quantityLiters),
             pricePerLiter: new Decimal(pricePerLiter),
             totalAmount: new Decimal(totalAmount),
+            previousReading: previousReading !== undefined ? new Decimal(previousReading) : null,
+            currentReading: currentReading !== undefined ? new Decimal(currentReading) : null,
+            calculatedLiters: calculatedLiters !== undefined ? new Decimal(calculatedLiters) : null,
+            imageUrl: imageUrl || null,
+            ocrConfidence: ocrConfidence !== undefined ? ocrConfidence : null,
+            isManualReading: isManualReading || false,
           },
         },
       },
@@ -444,5 +459,78 @@ export class SalesService {
         amount: pm._sum.totalAmount?.toNumber() || 0,
       })),
     };
+  }
+
+  /**
+   * Get today's sales for a branch (for POS display)
+   */
+  async getTodaysSales(
+    branchId: string,
+    organizationId: string,
+    startOfDay: Date,
+    endOfDay: Date
+  ) {
+    const sales = await prisma.sale.findMany({
+      where: {
+        branchId,
+        branch: { organizationId },
+        saleDate: {
+          gte: startOfDay,
+          lt: endOfDay,
+        },
+      },
+      include: {
+        customer: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        fuelSales: {
+          include: {
+            fuelType: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+        nonFuelSales: {
+          include: {
+            product: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+      take: 50, // Limit to last 50 sales of the day
+    });
+
+    return sales.map((sale: any) => ({
+      id: sale.id,
+      saleType: sale.saleType,
+      totalAmount: sale.totalAmount.toNumber(),
+      paymentMethod: sale.paymentMethod,
+      vehicleNumber: sale.vehicleNumber,
+      slipNumber: sale.slipNumber,
+      customer: sale.customer,
+      createdAt: sale.createdAt,
+      items: sale.saleType === 'fuel'
+        ? sale.fuelSales.map((fs: any) => ({
+            fuelType: fs.fuelType.name,
+            quantity: fs.quantityLiters.toNumber(),
+            amount: fs.totalAmount.toNumber(),
+          }))
+        : sale.nonFuelSales.map((nfs: any) => ({
+            product: nfs.product.name,
+            quantity: nfs.quantity,
+            amount: nfs.totalAmount.toNumber(),
+          })),
+    }));
   }
 }

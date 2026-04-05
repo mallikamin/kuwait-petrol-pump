@@ -24,7 +24,7 @@ export class BifurcationController {
       }
 
       // Only manager and accountant can create bifurcations
-      if (!['ADMIN', 'MANAGER', 'ACCOUNTANT'].includes(req.user.role)) {
+      if (!['ADMIN', 'MANAGER', 'ACCOUNTANT', 'admin', 'manager', 'accountant'].includes(req.user.role)) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
@@ -91,7 +91,7 @@ export class BifurcationController {
       }
 
       // Only manager and accountant can verify bifurcations
-      if (!['ADMIN', 'MANAGER', 'ACCOUNTANT'].includes(req.user.role)) {
+      if (!['ADMIN', 'MANAGER', 'ACCOUNTANT', 'admin', 'manager', 'accountant'].includes(req.user.role)) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
@@ -201,6 +201,45 @@ export class BifurcationController {
       );
 
       res.json({ bifurcation });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * GET /api/bifurcation/summary
+   * Get daily sales summary for bifurcation wizard
+   * Query params: date (required), branchId (required)
+   */
+  getDailySalesSummary = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      const date = req.query.date as string | undefined;
+      const branchId = req.query.branchId as string | undefined;
+
+      if (!date) {
+        return res.status(400).json({ error: 'date query parameter is required' });
+      }
+
+      if (!branchId) {
+        return res.status(400).json({ error: 'branchId query parameter is required' });
+      }
+
+      // Validate date format
+      if (isNaN(Date.parse(date))) {
+        return res.status(400).json({ error: 'Invalid date format' });
+      }
+
+      const summary = await this.bifurcationService.getDailySalesSummary(
+        branchId,
+        date,
+        req.user.organizationId
+      );
+
+      res.json({ summary });
     } catch (error) {
       next(error);
     }

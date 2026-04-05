@@ -12,11 +12,14 @@ import { Nozzles } from '@/pages/Nozzles';
 import { Sales } from '@/pages/Sales';
 import { Customers } from '@/pages/Customers';
 import { Products } from '@/pages/Products';
-import { Bifurcation } from '@/pages/Bifurcation';
+import { ReconciliationNew as Reconciliation } from '@/pages/ReconciliationNew';
 import { Reports } from '@/pages/Reports';
 import { Users } from '@/pages/Users';
 import { POS } from '@/pages/POS';
 import QuickBooks from '@/pages/QuickBooks';
+import { Suppliers } from '@/pages/Suppliers';
+import { PurchaseOrders } from '@/pages/PurchaseOrders';
+import { BackdatedEntries } from '@/pages/BackdatedEntries';
 import { NotFound } from '@/pages/NotFound';
 import { useAuthStore } from '@/store/auth';
 import { useThemeStore } from '@/store/theme';
@@ -67,10 +70,13 @@ function App() {
             <Route path="nozzles" element={<Nozzles />} />
             <Route path="shifts" element={<Shifts />} />
             <Route path="meter-readings" element={<MeterReadings />} />
+            <Route path="backdated-entries" element={<BackdatedEntries />} />
             <Route path="sales" element={<Sales />} />
             <Route path="customers" element={<Customers />} />
             <Route path="products" element={<Products />} />
-            <Route path="bifurcation" element={<Bifurcation />} />
+            <Route path="suppliers" element={<Suppliers />} />
+            <Route path="purchase-orders" element={<PurchaseOrders />} />
+            <Route path="reconciliation" element={<Reconciliation />} />
             <Route path="reports" element={<Reports />} />
             <Route path="quickbooks" element={<QuickBooks />} />
             <Route path="users" element={<Users />} />

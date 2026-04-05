@@ -53,4 +53,16 @@ export const shiftsApi = {
       return null;
     }
   },
+
+  getHistory: async (params: {
+    branchId: string;
+    startDate?: string;
+    endDate?: string;
+    status?: 'pending' | 'open' | 'closed';
+    limit?: number;
+    offset?: number;
+  }): Promise<PaginatedResponse<Shift>> => {
+    const response = await apiClient.get<PaginatedResponse<Shift>>('/api/shifts/history', { params });
+    return response.data;
+  },
 };

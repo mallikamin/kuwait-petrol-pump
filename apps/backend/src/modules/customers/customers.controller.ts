@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { hasRole } from '../../middleware/auth.middleware';
 import { CustomersService } from './customers.service';
 import {
   createCustomerSchema,
@@ -50,7 +51,7 @@ export class CustomersController {
       }
 
       // Only admin and manager can create customers
-      if (!['ADMIN', 'MANAGER'].includes(req.user.role)) {
+      if (!hasRole(req.user, ['admin', 'manager'])) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
@@ -104,7 +105,7 @@ export class CustomersController {
       }
 
       // Only admin and manager can update customers
-      if (!['ADMIN', 'MANAGER'].includes(req.user.role)) {
+      if (!hasRole(req.user, ['admin', 'manager'])) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 

@@ -30,6 +30,18 @@ const inventoryReportQuerySchema = z.object({
   branchId: z.string().uuid().optional(),
 });
 
+const fuelPriceHistoryQuerySchema = z.object({
+  startDate: dateString,
+  endDate: dateString,
+});
+
+const customerWiseSalesQuerySchema = z.object({
+  branchId: z.string().uuid().optional(),
+  startDate: dateString,
+  endDate: dateString,
+  customerId: z.string().uuid().optional(),
+});
+
 export class ReportsController {
   private reportsService: ReportsService;
 
@@ -225,6 +237,84 @@ export class ReportsController {
       res.json({
         report,
         message: 'Inventory report retrieved successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * GET /api/reports/fuel-price-history
+   * Get fuel price history report with all price changes
+   */
+  getFuelPriceHistoryReport = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      // Only managers and accountants can access price history reports
+      if (!['admin', 'manager', 'accountant'].includes(req.user.role)) {
+        return res.status(403).json({ error: 'Insufficient permissions' });
+      }
+
+      const query = fuelPriceHistoryQuerySchema.parse(req.query);
+
+      const report = await this.reportsService.getFuelPriceHistoryReport(
+        query.startDate,
+        query.endDate,
+        req.user.organizationId
+      );
+
+      res.json({
+        report,
+        message: 'Fuel price history report retrieved successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * GET /api/reports/customer-wise-sales
+   * Get customer-wise sales report with product variant and payment type segregation
+   */
+  getCustomerWiseSalesReport = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      // Only managers and accountants can access customer-wise sales reports
+      if (!['admin', 'manager', 'accountant'].includes(req.user.role)) {
+        return res.status(403).json({ error: 'Insufficient permissions' });
+      }
+
+      const query = customerWiseSalesQuerySchema.parse(req.query);
+
+      // Validate date range
+      if (query.startDate > query.endDate) {
+        return res.status(400).json({ error: 'Start date must be before end date' });
+      }
+
+      // Use user's branch if not specified
+      const branchId = query.branchId || req.user.branchId;
+
+      if (!branchId) {
+        return res.status(400).json({ error: 'branchId required (user has no assigned branch)' });
+      }
+
+      const report = await this.reportsService.getCustomerWiseSalesReport(
+        branchId,
+        query.startDate,
+        query.endDate,
+        req.user.organizationId,
+        query.customerId
+      );
+
+      res.json({
+        report,
+        message: 'Customer-wise sales report retrieved successfully',
       });
     } catch (error) {
       next(error);

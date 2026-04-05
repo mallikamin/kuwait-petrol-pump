@@ -52,6 +52,12 @@ export class MeterReadingsController {
   /**
    * GET /api/meter-readings
    * Get all meter readings for the organization
+   *
+   * Query params:
+   * - page: Page number (default: 1)
+   * - size: Page size (default: 20)
+   * - is_ocr: Filter by OCR readings (optional)
+   * - date: Filter by business date YYYY-MM-DD (optional) - filters by shift_instance.date
    */
   getAllReadings = async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -63,11 +69,19 @@ export class MeterReadingsController {
       const size = req.query.size ? parseInt(req.query.size as string) : 20;
       const limit = req.query.limit ? parseInt(req.query.limit as string) : size;
       const isOcr = req.query.is_ocr ? req.query.is_ocr === 'true' : undefined;
+      const businessDate = req.query.date as string | undefined; // YYYY-MM-DD format
+      const nozzleId = req.query.nozzle_id as string | undefined;
+      const shiftInstanceId = req.query.shift_id as string | undefined;
+      const readingType = req.query.reading_type as 'opening' | 'closing' | undefined;
 
       const allReadings = await this.meterReadingsService.getAllReadings(
         req.user.organizationId,
         limit * page, // Get enough for pagination
-        isOcr
+        isOcr,
+        businessDate, // Pass business date filter
+        nozzleId,
+        shiftInstanceId,
+        readingType
       );
 
       // Paginate
@@ -81,7 +95,13 @@ export class MeterReadingsController {
         nozzle_id: reading.nozzleId,
         nozzle: reading.nozzle ? {
           id: reading.nozzle.id,
+          name: reading.nozzle.name || null,
           nozzle_number: reading.nozzle.nozzleNumber,
+          dispensing_unit: reading.nozzle.dispensingUnit ? {
+            id: reading.nozzle.dispensingUnit.id,
+            unit_number: reading.nozzle.dispensingUnit.unitNumber,
+            name: reading.nozzle.dispensingUnit.name || null,
+          } : null,
           fuel_type: reading.nozzle.fuelType ? {
             id: reading.nozzle.fuelType.id,
             name: reading.nozzle.fuelType.name,
@@ -89,6 +109,24 @@ export class MeterReadingsController {
           } : null,
         } : null,
         shift_id: reading.shiftInstanceId,
+        shift_instance: reading.shiftInstance ? {
+          id: reading.shiftInstance.id,
+          date: reading.shiftInstance.date,
+          status: reading.shiftInstance.status,
+          opened_at: reading.shiftInstance.openedAt?.toISOString() || null,
+          closed_at: reading.shiftInstance.closedAt?.toISOString() || null,
+          opened_by: (reading.shiftInstance as any).openedByUser ? {
+            full_name: (reading.shiftInstance as any).openedByUser.fullName,
+            username: (reading.shiftInstance as any).openedByUser.username,
+          } : null,
+          shift: reading.shiftInstance.shift ? {
+            id: reading.shiftInstance.shift.id,
+            name: reading.shiftInstance.shift.name || null,
+            shift_number: reading.shiftInstance.shift.shiftNumber,
+            start_time: reading.shiftInstance.shift.startTime?.toISOString() || null,
+            end_time: reading.shiftInstance.shift.endTime?.toISOString() || null,
+          } : null,
+        } : null,
         reading_type: reading.readingType,
         reading_value: parseFloat(reading.meterValue.toString()),
         meter_value: parseFloat(reading.meterValue.toString()),
@@ -218,6 +256,76 @@ export class MeterReadingsController {
       );
 
       res.json(report);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * PATCH /api/meter-readings/:id
+   * Update meter reading value (for correcting mistakes)
+   */
+  updateMeterReading = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      // Only admin, manager, or operator can update readings
+      if (!hasRole(req.user, ['admin', 'manager', 'operator'])) {
+        return res.status(403).json({ error: 'Insufficient permissions' });
+      }
+
+      const { id } = idParamSchema.parse(req.params);
+      const { meterValue } = req.body;
+
+      if (!meterValue || typeof meterValue !== 'number') {
+        return res.status(400).json({ error: 'meterValue is required and must be a number' });
+      }
+
+      const updatedReading = await this.meterReadingsService.updateMeterReading(
+        id,
+        meterValue,
+        req.user.userId,
+        req.user.organizationId
+      );
+
+      res.json({
+        meterReading: updatedReading,
+        message: 'Meter reading updated successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * DELETE /api/meter-readings/:id
+   * Delete a meter reading (for removing wrong entries)
+   */
+  deleteMeterReading = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      // Only admin or manager can delete readings
+      if (!hasRole(req.user, ['admin', 'manager'])) {
+        return res.status(403).json({ error: 'Insufficient permissions' });
+      }
+
+      const { id } = idParamSchema.parse(req.params);
+
+      await this.meterReadingsService.deleteMeterReading(
+        id,
+        req.user.userId,
+        req.user.organizationId
+      );
+
+      res.json({
+        success: true,
+        message: 'Meter reading deleted successfully',
+      });
     } catch (error) {
       next(error);
     }

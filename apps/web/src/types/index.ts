@@ -36,8 +36,10 @@ export interface Nozzle {
   id: string;
   dispensingUnitId: string;
   nozzleNumber: number;
+  name?: string;
   fuelTypeId: string;
   fuelType?: FuelType;
+  dispensingUnit?: { id: string; unitNumber: number; name?: string };
   meterType: string;
   isActive: boolean;
   createdAt: string;
@@ -149,16 +151,15 @@ export interface SaleItem {
 export interface Customer {
   id: string;
   name: string;
-  code: string;
   phone?: string;
   email?: string;
   address?: string;
-  customer_type: 'individual' | 'corporate';
-  credit_limit: number;
-  current_balance: number;
-  vehicle_numbers: string[];
-  is_active: boolean;
-  created_at: string;
+  vehicleNumbers?: string[];
+  creditLimit?: number;
+  creditDays?: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Product {

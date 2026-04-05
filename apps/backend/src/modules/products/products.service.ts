@@ -67,7 +67,7 @@ export class ProductsService {
             },
           },
         },
-        orderBy: { name: 'asc' },
+        orderBy: { createdAt: 'desc' },
         take: limit,
         skip: offset,
       }),

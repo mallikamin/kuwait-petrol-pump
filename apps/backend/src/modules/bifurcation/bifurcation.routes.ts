@@ -15,6 +15,9 @@ router.post(
   bifurcationController.createBifurcation
 );
 
+// GET /api/bifurcation/summary - Get daily sales summary for bifurcation wizard
+router.get('/summary', bifurcationController.getDailySalesSummary);
+
 // GET /api/bifurcation/history - Get bifurcation history with filters
 router.get('/history', bifurcationController.getBifurcationHistory);
 

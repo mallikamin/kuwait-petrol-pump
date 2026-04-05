@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { AlertCircle, Banknote, Fuel, Package, ShoppingBag, Clock, Users } from 'lucide-react';
+import { AlertCircle, Banknote, Fuel, Package, ShoppingBag, Clock, Users, Droplet } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -59,6 +59,12 @@ export function Dashboard() {
     queryKey: ['dashboard-top-customers'],
     queryFn: () => dashboardApi.getTopCustomers(5),
     refetchInterval: 300000,
+  });
+
+  const { data: litersSold, isLoading: litersSoldLoading } = useQuery({
+    queryKey: ['dashboard-liters-sold'],
+    queryFn: dashboardApi.getLitersSold,
+    refetchInterval: 30000, // Refetch every 30 seconds
   });
 
   return (
@@ -133,6 +139,32 @@ export function Dashboard() {
               value={stats?.total_customers || 0}
               icon={<Users className="h-4 w-4 text-muted-foreground" />}
               trend="Registered customers"
+            />
+          </>
+        )}
+      </div>
+
+      {/* Fuel Sold Stats */}
+      <div className="grid gap-4 md:grid-cols-2">
+        {litersSoldLoading ? (
+          <>
+            {[...Array(2)].map((_, i) => (
+              <Skeleton key={i} className="h-32" />
+            ))}
+          </>
+        ) : (
+          <>
+            <StatCard
+              title="PMG Sold"
+              value={`${litersSold?.pmg_sold || 0} Liters`}
+              icon={<Droplet className="h-4 w-4 text-green-500" />}
+              trend="Current shift"
+            />
+            <StatCard
+              title="HSD Sold"
+              value={`${litersSold?.hsd_sold || 0} Liters`}
+              icon={<Droplet className="h-4 w-4 text-blue-500" />}
+              trend="Current shift"
             />
           </>
         )}
@@ -262,22 +294,24 @@ export function Dashboard() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Customer</TableHead>
-                  <TableHead>Code</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Current Balance</TableHead>
+                  <TableHead>Phone</TableHead>
+                  <TableHead>Email</TableHead>
                   <TableHead>Credit Limit</TableHead>
+                  <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {topCustomers?.map((customer) => (
                   <TableRow key={customer.id}>
                     <TableCell className="font-medium">{customer.name}</TableCell>
-                    <TableCell>{customer.code}</TableCell>
+                    <TableCell>{customer.phone || 'N/A'}</TableCell>
+                    <TableCell>{customer.email || 'N/A'}</TableCell>
+                    <TableCell>{formatCurrency(customer.creditLimit || 0)}</TableCell>
                     <TableCell>
-                      <Badge variant="outline">{customer.customer_type}</Badge>
+                      <Badge variant={customer.isActive ? 'success' : 'secondary'}>
+                        {customer.isActive ? 'Active' : 'Inactive'}
+                      </Badge>
                     </TableCell>
-                    <TableCell>{formatCurrency(customer.current_balance)}</TableCell>
-                    <TableCell>{formatCurrency(customer.credit_limit)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

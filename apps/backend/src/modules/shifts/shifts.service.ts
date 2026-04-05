@@ -1,5 +1,6 @@
 import { prisma } from '../../config/database';
 import { AppError } from '../../middleware/error.middleware';
+import { getBusinessDate } from '../../utils/timezone';
 
 export class ShiftsService {
   /**
@@ -114,8 +115,8 @@ export class ShiftsService {
     }
 
     // Check if there's already an open shift for this branch today
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // Use business timezone to calculate correct date (not server system timezone)
+    const today = await getBusinessDate(organizationId);
 
     const existingOpenShift = await prisma.shiftInstance.findFirst({
       where: {
@@ -175,6 +176,71 @@ export class ShiftsService {
         },
       },
     });
+
+    // AUTO-POPULATE OPENING READINGS from previous shift's closing readings
+    try {
+      // Find the most recent closed shift instance for this branch
+      const previousShiftInstance = await prisma.shiftInstance.findFirst({
+        where: {
+          branchId,
+          status: 'closed',
+          OR: [
+            // Same day, earlier shift
+            {
+              date: today,
+              shift: {
+                shiftNumber: { lt: shift.shiftNumber },
+              },
+            },
+            // Previous day, any shift
+            {
+              date: { lt: today },
+            },
+          ],
+        },
+        orderBy: [
+          { date: 'desc' },
+          { shift: { shiftNumber: 'desc' } },
+        ],
+        include: {
+          meterReadings: {
+            where: {
+              readingType: 'closing',
+            },
+            include: {
+              nozzle: true,
+            },
+          },
+        },
+      });
+
+      if (previousShiftInstance && previousShiftInstance.meterReadings.length > 0) {
+        // Create opening readings for all nozzles that had closing readings
+        const openingReadingsToCreate = previousShiftInstance.meterReadings.map((closingReading) => ({
+          nozzleId: closingReading.nozzleId,
+          shiftInstanceId: shiftInstance.id,
+          readingType: 'opening' as const,
+          meterValue: closingReading.meterValue,
+          recordedAt: new Date(),
+          recordedBy: userId,
+          isManualOverride: false,
+          isOcr: false,
+        }));
+
+        // Bulk create all opening readings
+        await prisma.meterReading.createMany({
+          data: openingReadingsToCreate,
+          skipDuplicates: true, // Skip if opening already exists
+        });
+
+        console.log(`✅ Auto-created ${openingReadingsToCreate.length} opening readings for shift ${shiftInstance.id} from previous shift ${previousShiftInstance.id}`);
+      } else {
+        console.log(`ℹ️ No previous closing readings found for shift ${shiftInstance.id} - this might be the first shift`);
+      }
+    } catch (error) {
+      // Log but don't fail the shift opening if auto-populate fails
+      console.error('Failed to auto-populate opening readings:', error);
+    }
 
     return shiftInstance;
   }
@@ -444,5 +510,89 @@ export class ShiftsService {
     }
 
     return shiftInstance;
+  }
+
+  /**
+   * Get or create shift instances for a specific business date
+   * Used for backdated entries - auto-creates shift instances from templates if they don't exist
+   */
+  async getOrCreateShiftInstancesForDate(
+    branchId: string,
+    businessDate: string,
+    userId: string,
+    organizationId: string
+  ) {
+    // Verify branch belongs to organization
+    const branch = await prisma.branch.findFirst({
+      where: {
+        id: branchId,
+        organizationId,
+      },
+    });
+
+    if (!branch) {
+      throw new AppError(404, 'Branch not found');
+    }
+
+    // Get all shift templates for this branch
+    const shiftTemplates = await prisma.shift.findMany({
+      where: {
+        branchId,
+        isActive: true,
+      },
+      orderBy: { shiftNumber: 'asc' },
+    });
+
+    if (shiftTemplates.length === 0) {
+      throw new AppError(
+        400,
+        'No shift templates configured for this branch. Please configure shifts in Shift Management first.'
+      );
+    }
+
+    // Parse business date and normalize
+    const targetDate = new Date(businessDate);
+    targetDate.setUTCHours(0, 0, 0, 0);
+
+    // Get or create shift instances for each template
+    const shiftInstances = await Promise.all(
+      shiftTemplates.map(async (shiftTemplate) => {
+        let instance = await prisma.shiftInstance.findUnique({
+          where: {
+            shiftId_date: {
+              shiftId: shiftTemplate.id,
+              date: targetDate,
+            },
+          },
+          include: {
+            shift: true,
+          },
+        });
+
+        if (!instance) {
+          // Auto-create shift instance for this date
+          instance = await prisma.shiftInstance.create({
+            data: {
+              shiftId: shiftTemplate.id,
+              branchId,
+              date: targetDate,
+              openedAt: new Date(targetDate), // Use business date as opened time
+              openedBy: userId,
+              status: 'open', // Will be closed manually later
+            },
+            include: {
+              shift: true,
+            },
+          });
+          console.log(
+            `✅ Auto-created shift instance for ${shiftTemplate.name} on ${targetDate.toISOString().split('T')[0]}`
+          );
+        }
+
+        return instance;
+      })
+    );
+
+    return shiftInstances;
   }
 }

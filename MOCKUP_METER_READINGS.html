@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kuwait Petrol Pump - Meter Readings Mockup</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            padding: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            font-weight: 600;
+        }
+
+        .header .logo {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            background: #f8fafc;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        .tab {
+            flex: 1;
+            padding: 20px;
+            text-align: center;
+            cursor: pointer;
+            font-weight: 600;
+            color: #64748b;
+            transition: all 0.3s;
+            border-bottom: 3px solid transparent;
+        }
+
+        .tab:hover {
+            background: #f1f5f9;
+        }
+
+        .tab.active {
+            color: #10b981;
+            background: white;
+            border-bottom-color: #10b981;
+        }
+
+        .tab-content {
+            display: none;
+            padding: 30px;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Date Selector */
+        .date-selector {
+            display: flex;
+            gap: 10px;
+            padding: 20px;
+            background: #f8fafc;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            overflow-x: auto;
+            align-items: center;
+        }
+
+        .date-tile {
+            min-width: 80px;
+            padding: 15px;
+            text-align: center;
+            border-radius: 8px;
+            border: 2px solid #e2e8f0;
+            background: white;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .date-tile:hover {
+            border-color: #10b981;
+            transform: translateY(-2px);
+        }
+
+        .date-tile.selected {
+            background: #10b981;
+            color: white;
+            border-color: #10b981;
+        }
+
+        .date-tile .day {
+            font-size: 11px;
+            text-transform: uppercase;
+            opacity: 0.7;
+            margin-bottom: 5px;
+        }
+
+        .date-tile .date {
+            font-size: 24px;
+            font-weight: 700;
+        }
+
+        .date-tile .month {
+            font-size: 11px;
+            margin-top: 5px;
+        }
+
+        .btn-today {
+            padding: 15px 25px;
+            background: #10b981;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .btn-custom {
+            padding: 15px 25px;
+            background: white;
+            color: #64748b;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        /* Summary Bar */
+        .summary-bar {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+        }
+
+        .summary-header {
+            font-size: 16px;
+            margin-bottom: 15px;
+            opacity: 0.9;
+        }
+
+        .summary-totals {
+            display: flex;
+            gap: 40px;
+            margin-bottom: 20px;
+        }
+
+        .summary-total {
+            flex: 1;
+        }
+
+        .summary-total .label {
+            font-size: 12px;
+            opacity: 0.8;
+            margin-bottom: 5px;
+        }
+
+        .summary-total .value {
+            font-size: 28px;
+            font-weight: 700;
+        }
+
+        .summary-breakdown {
+            display: flex;
+            gap: 30px;
+            padding-top: 15px;
+            border-top: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .fuel-summary {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .fuel-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 12px;
+        }
+
+        .fuel-badge.hsd {
+            background: #3b82f6;
+        }
+
+        .fuel-badge.pmg {
+            background: #f59e0b;
+        }
+
+        /* Dispenser Grid */
+        .dispenser-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 25px;
+        }
+
+        .dispenser-card {
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            overflow: hidden;
+            background: white;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            transition: all 0.3s;
+        }
+
+        .dispenser-card:hover {
+            box-shadow: 0 8px 12px rgba(0,0,0,0.1);
+            transform: translateY(-2px);
+        }
+
+        .dispenser-header {
+            background: #f8fafc;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .dispenser-visual {
+            width: 100%;
+            height: 180px;
+            background: linear-gradient(135deg, #334155 0%, #1e293b 100%);
+            border-radius: 8px;
+            position: relative;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .pump-display {
+            width: 80%;
+            height: 60px;
+            background: #000;
+            border-radius: 8px;
+            border: 3px solid #475569;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #10b981;
+            font-family: 'Courier New', monospace;
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .nozzle-indicators {
+            position: absolute;
+            top: 10px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .nozzle-indicator {
+            width: 40px;
+            height: 60px;
+            background: #10b981;
+            border-radius: 4px;
+            position: relative;
+        }
+
+        .nozzle-indicator::after {
+            content: '';
+            width: 10px;
+            height: 30px;
+            background: #065f46;
+            position: absolute;
+            bottom: -30px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        .dispenser-label {
+            font-size: 20px;
+            font-weight: 700;
+            color: #10b981;
+        }
+
+        .nozzle-count {
+            font-size: 12px;
+            color: #64748b;
+            text-transform: uppercase;
+            margin-top: 5px;
+        }
+
+        .nozzle-list {
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .nozzle-card {
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 15px;
+            background: #fafafa;
+            position: relative;
+        }
+
+        .nozzle-card.complete {
+            border-color: #10b981;
+            background: #f0fdf4;
+        }
+
+        .nozzle-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .nozzle-title {
+            font-weight: 600;
+            font-size: 14px;
+            color: #1e293b;
+        }
+
+        .badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .badge.close {
+            background: #fee2e2;
+            color: #dc2626;
+        }
+
+        .badge.sale {
+            background: #dbeafe;
+            color: #2563eb;
+            cursor: pointer;
+        }
+
+        .badge.sale:hover {
+            background: #2563eb;
+            color: white;
+        }
+
+        .nozzle-details {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .detail-item {
+            text-align: center;
+        }
+
+        .detail-label {
+            font-size: 10px;
+            color: #64748b;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+        }
+
+        .detail-value {
+            font-size: 16px;
+            font-weight: 700;
+            color: #1e293b;
+        }
+
+        .detail-value.opening {
+            color: #10b981;
+        }
+
+        .detail-value.closing {
+            color: #ef4444;
+        }
+
+        .detail-value.sales {
+            color: #3b82f6;
+        }
+
+        .camera-icon {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            width: 24px;
+            height: 24px;
+            background: #3b82f6;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 12px;
+        }
+
+        /* Backdated Entries Section */
+        .backdated-section {
+            background: #fff7ed;
+            border: 2px dashed #f97316;
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 30px;
+        }
+
+        .backdated-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .backdated-icon {
+            width: 50px;
+            height: 50px;
+            background: #f97316;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 24px;
+        }
+
+        .backdated-title {
+            flex: 1;
+        }
+
+        .backdated-title h2 {
+            font-size: 20px;
+            color: #1e293b;
+            margin-bottom: 5px;
+        }
+
+        .backdated-title p {
+            font-size: 14px;
+            color: #64748b;
+        }
+
+        .backdated-form {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .form-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #475569;
+            text-transform: uppercase;
+        }
+
+        .form-input {
+            padding: 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #f97316;
+        }
+
+        .btn-submit {
+            padding: 12px 30px;
+            background: #f97316;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-submit:hover {
+            background: #ea580c;
+            transform: translateY(-2px);
+        }
+
+        .workflow-steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }
+
+        .workflow-step {
+            background: white;
+            border: 2px solid #fed7aa;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .step-number {
+            width: 40px;
+            height: 40px;
+            background: #f97316;
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 18px;
+            margin: 0 auto 15px;
+        }
+
+        .step-title {
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #1e293b;
+        }
+
+        .step-desc {
+            font-size: 12px;
+            color: #64748b;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div>
+                <h1>Meter Readings</h1>
+                <div class="logo">Kuwait Petrol Pump POS</div>
+            </div>
+            <div style="text-align: right;">
+                <div style="font-size: 14px; opacity: 0.9;">Main Branch, Kuwait City</div>
+                <div style="font-size: 12px; margin-top: 5px;">Shift: Day Shift (06:00 - 18:00)</div>
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab(0)">📊 Daily Meter Readings</div>
+            <div class="tab" onclick="switchTab(1)">📅 Backdated Entries</div>
+        </div>
+
+        <!-- Tab 1: Daily Meter Readings -->
+        <div class="tab-content active">
+            <!-- Date Selector -->
+            <div class="date-selector">
+                <div class="date-tile">
+                    <div class="day">WED</div>
+                    <div class="date">02</div>
+                    <div class="month">Apr</div>
+                </div>
+                <div class="date-tile selected">
+                    <div class="day">THU</div>
+                    <div class="date">03</div>
+                    <div class="month">Apr</div>
+                </div>
+                <div class="date-tile">
+                    <div class="day">FRI</div>
+                    <div class="date">04</div>
+                    <div class="month">Apr</div>
+                </div>
+                <div class="date-tile">
+                    <div class="day">SAT</div>
+                    <div class="date">05</div>
+                    <div class="month">Apr</div>
+                </div>
+                <div class="date-tile">
+                    <div class="day">SUN</div>
+                    <div class="date">06</div>
+                    <div class="month">Apr</div>
+                </div>
+                <div class="date-tile">
+                    <div class="day">MON</div>
+                    <div class="date">07</div>
+                    <div class="month">Apr</div>
+                </div>
+                <div class="date-tile">
+                    <div class="day">TUE</div>
+                    <div class="date">08</div>
+                    <div class="month">Apr</div>
+                </div>
+                <div style="margin-left: auto; display: flex; gap: 10px;">
+                    <button class="btn-today">Today</button>
+                    <button class="btn-custom">Custom Date ▼</button>
+                </div>
+            </div>
+
+            <!-- Summary Bar -->
+            <div class="summary-bar">
+                <div class="summary-header">📊 Daily Summary - 03 Apr 2026</div>
+                <div class="summary-totals">
+                    <div class="summary-total">
+                        <div class="label">Total Consumed</div>
+                        <div class="value">5,234.50 L</div>
+                    </div>
+                    <div class="summary-total">
+                        <div class="label">Total Sales</div>
+                        <div class="value">KWD 1,847.25</div>
+                    </div>
+                </div>
+                <div class="summary-breakdown">
+                    <div class="fuel-summary">
+                        <span class="fuel-badge hsd">HSD</span>
+                        <span>3,150.00 Ltr × KWD 0.280 = <strong>KWD 882.00</strong></span>
+                    </div>
+                    <div class="fuel-summary">
+                        <span class="fuel-badge pmg">PMG</span>
+                        <span>2,084.50 Ltr × KWD 0.463 = <strong>KWD 965.25</strong></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dispenser Grid -->
+            <div class="dispenser-grid">
+                <!-- Dispenser 1 -->
+                <div class="dispenser-card">
+                    <div class="dispenser-header">
+                        <div class="dispenser-visual">
+                            <div class="nozzle-indicators">
+                                <div class="nozzle-indicator"></div>
+                                <div class="nozzle-indicator"></div>
+                            </div>
+                            <div class="pump-display">888888</div>
+                        </div>
+                        <div class="dispenser-label">#1 DISPENSER</div>
+                        <div class="nozzle-count">2 Nozzles</div>
+                    </div>
+                    <div class="nozzle-list">
+                        <div class="nozzle-card complete">
+                            <div class="nozzle-header">
+                                <div>
+                                    <div class="nozzle-title">NOZZLE 1</div>
+                                    <span class="fuel-badge hsd">HSD</span>
+                                </div>
+                                <span class="badge close">Close</span>
+                            </div>
+                            <div class="nozzle-details">
+                                <div class="detail-item">
+                                    <div class="detail-label">Opening</div>
+                                    <div class="detail-value opening">1,000,000</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Closing</div>
+                                    <div class="detail-value closing">1,001,250</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Sales</div>
+                                    <div class="detail-value sales">1,250 L</div>
+                                </div>
+                            </div>
+                            <div class="camera-icon">📷</div>
+                        </div>
+
+                        <div class="nozzle-card">
+                            <div class="nozzle-header">
+                                <div>
+                                    <div class="nozzle-title">NOZZLE 2</div>
+                                    <span class="fuel-badge hsd">HSD</span>
+                                </div>
+                                <span class="badge sale">+ Sale</span>
+                            </div>
+                            <div class="nozzle-details">
+                                <div class="detail-item">
+                                    <div class="detail-label">Opening</div>
+                                    <div class="detail-value opening">1,500,000</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Closing</div>
+                                    <div class="detail-value">—</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Sales</div>
+                                    <div class="detail-value">—</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Dispenser 2 -->
+                <div class="dispenser-card">
+                    <div class="dispenser-header">
+                        <div class="dispenser-visual">
+                            <div class="nozzle-indicators">
+                                <div class="nozzle-indicator"></div>
+                            </div>
+                            <div class="pump-display">888888</div>
+                        </div>
+                        <div class="dispenser-label">#2 DISPENSER</div>
+                        <div class="nozzle-count">1 Nozzle</div>
+                    </div>
+                    <div class="nozzle-list">
+                        <div class="nozzle-card">
+                            <div class="nozzle-header">
+                                <div>
+                                    <div class="nozzle-title">NOZZLE 1</div>
+                                    <span class="fuel-badge hsd">HSD</span>
+                                </div>
+                                <span class="badge sale">+ Sale</span>
+                            </div>
+                            <div class="nozzle-details">
+                                <div class="detail-item">
+                                    <div class="detail-label">Opening</div>
+                                    <div class="detail-value">N/A</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Closing</div>
+                                    <div class="detail-value">—</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Sales</div>
+                                    <div class="detail-value">—</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Dispenser 3 -->
+                <div class="dispenser-card">
+                    <div class="dispenser-header">
+                        <div class="dispenser-visual">
+                            <div class="nozzle-indicators">
+                                <div class="nozzle-indicator"></div>
+                            </div>
+                            <div class="pump-display">888888</div>
+                        </div>
+                        <div class="dispenser-label">#3 DISPENSER</div>
+                        <div class="nozzle-count">1 Nozzle</div>
+                    </div>
+                    <div class="nozzle-list">
+                        <div class="nozzle-card">
+                            <div class="nozzle-header">
+                                <div>
+                                    <div class="nozzle-title">NOZZLE 1</div>
+                                    <span class="fuel-badge pmg">PMG</span>
+                                </div>
+                                <span class="badge sale">+ Sale</span>
+                            </div>
+                            <div class="nozzle-details">
+                                <div class="detail-item">
+                                    <div class="detail-label">Opening</div>
+                                    <div class="detail-value">N/A</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Closing</div>
+                                    <div class="detail-value">—</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Sales</div>
+                                    <div class="detail-value">—</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Dispenser 4 -->
+                <div class="dispenser-card">
+                    <div class="dispenser-header">
+                        <div class="dispenser-visual">
+                            <div class="nozzle-indicators">
+                                <div class="nozzle-indicator"></div>
+                                <div class="nozzle-indicator"></div>
+                            </div>
+                            <div class="pump-display">888888</div>
+                        </div>
+                        <div class="dispenser-label">#4 DISPENSER</div>
+                        <div class="nozzle-count">2 Nozzles</div>
+                    </div>
+                    <div class="nozzle-list">
+                        <div class="nozzle-card complete">
+                            <div class="nozzle-header">
+                                <div>
+                                    <div class="nozzle-title">NOZZLE 1</div>
+                                    <span class="fuel-badge pmg">PMG</span>
+                                </div>
+                                <span class="badge close">Close</span>
+                            </div>
+                            <div class="nozzle-details">
+                                <div class="detail-item">
+                                    <div class="detail-label">Opening</div>
+                                    <div class="detail-value opening">2,000,000</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Closing</div>
+                                    <div class="detail-value closing">2,001,234</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Sales</div>
+                                    <div class="detail-value sales">1,234 L</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="nozzle-card complete">
+                            <div class="nozzle-header">
+                                <div>
+                                    <div class="nozzle-title">NOZZLE 2</div>
+                                    <span class="fuel-badge pmg">PMG</span>
+                                </div>
+                                <span class="badge close">Close</span>
+                            </div>
+                            <div class="nozzle-details">
+                                <div class="detail-item">
+                                    <div class="detail-label">Opening</div>
+                                    <div class="detail-value opening">3,000,000</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Closing</div>
+                                    <div class="detail-value closing">3,000,850</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Sales</div>
+                                    <div class="detail-value sales">850 L</div>
+                                </div>
+                            </div>
+                            <div class="camera-icon">📷</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 2: Backdated Entries -->
+        <div class="tab-content">
+            <div class="backdated-section">
+                <div class="backdated-header">
+                    <div class="backdated-icon">📅</div>
+                    <div class="backdated-title">
+                        <h2>Backdated Meter Readings & Transactions</h2>
+                        <p>Post historical data without opening shifts (for backlog processing)</p>
+                    </div>
+                </div>
+
+                <div class="backdated-form">
+                    <div class="form-group">
+                        <label class="form-label">Date</label>
+                        <input type="date" class="form-input" value="2026-03-25">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Dispenser</label>
+                        <select class="form-input">
+                            <option>Dispenser #1</option>
+                            <option>Dispenser #2</option>
+                            <option>Dispenser #3</option>
+                            <option>Dispenser #4</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Nozzle</label>
+                        <select class="form-input">
+                            <option>D1N1 - HSD</option>
+                            <option>D1N2 - HSD</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="backdated-form" style="margin-top: 20px;">
+                    <div class="form-group">
+                        <label class="form-label">Opening Reading</label>
+                        <input type="number" class="form-input" placeholder="1000000">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Closing Reading</label>
+                        <input type="number" class="form-input" placeholder="1001250">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Sales (Auto-calculated)</label>
+                        <input type="number" class="form-input" placeholder="1250" readonly>
+                    </div>
+                </div>
+
+                <div style="margin-top: 30px; padding-top: 30px; border-top: 2px dashed #fed7aa;">
+                    <h3 style="margin-bottom: 20px; color: #1e293b;">💳 Payment Bifurcation</h3>
+
+                    <div class="backdated-form">
+                        <div class="form-group">
+                            <label class="form-label">Credit Card Sales</label>
+                            <input type="number" class="form-input" placeholder="0.00">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Bank Card Sales</label>
+                            <input type="number" class="form-input" placeholder="0.00">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">PSO Card Sales</label>
+                            <input type="number" class="form-input" placeholder="0.00">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Cash Sales (Auto-calculated)</label>
+                            <input type="number" class="form-input" placeholder="0.00" readonly style="background: #f0fdf4;">
+                        </div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 30px; text-align: right;">
+                    <button class="btn-submit">💾 Post Backdated Entry</button>
+                </div>
+            </div>
+
+            <h3 style="margin-bottom: 20px; color: #1e293b;">🔄 Backdated Entry Workflow</h3>
+            <div class="workflow-steps">
+                <div class="workflow-step">
+                    <div class="step-number">1</div>
+                    <div class="step-title">Select Date</div>
+                    <div class="step-desc">Choose historical date (no shift required)</div>
+                </div>
+                <div class="workflow-step">
+                    <div class="step-number">2</div>
+                    <div class="step-title">Enter Readings</div>
+                    <div class="step-desc">Opening + Closing per nozzle</div>
+                </div>
+                <div class="workflow-step">
+                    <div class="step-number">3</div>
+                    <div class="step-title">Add Payments</div>
+                    <div class="step-desc">Credit, Bank, PSO card sales</div>
+                </div>
+                <div class="workflow-step">
+                    <div class="step-number">4</div>
+                    <div class="step-title">Auto-Calculate</div>
+                    <div class="step-desc">System calculates cash balance</div>
+                </div>
+                <div class="workflow-step">
+                    <div class="step-number">5</div>
+                    <div class="step-title">Post Entry</div>
+                    <div class="step-desc">Creates readings + bifurcation</div>
+                </div>
+            </div>
+
+            <div style="margin-top: 30px; padding: 20px; background: #eff6ff; border-radius: 8px; border-left: 4px solid #3b82f6;">
+                <strong style="color: #1e40af;">ℹ️ Note:</strong>
+                <ul style="margin-left: 20px; margin-top: 10px; color: #1e293b;">
+                    <li>Backdated entries bypass shift validation</li>
+                    <li>System auto-calculates sales and cash reconciliation</li>
+                    <li>Closing of Day X automatically becomes Opening of Day X+1</li>
+                    <li>Use for accountant backlog processing only</li>
+                    <li>All entries create audit trail with timestamp</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function switchTab(index) {
+            const tabs = document.querySelectorAll('.tab');
+            const contents = document.querySelectorAll('.tab-content');
+
+            tabs.forEach(tab => tab.classList.remove('active'));
+            contents.forEach(content => content.classList.remove('active'));
+
+            tabs[index].classList.add('active');
+            contents[index].classList.add('active');
+        }
+    </script>
+</body>
+</html>

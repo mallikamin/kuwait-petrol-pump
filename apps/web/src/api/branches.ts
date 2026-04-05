@@ -48,8 +48,9 @@ export const branchesApi = {
     return response.data;
   },
 
-  updateNozzle: async (nozzleId: string, data: Partial<{ nozzleNumber: number; fuelTypeId: string; meterType: string; isActive: boolean }>): Promise<Nozzle> => {
+  updateNozzle: async (nozzleId: string, data: Partial<{ name: string; nozzleNumber: number; fuelTypeId: string; meterType: string; isActive: boolean }>): Promise<Nozzle> => {
     const payload: any = {};
+    if (data.name !== undefined) payload.name = data.name;
     if (data.nozzleNumber !== undefined) payload.nozzle_number = data.nozzleNumber;
     if (data.fuelTypeId !== undefined) payload.fuel_type_id = data.fuelTypeId;
     if (data.meterType !== undefined) payload.meter_type = data.meterType;

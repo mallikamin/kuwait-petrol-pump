@@ -54,7 +54,7 @@ export class CustomersService {
     const [customers, total] = await Promise.all([
       prisma.customer.findMany({
         where,
-        orderBy: { name: 'asc' },
+        orderBy: { createdAt: 'desc' },
         take: limit,
         skip: offset,
       }),
