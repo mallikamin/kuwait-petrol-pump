@@ -189,6 +189,75 @@ export function BackdatedEntries() {
     },
   });
 
+  // Get previous reading for a nozzle (shift-aware) - MUST be defined before useMemo hooks that call it
+  const getPreviousReading = (nozzleId: string, type: 'opening' | 'closing', currentShift?: any): number => {
+    const readings = (meterReadingsData || []).filter((r: any) => r.nozzle_id === nozzleId);
+
+    if (type === 'opening' && currentShift) {
+      // For opening reading, find the previous shift's closing value
+      const currentShiftNumber = currentShift.shiftNumber;
+
+      // Find the previous shift template (shiftNumber - 1)
+      const previousShiftTemplate = (shiftTemplatesData || []).find((st: any) =>
+        st.shiftNumber === currentShiftNumber - 1
+      );
+
+      if (previousShiftTemplate) {
+        // Find the shift instance for the previous shift template on this business date
+        const previousShiftInstance = (shiftInstancesData || []).find((si: any) =>
+          si.shiftId === previousShiftTemplate.id
+        );
+
+        if (previousShiftInstance) {
+          // Find closing reading from previous shift instance
+          const previousShiftClosing = readings.find((r: any) =>
+            r.reading_type === 'closing' &&
+            r.shift_instance?.id === previousShiftInstance.id
+          );
+
+          if (previousShiftClosing) {
+            return toNumber(previousShiftClosing.meter_value ?? previousShiftClosing.reading_value);
+          }
+        }
+      }
+
+      // Fallback: if no previous shift found, use latest closing from any shift on this date
+      const latestClosing = readings
+        .filter((r: any) => r.reading_type === 'closing')
+        .sort((a: any, b: any) => new Date(b.recorded_at || b.created_at).getTime() - new Date(a.recorded_at || a.created_at).getTime())[0];
+
+      return latestClosing ? toNumber(latestClosing.meter_value ?? latestClosing.reading_value) : 0;
+    } else if (type === 'closing' && currentShift) {
+      // For closing reading, use THIS shift's opening
+      const currentShiftInstance = (shiftInstancesData || []).find((si: any) =>
+        si.shiftId === currentShift.id
+      );
+
+      if (currentShiftInstance) {
+        const openingReading = readings.find((r: any) =>
+          r.reading_type === 'opening' &&
+          r.shift_instance?.id === currentShiftInstance.id
+        );
+
+        if (openingReading) {
+          return toNumber(openingReading.meter_value ?? openingReading.reading_value);
+        }
+      }
+
+      // If no opening in DB, check if there's an auto-filled opening (from previous shift's closing)
+      const computedOpening = getPreviousReading(nozzleId, 'opening', currentShift);
+      if (computedOpening > 0) {
+        return computedOpening;
+      }
+
+      // Final fallback: any opening reading for this nozzle today
+      const anyOpening = readings.find((r: any) => r.reading_type === 'opening');
+      return anyOpening ? toNumber(anyOpening.meter_value ?? anyOpening.reading_value) : 0;
+    }
+
+    return 0;
+  };
+
   // Compute fuel totals using shift-segregated pairs (closing - opening per shift per nozzle)
   const fuelTotals = useMemo(() => {
     const totals = { HSD: 0, PMG: 0, other: 0 };
@@ -815,75 +884,6 @@ export function BackdatedEntries() {
       setEditingReadingValue(null);
     }
     setIsMeterReadingOpen(true);
-  };
-
-  // Get previous reading for a nozzle (shift-aware)
-  const getPreviousReading = (nozzleId: string, type: 'opening' | 'closing', currentShift?: any): number => {
-    const readings = (meterReadingsData || []).filter((r: any) => r.nozzle_id === nozzleId);
-
-    if (type === 'opening' && currentShift) {
-      // For opening reading, find the previous shift's closing value
-      const currentShiftNumber = currentShift.shiftNumber;
-
-      // Find the previous shift template (shiftNumber - 1)
-      const previousShiftTemplate = (shiftTemplatesData || []).find((st: any) =>
-        st.shiftNumber === currentShiftNumber - 1
-      );
-
-      if (previousShiftTemplate) {
-        // Find the shift instance for the previous shift template on this business date
-        const previousShiftInstance = (shiftInstancesData || []).find((si: any) =>
-          si.shiftId === previousShiftTemplate.id
-        );
-
-        if (previousShiftInstance) {
-          // Find closing reading from previous shift instance
-          const previousShiftClosing = readings.find((r: any) =>
-            r.reading_type === 'closing' &&
-            r.shift_instance?.id === previousShiftInstance.id
-          );
-
-          if (previousShiftClosing) {
-            return toNumber(previousShiftClosing.meter_value ?? previousShiftClosing.reading_value);
-          }
-        }
-      }
-
-      // Fallback: if no previous shift found, use latest closing from any shift on this date
-      const latestClosing = readings
-        .filter((r: any) => r.reading_type === 'closing')
-        .sort((a: any, b: any) => new Date(b.recorded_at || b.created_at).getTime() - new Date(a.recorded_at || a.created_at).getTime())[0];
-
-      return latestClosing ? toNumber(latestClosing.meter_value ?? latestClosing.reading_value) : 0;
-    } else if (type === 'closing' && currentShift) {
-      // For closing reading, use THIS shift's opening
-      const currentShiftInstance = (shiftInstancesData || []).find((si: any) =>
-        si.shiftId === currentShift.id
-      );
-
-      if (currentShiftInstance) {
-        const openingReading = readings.find((r: any) =>
-          r.reading_type === 'opening' &&
-          r.shift_instance?.id === currentShiftInstance.id
-        );
-
-        if (openingReading) {
-          return toNumber(openingReading.meter_value ?? openingReading.reading_value);
-        }
-      }
-
-      // If no opening in DB, check if there's an auto-filled opening (from previous shift's closing)
-      const computedOpening = getPreviousReading(nozzleId, 'opening', currentShift);
-      if (computedOpening > 0) {
-        return computedOpening;
-      }
-
-      // Final fallback: any opening reading for this nozzle today
-      const anyOpening = readings.find((r: any) => r.reading_type === 'opening');
-      return anyOpening ? toNumber(anyOpening.meter_value ?? anyOpening.reading_value) : 0;
-    }
-
-    return 0;
   };
 
   const resetForm = () => {
