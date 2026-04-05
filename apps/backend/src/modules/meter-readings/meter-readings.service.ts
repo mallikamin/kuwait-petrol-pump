@@ -336,16 +336,30 @@ export class MeterReadingsService {
         nextDay.setDate(nextDay.getDate() + 1);
         nextDay.setHours(0, 0, 0, 0);
 
-        // Find next day's shift instance for the same shift template
-        const nextDayShiftInstance = await prisma.shiftInstance.findFirst({
+        // Find or create next day's shift instance for the same shift template
+        let nextDayShiftInstance = await prisma.shiftInstance.findFirst({
           where: {
             shiftId: shiftInstance.shiftId,
             date: nextDay,
-            status: 'open',
           },
         });
 
-        // Only auto-create opening if next day's shift is already open
+        // Auto-create next day's shift instance if it doesn't exist (for backdated entries)
+        if (!nextDayShiftInstance) {
+          nextDayShiftInstance = await prisma.shiftInstance.create({
+            data: {
+              shiftId: shiftInstance.shiftId,
+              branchId: shiftInstance.branchId,
+              date: nextDay,
+              openedAt: customTimestamp ? new Date(new Date(customTimestamp).getTime() + 86400000) : new Date(), // +1 day
+              openedBy: userId,
+              status: 'open',
+            },
+          });
+          console.log(`✅ [FORWARD] Auto-created shift instance for ${nextDay.toISOString().split('T')[0]}`);
+        }
+
+        // Auto-create opening reading
         if (nextDayShiftInstance) {
           // Check if opening already exists
           const existingNextOpening = await prisma.meterReading.findFirst({
@@ -387,15 +401,30 @@ export class MeterReadingsService {
         prevDay.setDate(prevDay.getDate() - 1);
         prevDay.setHours(0, 0, 0, 0);
 
-        // Find previous day's shift instance for the same shift template
-        const prevDayShiftInstance = await prisma.shiftInstance.findFirst({
+        // Find or create previous day's shift instance for the same shift template
+        let prevDayShiftInstance = await prisma.shiftInstance.findFirst({
           where: {
             shiftId: shiftInstance.shiftId,
             date: prevDay,
           },
         });
 
-        // Only auto-create closing if previous day's shift exists (can be open or closed)
+        // Auto-create previous day's shift instance if it doesn't exist (for backdated entries)
+        if (!prevDayShiftInstance) {
+          prevDayShiftInstance = await prisma.shiftInstance.create({
+            data: {
+              shiftId: shiftInstance.shiftId,
+              branchId: shiftInstance.branchId,
+              date: prevDay,
+              openedAt: customTimestamp ? new Date(new Date(customTimestamp).getTime() - 86400000) : new Date(), // -1 day
+              openedBy: userId,
+              status: 'open',
+            },
+          });
+          console.log(`✅ [BACKWARD] Auto-created shift instance for ${prevDay.toISOString().split('T')[0]}`);
+        }
+
+        // Auto-create closing reading
         if (prevDayShiftInstance) {
           // Check if closing already exists
           const existingPrevClosing = await prisma.meterReading.findFirst({
