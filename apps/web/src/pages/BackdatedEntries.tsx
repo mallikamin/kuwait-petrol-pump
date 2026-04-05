@@ -84,7 +84,10 @@ export function BackdatedEntries() {
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const justSavedRef = useRef(false); // Track if we just saved to prevent useEffect from overwriting
-  const loadedKeyRef = useRef<string>(''); // Track what we've loaded to prevent unnecessary reloads
+
+  // Use sessionStorage for loadedKey to persist across tab navigation
+  const getLoadedKey = () => sessionStorage.getItem('backdated_loaded_key') || '';
+  const setLoadedKey = (key: string) => sessionStorage.setItem('backdated_loaded_key', key);
 
   // Fetch branches
   const { data: branchesData } = useQuery({
@@ -574,14 +577,14 @@ export function BackdatedEntries() {
       console.log('[Transactions] Clearing (no branch/date selected)');
       setTransactions([]);
       setSyncMessage('');
-      loadedKeyRef.current = '';
+      setLoadedKey('');
       return;
     }
 
     const currentKey = `${selectedBranchId}_${businessDate}_${selectedShiftId || 'all'}`;
 
     // Only load if we haven't loaded this combination yet (prevents resets on refetch)
-    if (loadedKeyRef.current === currentKey) {
+    if (getLoadedKey() === currentKey) {
       console.log('[Transactions] Already loaded this key, skipping:', currentKey);
       return;
     }
@@ -622,7 +625,7 @@ export function BackdatedEntries() {
         }))
       );
       setSyncMessage(`Loaded ${dailySummaryData.transactions.length} existing transactions.`);
-      loadedKeyRef.current = currentKey; // Mark as loaded
+      setLoadedKey(currentKey); // Mark as loaded
       // Clear backup when API data loads successfully
       localStorage.removeItem(backupKey);
     } else if (backup) {
@@ -633,18 +636,18 @@ export function BackdatedEntries() {
         setTransactions(parsed.transactions);
         setSyncMessage(`⚠️ Restored ${parsed.transactions.length} transactions from backup (${new Date(parsed.timestamp).toLocaleTimeString()}). Please save draft to persist.`);
         toast.warning('Draft restored from local backup. Click "Save Draft" to persist to server.');
-        loadedKeyRef.current = currentKey; // Mark as loaded
+        setLoadedKey(currentKey); // Mark as loaded
       } catch (err) {
         console.error('Failed to restore backup:', err);
         setTransactions([]);
         setSyncMessage('No existing transactions. Start adding customer groups.');
-        loadedKeyRef.current = currentKey; // Mark as loaded even if empty
+        setLoadedKey(currentKey); // Mark as loaded even if empty
       }
     } else {
       console.log('[Transactions] No API data or backup, clearing');
       setTransactions([]);
       setSyncMessage('No existing transactions. Start adding customer groups.');
-      loadedKeyRef.current = currentKey; // Mark as loaded even if empty
+      setLoadedKey(currentKey); // Mark as loaded even if empty
     }
   }, [
     selectedBranchId,
