@@ -185,18 +185,31 @@ export interface MatchResult {
   customersCandidates: number;
   customersUnmatched: number;
   customerItems: EntityMatchItem[];
+  unmappedQBCustomers: Array<{
+    id: string;
+    name: string;
+  }>;
   // Items
   itemsTotal: number;
   itemsMatched: number;
   itemsCandidates: number;
   itemsUnmatched: number;
   itemItems: EntityMatchItem[];
+  unmappedQBItems: Array<{
+    id: string;
+    name: string;
+    type: string;
+  }>;
   // Banks
   banksTotal: number;
   banksMatched: number;
   banksCandidates: number;
   banksUnmatched: number;
   bankItems: EntityMatchItem[];
+  unmappedQBBanks: Array<{
+    id: string;
+    name: string;
+  }>;
   // Overall
   overallHealthGrade: string;
   overallCoveragePct: number;

@@ -87,6 +87,10 @@ export interface MatchResult {
   customersCandidates: number;
   customersUnmatched: number;
   customerItems: EntityMatchItem[];
+  unmappedQBCustomers: Array<{
+    id: string;
+    name: string;
+  }>;
 
   // Items
   itemsTotal: number;
@@ -94,6 +98,11 @@ export interface MatchResult {
   itemsCandidates: number;
   itemsUnmatched: number;
   itemItems: EntityMatchItem[];
+  unmappedQBItems: Array<{
+    id: string;
+    name: string;
+    type: string;
+  }>;
 
   // Banks
   banksTotal: number;
@@ -101,6 +110,10 @@ export interface MatchResult {
   banksCandidates: number;
   banksUnmatched: number;
   bankItems: EntityMatchItem[];
+  unmappedQBBanks: Array<{
+    id: string;
+    name: string;
+  }>;
 
   // Overall coverage
   overallHealthGrade: string;
@@ -219,6 +232,38 @@ export class AutoMatchService {
       const { items: bankItems, matched: banksMatched, candidates: banksCandidates, unmatched: banksUnmatched } =
         this.matchBanks(banks, snapshot.accounts); // Banks match to QB Bank accounts
 
+      // 6a. Find unmapped QB entities (QB entities not matched to any POS entity)
+      const mappedQBCustomerIds = new Set(
+        customerItems.filter(i => i.bestMatch).map(i => i.bestMatch!.qbEntityId)
+      );
+      const unmappedQBCustomers = snapshot.customers
+        .filter(qbCust => !mappedQBCustomerIds.has(qbCust.Id))
+        .map(qbCust => ({
+          id: qbCust.Id,
+          name: qbCust.DisplayName,
+        }));
+
+      const mappedQBItemIds = new Set(
+        itemItems.filter(i => i.bestMatch).map(i => i.bestMatch!.qbEntityId)
+      );
+      const unmappedQBItems = snapshot.items
+        .filter(qbItem => !mappedQBItemIds.has(qbItem.Id))
+        .map(qbItem => ({
+          id: qbItem.Id,
+          name: qbItem.Name,
+          type: qbItem.Type,
+        }));
+
+      const mappedQBBankIds = new Set(
+        bankItems.filter(i => i.bestMatch).map(i => i.bestMatch!.qbEntityId)
+      );
+      const unmappedQBBanks = snapshot.accounts
+        .filter(qbAcct => qbAcct.AccountType === 'Bank' && !mappedQBBankIds.has(qbAcct.Id))
+        .map(qbAcct => ({
+          id: qbAcct.Id,
+          name: qbAcct.Name,
+        }));
+
       // 7. Compute overall health
       const accountsTotal = FUEL_STATION_NEEDS.length;
       const accountsRequired = FUEL_STATION_NEEDS.filter((n) => n.required).length;
@@ -260,18 +305,21 @@ export class AutoMatchService {
         customersCandidates,
         customersUnmatched,
         customerItems,
+        unmappedQBCustomers,
 
         itemsTotal: allItems.length,
         itemsMatched,
         itemsCandidates,
         itemsUnmatched,
         itemItems,
+        unmappedQBItems,
 
         banksTotal: banks.length,
         banksMatched,
         banksCandidates,
         banksUnmatched,
         bankItems,
+        unmappedQBBanks,
 
         overallHealthGrade,
         overallCoveragePct,

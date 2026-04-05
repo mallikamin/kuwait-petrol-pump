@@ -644,14 +644,111 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
               </div>
             )}
 
-            <div className="pt-4 border-t">
-              <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded">
+            {/* Mapping Status Summary */}
+            <div className="pt-4 border-t space-y-4">
+              <div className="text-sm font-semibold mb-3">Mapping Status Summary</div>
+
+              {/* a) QB Entities Not Mapped */}
+              <div className="p-3 bg-orange-50 border border-orange-200 rounded">
+                <div className="text-sm font-medium mb-2 text-orange-900">⚠️ QB Entities Not Mapped to POS</div>
+                <div className="space-y-1 text-xs">
+                  <div>Accounts: {matchResult.unmappedQBAccounts?.length || 0} unmapped</div>
+                  <div>Customers: {matchResult.unmappedQBCustomers?.length || 0} unmapped</div>
+                  <div>Items: {matchResult.unmappedQBItems?.length || 0} unmapped</div>
+                  <div>Banks: {matchResult.unmappedQBBanks?.length || 0} unmapped</div>
+                </div>
+                {(matchResult.unmappedQBAccounts?.length || 0) + (matchResult.unmappedQBCustomers?.length || 0) + (matchResult.unmappedQBItems?.length || 0) + (matchResult.unmappedQBBanks?.length || 0) > 0 && (
+                  <details className="mt-2">
+                    <summary className="cursor-pointer text-xs text-orange-700 hover:underline">Show details</summary>
+                    <div className="mt-2 space-y-1 text-xs max-h-40 overflow-y-auto">
+                      {matchResult.unmappedQBAccounts?.map((acc: any) => (
+                        <div key={acc.qbAccountId} className="pl-2">• Account: {acc.qbAccountName}</div>
+                      ))}
+                      {matchResult.unmappedQBCustomers?.map((cust: any) => (
+                        <div key={cust.id} className="pl-2">• Customer: {cust.name}</div>
+                      ))}
+                      {matchResult.unmappedQBItems?.map((item: any) => (
+                        <div key={item.id} className="pl-2">• Item: {item.name}</div>
+                      ))}
+                      {matchResult.unmappedQBBanks?.map((bank: any) => (
+                        <div key={bank.id} className="pl-2">• Bank: {bank.name}</div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </div>
+
+              {/* b) POS Entities Not Mapped */}
+              <div className="p-3 bg-yellow-50 border border-yellow-200 rounded">
+                <div className="text-sm font-medium mb-2 text-yellow-900">⚠️ POS Entities Not Mapped to QB</div>
+                <div className="space-y-1 text-xs">
+                  <div>Accounts: {matchResult.accountItems.filter((i: any) => !i.decision).length} unmapped</div>
+                  <div>Customers: {matchResult.customerItems.filter((i: any) => !i.decision).length} unmapped</div>
+                  <div>Items: {matchResult.itemItems.filter((i: any) => !i.decision).length} unmapped</div>
+                  <div>Banks: {matchResult.bankItems.filter((i: any) => !i.decision).length} unmapped</div>
+                </div>
+                {matchResult.accountItems.filter((i: any) => !i.decision).length + matchResult.customerItems.filter((i: any) => !i.decision).length + matchResult.itemItems.filter((i: any) => !i.decision).length + matchResult.bankItems.filter((i: any) => !i.decision).length > 0 && (
+                  <details className="mt-2">
+                    <summary className="cursor-pointer text-xs text-yellow-700 hover:underline">Show details</summary>
+                    <div className="mt-2 space-y-1 text-xs max-h-40 overflow-y-auto">
+                      {matchResult.accountItems.filter((i: any) => !i.decision).map((item: any) => (
+                        <div key={item.localId} className="pl-2">• Account: {item.localName}</div>
+                      ))}
+                      {matchResult.customerItems.filter((i: any) => !i.decision).map((item: any) => (
+                        <div key={item.localId} className="pl-2">• Customer: {item.localName}</div>
+                      ))}
+                      {matchResult.itemItems.filter((i: any) => !i.decision).map((item: any) => (
+                        <div key={item.localId} className="pl-2">• Item: {item.localName}</div>
+                      ))}
+                      {matchResult.bankItems.filter((i: any) => !i.decision).map((item: any) => (
+                        <div key={item.localId} className="pl-2">• Bank: {item.localName}</div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </div>
+
+              {/* c) Successful Mappings */}
+              <div className="p-3 bg-green-50 border border-green-200 rounded">
+                <div className="text-sm font-medium mb-2 text-green-900">✅ Successful Mappings (Auto-Matched)</div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>Accounts: {matchResult.accountItems.filter((i: any) => i.decision && !i.needsClientReview).length} mapped</div>
+                  <div>Customers: {matchResult.customerItems.filter((i: any) => i.decision && !i.needsClientReview).length} mapped</div>
+                  <div>Items: {matchResult.itemItems.filter((i: any) => i.decision && !i.needsClientReview).length} mapped</div>
+                  <div>Banks: {matchResult.bankItems.filter((i: any) => i.decision && !i.needsClientReview).length} mapped</div>
+                </div>
+              </div>
+
+              {/* d) Needs Client Confirmation */}
+              <div className="p-3 bg-purple-50 border border-purple-200 rounded">
+                <div className="text-sm font-medium mb-2 text-purple-900">🔍 Needs Client Confirmation</div>
+                <div className="space-y-1 text-xs">
+                  <div>Total: {[...matchResult.accountItems, ...matchResult.customerItems, ...matchResult.itemItems, ...matchResult.bankItems].filter((i: any) => i.needsClientReview).length} marked</div>
+                </div>
+                {[...matchResult.accountItems, ...matchResult.customerItems, ...matchResult.itemItems, ...matchResult.bankItems].filter((i: any) => i.needsClientReview).length > 0 && (
+                  <details className="mt-2">
+                    <summary className="cursor-pointer text-xs text-purple-700 hover:underline">Show details</summary>
+                    <div className="mt-2 space-y-1 text-xs max-h-40 overflow-y-auto">
+                      {[...matchResult.accountItems, ...matchResult.customerItems, ...matchResult.itemItems, ...matchResult.bankItems]
+                        .filter((i: any) => i.needsClientReview)
+                        .map((item: any) => (
+                          <div key={item.localId} className="pl-2">
+                            • {item.entityType}: {item.localName} → {item.decisionEntityName || 'No match'}
+                          </div>
+                        ))}
+                    </div>
+                  </details>
+                )}
+              </div>
+
+              {/* Action Summary */}
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded">
                 <div className="text-sm font-medium mb-2">Ready to Save:</div>
                 <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div>Accounts: {matchResult.accountItems.filter(i => i.decision).length} decisions</div>
-                  <div>Customers: {matchResult.customerItems.filter(i => i.decision).length} decisions</div>
-                  <div>Items: {matchResult.itemItems.filter(i => i.decision).length} decisions</div>
-                  <div>Ask Client: {[...matchResult.accountItems, ...matchResult.customerItems, ...matchResult.itemItems, ...matchResult.bankItems].filter(i => i.needsClientReview).length} marked</div>
+                  <div>Accounts: {matchResult.accountItems.filter((i: any) => i.decision).length} decisions</div>
+                  <div>Customers: {matchResult.customerItems.filter((i: any) => i.decision).length} decisions</div>
+                  <div>Items: {matchResult.itemItems.filter((i: any) => i.decision).length} decisions</div>
+                  <div>Banks: {matchResult.bankItems.filter((i: any) => i.decision).length} decisions</div>
                 </div>
               </div>
               <div className="flex justify-end gap-2">
