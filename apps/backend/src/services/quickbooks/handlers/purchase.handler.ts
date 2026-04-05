@@ -6,7 +6,8 @@
  */
 
 import { QBSyncQueue } from '@prisma/client';
-import { decryptToken, encryptToken } from '../encryption';
+import { encryptToken } from '../encryption';
+import { getValidAccessToken as getValidToken } from '../token-refresh';
 import { AuditLogger } from '../audit-logger';
 import { checkKillSwitch, checkSyncMode } from '../safety-gates';
 import { CompanyLock } from '../company-lock';
@@ -101,7 +102,7 @@ export async function handlePurchaseCreate(
     await CompanyLock.lockConnectionToOrganization(connection.id, job.organizationId);
 
     // 6. Refresh token if expired
-    const accessToken = await getValidAccessToken(connection);
+    const { accessToken } = await getValidToken(job.organizationId, prisma);
 
     // 7. Build Bill JSON
     const billPayload = await buildBillPayload(job.organizationId, payload);
@@ -277,62 +278,6 @@ function validatePayload(payload: PurchasePayload): void {
       throw new Error(`Line item ${index}: Invalid amount`);
     }
   });
-}
-
-/**
- * Get valid access token (refresh if expired)
- */
-async function getValidAccessToken(connection: any): Promise<string> {
-  const now = new Date();
-  const expiryBuffer = new Date(connection.accessTokenExpiresAt.getTime() - 5 * 60 * 1000);
-
-  if (now < expiryBuffer) {
-    return decryptToken(connection.accessTokenEncrypted);
-  }
-
-  // Token expired, refresh it
-  console.log(`[QB Handler] Access token expired for connection ${connection.id}, refreshing...`);
-
-  const refreshToken = decryptToken(connection.refreshTokenEncrypted);
-
-  const response = await fetch(QB_TOKEN_URL, {
-    method: 'POST',
-    headers: {
-      'Accept': 'application/json',
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Authorization': `Basic ${Buffer.from(
-        `${process.env.QUICKBOOKS_CLIENT_ID}:${process.env.QUICKBOOKS_CLIENT_SECRET}`
-      ).toString('base64')}`
-    },
-    body: new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: refreshToken
-    }).toString()
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Token refresh failed: ${response.status} ${response.statusText} - ${errorText}`);
-  }
-
-  const tokenData = await response.json() as any;
-
-  const newAccessTokenEncrypted = encryptToken(tokenData.access_token);
-  const newRefreshTokenEncrypted = encryptToken(tokenData.refresh_token);
-
-  await prisma.qBConnection.update({
-    where: { id: connection.id },
-    data: {
-      accessTokenEncrypted: newAccessTokenEncrypted,
-      refreshTokenEncrypted: newRefreshTokenEncrypted,
-      accessTokenExpiresAt: new Date(Date.now() + tokenData.expires_in * 1000),
-      refreshTokenExpiresAt: new Date(Date.now() + tokenData.x_refresh_token_expires_in * 1000)
-    }
-  });
-
-  console.log(`[QB Handler] Access token refreshed successfully`);
-
-  return tokenData.access_token;
 }
 
 /**

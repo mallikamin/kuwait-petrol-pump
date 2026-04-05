@@ -28,6 +28,7 @@ import { EntityMappingService, EntityType } from './entity-mapping.service';
 import { PrismaClient } from '@prisma/client';
 import { encryptToken, decryptToken } from './encryption';
 import { generateState, validateState } from './oauth-state';
+import { getValidAccessToken, getQBApiUrl } from './token-refresh';
 import { authenticate, authorize } from '../../middleware/auth.middleware';
 import { runPreflightChecks } from './preflight.service';
 import { OpLog } from './error-classifier';
@@ -309,26 +310,12 @@ router.get('/banks', authenticate, authorize('admin', 'manager'), async (req: Re
 
     const { organizationId } = req.user;
 
-    // Get QB connection
-    const connection = await prisma.qBConnection.findFirst({
-      where: { organizationId },
-    });
-
-    if (!connection) {
-      return res.status(404).json({ error: 'QuickBooks not connected' });
-    }
-
-    // Decrypt tokens
-    const accessToken = decryptToken(connection.accessTokenEncrypted);
-
-    // Fetch bank accounts from QB
-    const oauthClient = getOAuthClient();
-    const apiUrl = oauthClient.environment === 'sandbox'
-      ? 'https://sandbox-quickbooks.api.intuit.com'
-      : 'https://quickbooks.api.intuit.com';
+    // Get valid access token (auto-refreshes if expired)
+    const { accessToken, realmId } = await getValidAccessToken(organizationId, prisma);
+    const apiUrl = getQBApiUrl();
 
     const response = await fetch(
-      `${apiUrl}/v3/company/${connection.realmId}/query?query=SELECT * FROM Account WHERE AccountType='Bank' AND Active=true MAXRESULTS 1000`,
+      `${apiUrl}/v3/company/${realmId}/query?query=SELECT * FROM Account WHERE AccountType='Bank' AND Active=true MAXRESULTS 1000`,
       {
         headers: {
           Authorization: `Bearer ${accessToken}`,

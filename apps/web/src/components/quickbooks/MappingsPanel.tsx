@@ -642,20 +642,33 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
               </div>
             )}
 
-            <div className="flex justify-end gap-2 pt-4 border-t">
-              <Button
-                onClick={() => setShowAutoMatch(false)}
-                variant="outline"
-                disabled={applyingMatch}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleApplyMatch}
-                disabled={applyingMatch}
-              >
-                {applyingMatch ? 'Applying...' : 'Apply Decisions'}
-              </Button>
+            <div className="pt-4 border-t">
+              <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded">
+                <div className="text-sm font-medium mb-2">Ready to Save:</div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>Accounts: {matchResult.accountItems.filter(i => i.decision).length} decisions</div>
+                  <div>Customers: {matchResult.customerItems.filter(i => i.decision).length} decisions</div>
+                  <div>Items: {matchResult.itemItems.filter(i => i.decision).length} decisions</div>
+                  <div>Ask Client: {[...matchResult.accountItems, ...matchResult.customerItems, ...matchResult.itemItems, ...matchResult.bankItems].filter(i => i.needsClientReview).length} marked</div>
+                </div>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button
+                  onClick={() => setShowAutoMatch(false)}
+                  variant="outline"
+                  disabled={applyingMatch}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleApplyMatch}
+                  disabled={applyingMatch}
+                  size="lg"
+                  className="px-8"
+                >
+                  {applyingMatch ? 'Saving...' : 'Save All Decisions'}
+                </Button>
+              </div>
             </div>
           </div>
         )}
