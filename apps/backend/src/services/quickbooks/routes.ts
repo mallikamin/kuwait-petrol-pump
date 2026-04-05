@@ -298,6 +298,73 @@ router.get('/health', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/quickbooks/banks
+ * Fetch all bank accounts from QuickBooks
+ */
+router.get('/banks', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { organizationId } = req.user;
+
+    // Get QB connection
+    const connection = await prisma.qBConnection.findUnique({
+      where: { organizationId },
+    });
+
+    if (!connection) {
+      return res.status(404).json({ error: 'QuickBooks not connected' });
+    }
+
+    // Decrypt tokens
+    const accessToken = decryptToken(connection.encryptedAccessToken);
+
+    // Fetch bank accounts from QB
+    const oauthClient = getOAuthClient();
+    const apiUrl = oauthClient.environment === 'sandbox'
+      ? 'https://sandbox-quickbooks.api.intuit.com'
+      : 'https://quickbooks.api.intuit.com';
+
+    const response = await fetch(
+      `${apiUrl}/v3/company/${connection.realmId}/query?query=SELECT * FROM Account WHERE AccountType='Bank' AND Active=true MAXRESULTS 1000`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch banks: ${response.statusText}`);
+    }
+
+    const data = (await response.json()) as any;
+    const banks = data.QueryResponse?.Account || [];
+
+    res.json({
+      success: true,
+      count: banks.length,
+      banks: banks.map((bank: any) => ({
+        id: bank.Id,
+        name: bank.Name,
+        accountNumber: bank.AcctNum || null,
+        accountType: bank.AccountType,
+        accountSubType: bank.AccountSubType || null,
+        currentBalance: bank.CurrentBalance || 0,
+        active: bank.Active,
+      })),
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/**
  * GET /api/quickbooks/preflight
  * Run production readiness checks (authenticated admin/manager)
  */
