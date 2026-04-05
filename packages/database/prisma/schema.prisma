@@ -880,50 +880,6 @@ model QuickBooksAuditLog {
   @@map("quickbooks_audit_log")
 }
 
-/// QuickBooks Entity Snapshot (Rule 5: QB fallback snapshots for disaster recovery)
-model QBEntitySnapshot {
-  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-
-  // Connection link
-  connectionId String       @map("connection_id") @db.Uuid
-  connection   QBConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
-
-  organizationId String       @map("organization_id") @db.Uuid
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  // QB entity identification
-  qbEntityType String @map("qb_entity_type") @db.VarChar(50) // 'Customer' | 'Item' | 'Invoice' | 'Payment' | 'Account'
-  qbEntityId   String @map("qb_entity_id") @db.VarChar(50) // QuickBooks ID (not our UUID)
-  qbEntityName String @map("qb_entity_name") @db.VarChar(255) // For quick reference
-
-  // Local entity mapping (optional)
-  localEntityType String? @map("local_entity_type") @db.VarChar(50) // 'customer' | 'product' | 'sale'
-  localEntityId   String? @map("local_entity_id") @db.Uuid // Our local ID
-
-  // Full QB entity data (immutable snapshot)
-  snapshotData Json    @map("snapshot_data") @db.JsonB // Complete QB entity JSON response
-  syncVersion  Int     @default(1) @map("sync_version") @db.Integer // Incremental version tracking
-  syncHash     String? @map("sync_hash") @db.VarChar(64) // SHA-256 of snapshot data for change detection
-
-  // Snapshot metadata
-  snapshotType String  @map("snapshot_type") @db.VarChar(20) // 'pre_sync' | 'post_sync' | 'manual' | 'scheduled'
-  snapshotBy   String? @map("snapshot_by") @db.Uuid // User ID if manual snapshot
-  notes        String? @db.Text // Admin notes about this snapshot
-
-  // Timing
-  snapshotAt DateTime @map("snapshot_at") @db.Timestamptz
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  // Retention (for cleanup jobs)
-  expiresAt DateTime? @map("expires_at") @db.Timestamptz // Null = keep forever
-
-  @@index([organizationId, qbEntityType, qbEntityId], name: "idx_qb_snapshot_org_entity")
-  @@index([organizationId, snapshotType, snapshotAt], name: "idx_qb_snapshot_org_type_time")
-  @@index([connectionId, snapshotAt], name: "idx_qb_snapshot_conn_time")
-  @@index([expiresAt], name: "idx_qb_snapshot_expires") // For cleanup jobs
-  @@map("qb_entity_snapshots")
-}
-
 /// QuickBooks Entity Mapping (Local entity ID → QB entity ID mappings)
 model QBEntityMapping {
   id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
