@@ -586,3 +586,16 @@ Each entry follows:
   4. **Test both pages**: After changes, verify that data entered in one page does NOT appear in the other (unless same date selected)
 
 ---
+
+## 2026-04-06 — Customer groups appear at bottom when added (P2 - UX)
+
+- **Error**: When adding a new customer group in Backdated Entries, list scrolls to show it at the bottom. User expected new groups to appear at the top (most recent first).
+- **Context**: Client testing - adding customer groups, expected reverse chronological order (newest at top)
+- **Root Cause**: Customer groups were sorted by order of first appearance in transactions array (line 465-481). Array.from(grouped.entries()) preserved insertion order, so oldest groups appeared first.
+- **Fix**: RESOLVED (commit dcc92a6)
+  1. Added `firstIndex: indices[0]` to track first transaction index for each group
+  2. Added `.sort((a, b) => b.firstIndex - a.firstIndex)` to sort descending (newest first)
+  3. Groups now appear in reverse chronological order
+- **Rule**: For activity feeds, transaction lists, and customer views, always use reverse chronological order (newest first) unless there's a specific business reason for oldest-first. Users expect recent activity at the top.
+
+---
