@@ -16,6 +16,29 @@ Each entry follows:
 
 ---
 
+## 2026-04-06 — Fuel type selection lost after navigation (P0)
+
+- **Error**: User added credit transaction with HSD fuel type, navigated to reports tab and came back. HSD option disappeared but other transaction details (customer, vehicle, slip) remained. 404 error: `api/fuel-prices/for-date?date=2026-04-01`
+- **Context**: Production testing - entering backdated transactions with fuel selection, navigating between tabs
+- **Root Cause**: Backend was saving `fuelTypeId` correctly but NOT returning `fuelCode` field in API response. Frontend expected `fuelCode` to restore fuel selection. Also missing `bankId` field for card transactions.
+- **Fix**: RESOLVED (commits 3c4a363, cd2a3bf)
+  1. **Backend response** (daily.service.ts line 195): Added `fuelCode: (txn as any).fuelType?.code || entry.nozzle.fuelType?.code || ''` to return fuel code from transaction
+  2. **Backend response** (daily.service.ts line 207): Added `bankId: (txn as any).bankId || ''` to return bank selection
+  3. **Schema** (schema.prisma line 1062): Added `bankId String? @map("bank_id") @db.Uuid` field to BackdatedTransaction model
+  4. **Schema** (schema.prisma line 1082): Added `bank Bank? @relation(fields: [bankId], references: [id])` relation
+  5. **Schema** (schema.prisma line 320): Added `backdatedTransactions BackdatedTransaction[]` to Bank model
+  6. **Backend save** (daily.service.ts line 479): Added `bankId: txn.bankId || null` when saving nozzle transactions
+  7. **Backend save** (daily.service.ts line 583): Added `bankId: txn.bankId || null` when saving walk-in transactions
+  8. **Controller** (daily.controller.ts line 34): Added `bankId: z.string().uuid().optional()` to schema validation
+  9. **Interface** (daily.service.ts line 30): Added `bankId?: string` to DailyTransactionInput interface
+- **Rule**:
+  1. **Always return display fields**: If frontend uses a field to restore UI state (like `fuelCode`), backend MUST return it in API response, even if stored as foreign key
+  2. **Test persistence**: After saving, navigate away and back to verify ALL fields (including dropdowns) restore correctly
+  3. **Card payments need bankId**: Any payment method involving cards (credit_card, bank_card) requires bankId for settlement tracking
+  4. **Complete CRUD**: When adding a field, update: schema → interface → validation → save → load → response
+
+---
+
 ## 2026-04-06 — Bank dropdown empty string crash in BackdatedEntries (P0)
 
 - **Error**: `Uncaught Error: A <Select.Item /> must have a value prop that is not an empty string.`
