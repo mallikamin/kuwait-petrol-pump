@@ -480,6 +480,16 @@ export function BackdatedEntries() {
     }));
   }, [transactions]);
 
+  // Keep accordion items open by default (sync with customer groups)
+  useEffect(() => {
+    const allCustomerIds = customerGroups.map(g => g.customerId);
+    // Add any new customer IDs that aren't already in the open list
+    const newIds = allCustomerIds.filter(id => !openAccordionItems.includes(id));
+    if (newIds.length > 0) {
+      setOpenAccordionItems([...openAccordionItems, ...newIds]);
+    }
+  }, [customerGroups]);
+
   // Add customer group dialog state
   const [isAddGroupOpen, setIsAddGroupOpen] = useState(false);
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
@@ -491,6 +501,9 @@ export function BackdatedEntries() {
 
   // Ref for scrolling to transactions section
   const transactionsCardRef = useRef<HTMLDivElement>(null);
+
+  // Accordion state - track which customer groups are open
+  const [openAccordionItems, setOpenAccordionItems] = useState<string[]>([]);
 
   // Reconciliation panel collapse state
   const [isReconciliationCollapsed, setIsReconciliationCollapsed] = useState(false);
@@ -532,12 +545,18 @@ export function BackdatedEntries() {
       },
     ]);
 
-    // Scroll to top of transactions card
+    // Ensure the customer's accordion is open
+    if (!openAccordionItems.includes(customerId)) {
+      setOpenAccordionItems([...openAccordionItems, customerId]);
+    }
+
+    // Scroll to the newly added customer's accordion item
     setTimeout(() => {
-      if (transactionsCardRef.current) {
-        transactionsCardRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const accordionItem = document.querySelector(`[data-customer-id="${customerId}"]`);
+      if (accordionItem) {
+        accordionItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
-    }, 100); // Small delay to ensure DOM update
+    }, 150); // Slightly longer delay to ensure accordion opens
   };
 
   const handleAddNewCustomer = async () => {
@@ -548,11 +567,13 @@ export function BackdatedEntries() {
 
     setIsSubmittingCustomer(true);
     try {
-      const result = await customersApi.create({
+      const response = await customersApi.create({
         name: newCustomer.name.trim(),
         phone: newCustomer.phone.trim() || undefined,
         email: newCustomer.email.trim() || undefined,
       });
+
+      const customer = response; // API returns customer directly (not nested)
 
       toast.success('Customer added successfully');
       setShowAddCustomerDialog(false);
@@ -561,10 +582,12 @@ export function BackdatedEntries() {
       // Refresh customer list
       refetchCustomers();
 
-      // Auto-add transaction for this customer
-      if (result && result.id && result.name) {
-        addTransactionToCustomer(result.id, result.name);
-        setIsAddGroupOpen(false);
+      // Auto-add transaction for this customer (dialog stays open until transaction added)
+      if (customer && customer.id && customer.name) {
+        setTimeout(() => {
+          addTransactionToCustomer(customer.id, customer.name);
+          setIsAddGroupOpen(false);
+        }, 100); // Small delay to allow customer list refresh
       }
     } catch (error: any) {
       toast.error(error?.response?.data?.message || 'Failed to add customer');
@@ -1516,9 +1539,19 @@ export function BackdatedEntries() {
                   <p className="text-sm mt-1">Click &quot;Add Customer Group&quot; to start reconciling</p>
                 </div>
               ) : (
-                <Accordion type="multiple" defaultValue={customerGroups.map(g => g.customerId)} className="space-y-2">
+                <Accordion
+                  type="multiple"
+                  value={openAccordionItems}
+                  onValueChange={setOpenAccordionItems}
+                  className="space-y-2"
+                >
                   {customerGroups.map((group) => (
-                    <AccordionItem key={group.customerId} value={group.customerId} className="border rounded-lg">
+                    <AccordionItem
+                      key={group.customerId}
+                      value={group.customerId}
+                      data-customer-id={group.customerId}
+                      className="border rounded-lg"
+                    >
                       <AccordionTrigger className="hover:no-underline px-4 py-3">
                         <div className="flex items-center justify-between w-full pr-4">
                           <div className="flex items-center gap-3">
