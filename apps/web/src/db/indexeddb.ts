@@ -26,6 +26,7 @@ export interface QueuedSale {
   taxAmount?: number;
   discountAmount?: number;
   paymentMethod: 'cash' | 'credit' | 'card' | 'pso_card' | 'other';
+  bankId?: string; // Required if paymentMethod='card'
   customerId?: string;
   vehicleNumber?: string;
   slipNumber?: string;

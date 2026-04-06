@@ -23,7 +23,7 @@ import {
 import { CustomerSelector } from '@/components/ui/customer-selector';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuthStore } from '@/store/auth';
-import { productsApi, fuelPricesApi, customersApi, dashboardApi, salesApi } from '@/api';
+import { productsApi, fuelPricesApi, customersApi, dashboardApi, salesApi, banksApi } from '@/api';
 import { OfflineQueue, QueuedSale } from '@/db/indexeddb';
 import { SyncStatus } from '@/components/SyncStatus';
 import { Receipt, ReceiptData } from '@/components/Receipt';
@@ -94,6 +94,7 @@ export function POS() {
 
   // Payment
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
+  const [selectedBankId, setSelectedBankId] = useState<string>('');
   const [slipNumber, setSlipNumber] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -152,7 +153,15 @@ export function POS() {
     refetchInterval: 10000, // Refetch every 10 seconds
   });
 
+  // Fetch banks (for card payments)
+  const { data: banksData } = useQuery({
+    queryKey: ['banks'],
+    queryFn: () => banksApi.getAll(),
+    staleTime: 300000,
+  });
+
   const customers = customersData?.items || [];
+  const banks = banksData?.banks || [];
   const selectedCustomer = selectedCustomerId && selectedCustomerId !== 'none'
     ? customers.find(c => c.id === selectedCustomerId)
     : undefined;
@@ -287,6 +296,7 @@ export function POS() {
         saleDate: new Date().toISOString(),
         totalAmount,
         paymentMethod,
+        bankId: paymentMethod === 'card' ? selectedBankId : undefined,
         slipNumber: slipNumber || undefined,
         customerId: selectedCustomerId && selectedCustomerId !== 'none' ? selectedCustomerId : undefined,
         vehicleNumber: vehicleNumber || undefined,
@@ -870,7 +880,10 @@ export function POS() {
 
             <div className="space-y-1.5">
               <Label className="text-xs">Payment Method</Label>
-              <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as PaymentMethod)}>
+              <Select value={paymentMethod} onValueChange={(v) => {
+                setPaymentMethod(v as PaymentMethod);
+                if (v !== 'card') setSelectedBankId(''); // Clear bank when not card
+              }}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -884,6 +897,31 @@ export function POS() {
               </Select>
             </div>
 
+            {/* Bank selector - only for card payments */}
+            {paymentMethod === 'card' && (
+              <div className="space-y-1.5">
+                <Label className="text-xs">Bank *</Label>
+                <Select value={selectedBankId} onValueChange={setSelectedBankId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select bank..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {banks.length > 0 ? (
+                      banks.map((bank: any) => (
+                        <SelectItem key={bank.id} value={bank.id}>
+                          {bank.name}
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <SelectItem value="__no_banks__" disabled>
+                        No banks available
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             <div className="space-y-1.5">
               <Label className="text-xs">Slip Number (optional)</Label>
               <Input
@@ -896,7 +934,7 @@ export function POS() {
             <Button
               className="w-full"
               size="lg"
-              disabled={submitting || !hasItems || (activeTab === 'fuel' && paymentMethod === 'credit' && !vehicleNumber)}
+              disabled={submitting || !hasItems || (activeTab === 'fuel' && paymentMethod === 'credit' && !vehicleNumber) || (paymentMethod === 'card' && !selectedBankId)}
               onClick={handleSubmit}
             >
               <Send className="mr-2 h-4 w-4" />

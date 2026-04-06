@@ -16,6 +16,7 @@ import salesRoutes from './modules/sales/sales.routes';
 import customersRoutes from './modules/customers/customers.routes';
 import productsRoutes from './modules/products/products.routes';
 import suppliersRoutes from './modules/suppliers/suppliers.routes';
+import { banksRoutes } from './modules/banks';
 import purchaseOrdersRoutes from './modules/purchase-orders/purchase-orders.routes';
 import bifurcationRoutes from './modules/bifurcation/bifurcation.routes';
 import reportsRoutes from './modules/reports/reports.routes';
@@ -97,6 +98,7 @@ export function createApp() {
   app.use('/api/products', productsRoutes);
   app.use('/api/suppliers', suppliersRoutes);
   app.use('/api/purchase-orders', purchaseOrdersRoutes);
+  app.use('/api/banks', banksRoutes);
   app.use('/api/bifurcation', bifurcationRoutes);
   app.use('/api/reports', reportsRoutes);
   app.use('/api/dashboard', dashboardRoutes);

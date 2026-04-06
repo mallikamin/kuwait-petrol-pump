@@ -18,10 +18,10 @@ export interface BanksResponse {
 
 export const banksApi = {
   /**
-   * Get all bank accounts from QuickBooks
+   * Get all banks (local POS banks)
    */
   getAll: async (): Promise<BanksResponse> => {
-    const response = await apiClient.get<BanksResponse>('/quickbooks/banks');
+    const response = await apiClient.get<BanksResponse>('/banks');
     return response.data;
   },
 };
