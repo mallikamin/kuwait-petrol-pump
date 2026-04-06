@@ -348,15 +348,41 @@ export function POS() {
       return;
     }
 
-    // TODO: Phase B - Validate individual transactions (vehicle#, fuel type, quantity)
+    // Phase B - Validate individual fuel transactions
+    if (activeTab === 'fuel') {
+      const invalidTxns = fuelTransactions.filter(
+        txn => !txn.fuelTypeId || !txn.quantityLiters || parseFloat(txn.quantityLiters) <= 0
+      );
+      if (invalidTxns.length > 0) {
+        toast({
+          title: 'Incomplete transactions',
+          description: `${invalidTxns.length} row(s) missing fuel type or quantity. Complete all rows before submitting.`,
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      // Validate vehicle numbers for credit sales
+      if (paymentMethod === 'credit') {
+        const missingVehicle = fuelTransactions.filter(txn => !txn.vehicleNumber);
+        if (missingVehicle.length > 0) {
+          toast({
+            title: 'Vehicle numbers required',
+            description: 'Credit sales require vehicle numbers for all transactions.',
+            variant: 'destructive',
+          });
+          return;
+        }
+      }
+    }
 
     if (!branchId) {
       toast({ title: 'No branch assigned', description: 'Your user account has no branch. Contact admin.', variant: 'destructive' });
       return;
     }
 
-    // Check credit limit
-    if (creditLimitExceeded && paymentMethod === 'credit') {
+    // Check credit limit (product tab only - fuel uses per-customer grouping)
+    if (activeTab === 'product' && creditLimitExceeded && paymentMethod === 'credit') {
       const confirmed = window.confirm(
         `Credit limit exceeded!\nCurrent balance: ${formatCurrency(currentBalance)}\nCredit limit: ${formatCurrency(selectedCustomer!.creditLimit || 0)}\n\nProceed anyway?`
       );
@@ -365,34 +391,65 @@ export function POS() {
 
     setSubmitting(true);
     try {
-      const saleData: Omit<QueuedSale, 'offlineQueueId' | 'queuedAt' | 'attempts' | 'status'> = {
-        branchId,
-        saleType: activeTab === 'fuel' ? 'fuel' : 'non_fuel',
-        saleDate: new Date().toISOString(),
-        totalAmount,
-        paymentMethod,
-        bankId: paymentMethod === 'card' ? selectedBankId : undefined,
-        slipNumber: slipNumber || undefined,
-        customerId: selectedCustomerId && selectedCustomerId !== 'none' ? selectedCustomerId : undefined,
-        vehicleNumber: vehicleNumber || undefined,
-        fuelSales: activeTab === 'fuel' && fuelTransactions.length > 0 ? (
-          // TODO: Phase B - Map fuelTransactions to API payload format
-          // For now, temporarily disabled until Phase B wiring
-          (() => { throw new Error('Fuel submission not yet wired in Phase A - coming in Phase B'); })()
-        ) : undefined,
-        nonFuelSales: activeTab === 'product' ? cart.map(item => ({
-          productId: item.productId,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          totalAmount: item.unitPrice * item.quantity,
-        })) : undefined,
-      };
+      // Phase B - Fuel tab: Create one sale per customer group
+      const queuedSaleIds: string[] = [];
 
-      const offlineQueueId = await OfflineQueue.enqueueSale(saleData);
+      if (activeTab === 'fuel') {
+        // Group transactions by customer
+        for (const group of fuelCustomerGroups) {
+          const groupTotal = group.txns.reduce((sum, txn) => sum + parseFloat(txn.lineTotal || '0'), 0);
 
-      // Build receipt data
+          const saleData: Omit<QueuedSale, 'offlineQueueId' | 'queuedAt' | 'attempts' | 'status'> = {
+            branchId,
+            saleType: 'fuel',
+            saleDate: new Date().toISOString(),
+            totalAmount: groupTotal,
+            paymentMethod,
+            bankId: paymentMethod === 'card' ? selectedBankId : undefined,
+            slipNumber: slipNumber || undefined,
+            customerId: group.customerId,
+            vehicleNumber: undefined, // Each fuel sale has its own vehicle number
+            fuelSales: group.txns.map(txn => ({
+              nozzleId: '', // No nozzle tracking in POS
+              fuelTypeId: txn.fuelTypeId,
+              quantityLiters: parseFloat(txn.quantityLiters || '0'),
+              pricePerLiter: parseFloat(txn.pricePerLiter || '0'),
+              totalAmount: parseFloat(txn.lineTotal || '0'),
+            })),
+          };
+
+          const queueId = await OfflineQueue.enqueueSale(saleData);
+          queuedSaleIds.push(queueId);
+        }
+      } else {
+        // Product tab: Single sale
+        const saleData: Omit<QueuedSale, 'offlineQueueId' | 'queuedAt' | 'attempts' | 'status'> = {
+          branchId,
+          saleType: 'non_fuel',
+          saleDate: new Date().toISOString(),
+          totalAmount,
+          paymentMethod,
+          bankId: paymentMethod === 'card' ? selectedBankId : undefined,
+          slipNumber: slipNumber || undefined,
+          customerId: selectedCustomerId && selectedCustomerId !== 'none' ? selectedCustomerId : undefined,
+          vehicleNumber: vehicleNumber || undefined,
+          nonFuelSales: cart.map(item => ({
+            productId: item.productId,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            totalAmount: item.unitPrice * item.quantity,
+          })),
+        };
+
+        const queueId = await OfflineQueue.enqueueSale(saleData);
+        queuedSaleIds.push(queueId);
+      }
+
+      const offlineQueueId = queuedSaleIds[0]; // Use first ID for receipt number
+
+      // Build combined receipt data
       const receipt: ReceiptData = {
-        receiptNo: offlineQueueId.slice(0, 8).toUpperCase(),
+        receiptNo: offlineQueueId.slice(0, 8).toUpperCase() + (queuedSaleIds.length > 1 ? ` (+${queuedSaleIds.length - 1})` : ''),
         date: new Date().toLocaleString('en-PK'),
         cashier: user?.full_name || user?.username || 'Unknown',
         branch: 'Main Branch',
@@ -415,8 +472,10 @@ export function POS() {
         totalAmount,
         paymentMethod,
         slipNumber: slipNumber || undefined,
-        vehicleNumber: vehicleNumber || undefined,
-        customerName: selectedCustomer?.name,
+        vehicleNumber: undefined, // Not applicable for grouped fuel sales
+        customerName: activeTab === 'fuel'
+          ? `${fuelCustomerGroups.length} customer(s)`
+          : selectedCustomer?.name,
       };
 
       // Sync if online
@@ -437,10 +496,10 @@ export function POS() {
       clearCart();
 
       const itemsText = activeTab === 'fuel' && fuelTransactions.length > 0
-        ? `${fuelTransactions.length} fuel transaction(s)`
+        ? `${queuedSaleIds.length} sale(s) queued (${fuelTransactions.length} transactions)`
         : `${cart.length} item(s)`;
 
-      toast({ title: 'Sale completed', description: `${formatCurrency(totalAmount)} - ${itemsText}` });
+      toast({ title: 'Sale completed', description: `${formatCurrency(totalAmount)} - ${itemsText}`, duration: 5000 });
     } catch (err) {
       toast({ title: 'Sale failed', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
     } finally {
