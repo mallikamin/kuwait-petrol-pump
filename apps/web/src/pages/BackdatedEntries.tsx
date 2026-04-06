@@ -88,7 +88,6 @@ export function BackdatedEntries() {
   const justSavedRef = useRef(false); // Track if we just saved to prevent useEffect from overwriting
 
   // Use sessionStorage for loadedKey to persist across tab navigation
-  const getLoadedKey = () => sessionStorage.getItem('backdated_loaded_key') || '';
   const setLoadedKey = (key: string) => sessionStorage.setItem('backdated_loaded_key', key);
 
   // Fetch branches
