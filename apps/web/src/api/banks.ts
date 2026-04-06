@@ -21,7 +21,7 @@ export const banksApi = {
    * Get all banks (local POS banks)
    */
   getAll: async (): Promise<BanksResponse> => {
-    const response = await apiClient.get<BanksResponse>('/banks');
+    const response = await apiClient.get<BanksResponse>('/api/banks');
     return response.data;
   },
 };

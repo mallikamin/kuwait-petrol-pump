@@ -1058,9 +1058,9 @@ export function BackdatedEntries() {
         </AlertDescription>
       </Alert>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="flex flex-col lg:flex-row gap-6">
         {/* Left: Entry Form + Transactions */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="flex-1 space-y-6">
           {/* Entry Details */}
           <Card>
             <CardHeader>
@@ -1955,7 +1955,7 @@ export function BackdatedEntries() {
         </div>
 
         {/* Right: Reconciliation Panel - Horizontally Collapsible */}
-        <div className={`transition-all duration-300 ease-in-out ${isReconciliationCollapsed ? 'w-12' : 'w-full'} relative`}>
+        <div className={`transition-all duration-300 ease-in-out ${isReconciliationCollapsed ? 'w-12' : 'w-96'} flex-shrink-0 relative`}>
           <div className="sticky top-6 space-y-6">
             {/* Toggle Button */}
             <Button
