@@ -68,6 +68,7 @@ export class SyncService {
               taxAmount: queuedSale.taxAmount || 0,
               discountAmount: queuedSale.discountAmount || 0,
               paymentMethod: queuedSale.paymentMethod,
+              bankId: queuedSale.bankId, // Required for card payments
               customerId: queuedSale.customerId,
               vehicleNumber: queuedSale.vehicleNumber,
               slipNumber: queuedSale.slipNumber,
