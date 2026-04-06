@@ -133,7 +133,7 @@ export function POS() {
   });
 
   // Fetch customers
-  const { data: customersData } = useQuery({
+  const { data: customersData, refetch: refetchCustomers } = useQuery({
     queryKey: ['pos-customers'],
     queryFn: () => customersApi.getAll({ size: 500 }),
     staleTime: 300000,
@@ -820,6 +820,7 @@ export function POS() {
                 value={selectedCustomerId}
                 onChange={setSelectedCustomerId}
                 placeholder="Walk-in customer"
+                onCustomerAdded={() => refetchCustomers()}
               />
               {selectedCustomer && (
                 <div className="text-xs text-muted-foreground space-y-0.5">

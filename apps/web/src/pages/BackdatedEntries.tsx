@@ -16,7 +16,7 @@ import {
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle, Users, Copy, Search, Gauge, Camera, Edit, Loader2 } from 'lucide-react';
+import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle, Users, Copy, Search, Gauge, Camera, Edit, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { branchesApi, customersApi, meterReadingsApi } from '@/api';
 import { banksApi } from '@/api/banks';
@@ -116,7 +116,7 @@ export function BackdatedEntries() {
   });
 
   // Fetch customers for autocomplete
-  const { data: customersData } = useQuery({
+  const { data: customersData, refetch: refetchCustomers } = useQuery({
     queryKey: ['customers'],
     queryFn: async () => {
       const res = await customersApi.getAll();
@@ -484,6 +484,17 @@ export function BackdatedEntries() {
   const [isAddGroupOpen, setIsAddGroupOpen] = useState(false);
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
 
+  // Add new customer dialog state
+  const [showAddCustomerDialog, setShowAddCustomerDialog] = useState(false);
+  const [isSubmittingCustomer, setIsSubmittingCustomer] = useState(false);
+  const [newCustomer, setNewCustomer] = useState({ name: '', phone: '', email: '' });
+
+  // Ref for scrolling to transactions section
+  const transactionsCardRef = useRef<HTMLDivElement>(null);
+
+  // Reconciliation panel collapse state
+  const [isReconciliationCollapsed, setIsReconciliationCollapsed] = useState(false);
+
   // Meter reading dialog state
   const [isMeterReadingOpen, setIsMeterReadingOpen] = useState(false);
   const [selectedMeterNozzle, setSelectedMeterNozzle] = useState<any>(null);
@@ -520,6 +531,46 @@ export function BackdatedEntries() {
         _localStatus: 'draft', // Mark as draft until saved
       },
     ]);
+
+    // Scroll to top of transactions card
+    setTimeout(() => {
+      if (transactionsCardRef.current) {
+        transactionsCardRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 100); // Small delay to ensure DOM update
+  };
+
+  const handleAddNewCustomer = async () => {
+    if (!newCustomer.name.trim()) {
+      toast.error('Customer name is required');
+      return;
+    }
+
+    setIsSubmittingCustomer(true);
+    try {
+      const result = await customersApi.create({
+        name: newCustomer.name.trim(),
+        phone: newCustomer.phone.trim() || undefined,
+        email: newCustomer.email.trim() || undefined,
+      });
+
+      toast.success('Customer added successfully');
+      setShowAddCustomerDialog(false);
+      setNewCustomer({ name: '', phone: '', email: '' });
+
+      // Refresh customer list
+      refetchCustomers();
+
+      // Auto-add transaction for this customer
+      if (result && result.id && result.name) {
+        addTransactionToCustomer(result.id, result.name);
+        setIsAddGroupOpen(false);
+      }
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || 'Failed to add customer');
+    } finally {
+      setIsSubmittingCustomer(false);
+    }
   };
 
   const duplicateLastInGroup = (groupIndices: number[]) => {
@@ -560,25 +611,14 @@ export function BackdatedEntries() {
   );
 
   // REMOVED: Duplicate useEffect that was overwriting transactions after save.
-  // The second useEffect (below) handles both API data and localStorage backup properly.
 
   // Auto-save effect (mark dirty on transaction changes)
   useEffect(() => {
     if (transactions.length > 0) setIsDirty(true);
   }, [transactions]);
 
-  // LocalStorage backup to prevent data loss (CRITICAL)
-  useEffect(() => {
-    if (transactions.length > 0 && selectedBranchId && businessDate) {
-      const backupKey = `backdated_draft_${selectedBranchId}_${businessDate}${selectedShiftId ? '_' + selectedShiftId : ''}`;
-      localStorage.setItem(backupKey, JSON.stringify({
-        transactions,
-        timestamp: new Date().toISOString(),
-      }));
-    }
-  }, [transactions, selectedBranchId, businessDate, selectedShiftId]);
 
-  // Restore from localStorage if API returns empty but backup exists
+  // Load transactions from API on branch/date/shift change
   useEffect(() => {
     // Skip if we just saved (prevents overwriting local state after save)
     if (justSavedRef.current) {
@@ -603,15 +643,10 @@ export function BackdatedEntries() {
       return;
     }
 
-    const backupKey = `backdated_draft_${selectedBranchId}_${businessDate}${selectedShiftId ? '_' + selectedShiftId : ''}`;
-    const backup = localStorage.getItem(backupKey);
-
     console.log('[Transactions] Loading NEW key:', {
       currentKey,
-      backupKey,
       hasAPIData: !!dailySummaryData?.transactions,
       apiCount: dailySummaryData?.transactions?.length || 0,
-      hasBackup: !!backup,
     });
 
     if (dailySummaryData?.transactions && dailySummaryData.transactions.length > 0) {
@@ -639,26 +674,9 @@ export function BackdatedEntries() {
         }))
       );
       setSyncMessage(`Loaded ${dailySummaryData.transactions.length} existing transactions.`);
-      setLoadedKey(currentKey); // Mark as loaded
-      // Clear backup when API data loads successfully
-      localStorage.removeItem(backupKey);
-    } else if (backup) {
-      // API returned empty but we have a localStorage backup
-      console.log('[Transactions] Loading from localStorage backup');
-      try {
-        const parsed = JSON.parse(backup);
-        setTransactions(parsed.transactions);
-        setSyncMessage(`⚠️ Restored ${parsed.transactions.length} transactions from backup (${new Date(parsed.timestamp).toLocaleTimeString()}). Please save draft to persist.`);
-        toast.warning('Draft restored from local backup. Click "Save Draft" to persist to server.');
-        setLoadedKey(currentKey); // Mark as loaded
-      } catch (err) {
-        console.error('Failed to restore backup:', err);
-        setTransactions([]);
-        setSyncMessage('No existing transactions. Start adding customer groups.');
-        setLoadedKey(currentKey); // Mark as loaded even if empty
-      }
+      setLoadedKey(currentKey);
     } else {
-      console.log('[Transactions] No API data or backup, clearing');
+      console.log('[Transactions] No API data, clearing');
       setTransactions([]);
       setSyncMessage('No existing transactions. Start adding customer groups.');
       setLoadedKey(currentKey); // Mark as loaded even if empty
@@ -670,51 +688,7 @@ export function BackdatedEntries() {
     dailySummaryData,
   ]);
 
-  // Auto-backup to localStorage (prevent data loss)
-  useEffect(() => {
-    if (transactions.length > 0 && selectedBranchId && businessDate) {
-      const backupKey = `backdated_backup_${selectedBranchId}_${businessDate}`;
-      localStorage.setItem(backupKey, JSON.stringify({
-        transactions,
-        timestamp: new Date().toISOString(),
-        branchId: selectedBranchId,
-        businessDate,
-      }));
-      console.log('[Auto-Backup] Saved to localStorage:', backupKey, transactions.length, 'transactions');
-    }
-  }, [transactions, selectedBranchId, businessDate]);
 
-  // Recovery: Check for localStorage backup on mount
-  useEffect(() => {
-    if (!selectedBranchId || !businessDate) return;
-
-    const backupKey = `backdated_backup_${selectedBranchId}_${businessDate}`;
-    const backup = localStorage.getItem(backupKey);
-
-    if (backup && transactions.length === 0) {
-      try {
-        const parsed = JSON.parse(backup);
-        const backupAge = Date.now() - new Date(parsed.timestamp).getTime();
-
-        // If backup is less than 24 hours old, offer recovery
-        if (backupAge < 24 * 60 * 60 * 1000) {
-          const recover = window.confirm(
-            `Found unsaved data from ${new Date(parsed.timestamp).toLocaleString()}.\n\n` +
-            `${parsed.transactions.length} transactions.\n\n` +
-            `Recover this data?`
-          );
-
-          if (recover) {
-            setTransactions(parsed.transactions);
-            toast.success(`Recovered ${parsed.transactions.length} transactions from backup`);
-            console.log('[Recovery] Restored from localStorage:', backupKey);
-          }
-        }
-      } catch (err) {
-        console.error('[Recovery] Failed to parse backup:', err);
-      }
-    }
-  }, [selectedBranchId, businessDate]);
 
   // Auto-save timer (2 minutes)
   useEffect(() => {
@@ -837,10 +811,7 @@ export function BackdatedEntries() {
       return res.data.data;
     },
     onSuccess: () => {
-      console.log('[Save Draft] Success! Clearing localStorage backup...');
-      const backupKey = `backdated_backup_${selectedBranchId}_${businessDate}`;
-      localStorage.removeItem(backupKey);
-
+      console.log('[Save Draft] Success!');
       toast.success('Draft saved successfully');
       setLastSaved(new Date());
       setIsDirty(false);
@@ -857,9 +828,6 @@ export function BackdatedEntries() {
 
       const errorMsg = error?.response?.data?.error || error.message || 'Failed to save draft';
       toast.error(errorMsg);
-
-      // Keep localStorage backup on error
-      console.log('[Save Draft] Keeping localStorage backup due to error');
     },
   });
 
@@ -1527,7 +1495,7 @@ export function BackdatedEntries() {
           )}
 
           {/* Transactions — Customer-Grouped */}
-          <Card>
+          <Card ref={transactionsCardRef}>
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
@@ -1808,6 +1776,20 @@ export function BackdatedEntries() {
                   Walk-in Sales
                 </Button>
 
+                {/* Add New Customer Button */}
+                <Button
+                  type="button"
+                  variant="default"
+                  className="w-full"
+                  onClick={() => {
+                    setShowAddCustomerDialog(true);
+                    setIsAddGroupOpen(false);
+                  }}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add New Customer
+                </Button>
+
                 {/* Search Input */}
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
@@ -1898,17 +1880,102 @@ export function BackdatedEntries() {
               )}
             </DialogContent>
           </Dialog>
+
+          {/* Add New Customer Dialog */}
+          <Dialog open={showAddCustomerDialog} onOpenChange={setShowAddCustomerDialog}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add New Customer</DialogTitle>
+                <DialogDescription>
+                  Enter customer details to create a new customer record. The customer will be automatically added to your transaction list.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label htmlFor="new-customer-name">Name *</Label>
+                  <Input
+                    id="new-customer-name"
+                    placeholder="Customer name"
+                    value={newCustomer.name}
+                    onChange={(e) => setNewCustomer({ ...newCustomer, name: e.target.value })}
+                    disabled={isSubmittingCustomer}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="new-customer-phone">Phone</Label>
+                  <Input
+                    id="new-customer-phone"
+                    placeholder="Phone number"
+                    value={newCustomer.phone}
+                    onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })}
+                    disabled={isSubmittingCustomer}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="new-customer-email">Email</Label>
+                  <Input
+                    id="new-customer-email"
+                    type="email"
+                    placeholder="Email address"
+                    value={newCustomer.email}
+                    onChange={(e) => setNewCustomer({ ...newCustomer, email: e.target.value })}
+                    disabled={isSubmittingCustomer}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowAddCustomerDialog(false)}
+                  disabled={isSubmittingCustomer}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleAddNewCustomer}
+                  disabled={isSubmittingCustomer}
+                >
+                  {isSubmittingCustomer ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Adding...
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Customer
+                    </>
+                  )}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
 
-        {/* Right: Reconciliation Panel - Collapsible */}
-        <div className="space-y-6">
-          <Accordion type="single" collapsible defaultValue="reconciliation" className="sticky top-6">
-            <AccordionItem value="reconciliation" className="border rounded-lg">
-              <AccordionTrigger className="px-4 hover:no-underline">
-                <CardTitle className="text-base">Reconciliation</CardTitle>
-              </AccordionTrigger>
-              <AccordionContent className="px-4 pb-4">
-                <div className="space-y-4 text-sm">
+        {/* Right: Reconciliation Panel - Horizontally Collapsible */}
+        <div className={`transition-all duration-300 ease-in-out ${isReconciliationCollapsed ? 'w-12' : 'w-full'} relative`}>
+          <div className="sticky top-6 space-y-6">
+            {/* Toggle Button */}
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setIsReconciliationCollapsed(!isReconciliationCollapsed)}
+              className="absolute -left-6 top-2 z-10 rounded-full shadow-lg"
+              title={isReconciliationCollapsed ? 'Expand Reconciliation' : 'Collapse Reconciliation'}
+            >
+              {isReconciliationCollapsed ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            </Button>
+
+            {/* Reconciliation Content */}
+            {!isReconciliationCollapsed && (
+              <Card className="border rounded-lg">
+                <CardHeader className="px-4 py-3 border-b">
+                  <CardTitle className="text-base">Reconciliation</CardTitle>
+                </CardHeader>
+                <CardContent className="px-4 py-4">
+                  <div className="space-y-4 text-sm">
               {/* Totals Integrity Diagnostics */}
               {selectedBranchId && businessDate && (
                 <div className={`border-2 rounded-lg p-3 ${
@@ -2129,10 +2196,11 @@ export function BackdatedEntries() {
                   )}
                 </div>
               )}
-                </div>
-              </AccordionContent>
-            </AccordionItem>
-          </Accordion>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
         </div>
       </div>
     </div>
