@@ -138,7 +138,7 @@ export class DailyBackdatedEntriesController {
       }
 
       // Set key with 45s TTL (enough for save + network lag, but not too long)
-      await redis.set(idempotencyKey, '1', 'EX', 45);
+      await redis.set(idempotencyKey, '1', { EX: 45 });
 
       const summary = await this.service.saveDailyDraft(
         {
