@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -19,7 +19,14 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from '@/components/ui/dialog';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
 import { CustomerSelector } from '@/components/ui/customer-selector';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuthStore } from '@/store/auth';
@@ -43,6 +50,8 @@ import {
   Send,
   Fuel,
   AlertCircle,
+  Copy,
+  Users,
 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
@@ -57,14 +66,16 @@ interface CartItem {
   quantity: number;
 }
 
-interface FuelCartItem {
-  nozzleId: string;
-  nozzleName: string;
+interface FuelTransaction {
+  id: string; // Local ID for tracking
+  customerId: string;
+  customerName: string;
+  vehicleNumber: string;
   fuelTypeId: string;
   fuelTypeName: string;
-  quantityLiters: number;
-  pricePerLiter: number;
-  // meterReading removed
+  quantityLiters: string;
+  pricePerLiter: string;
+  lineTotal: string;
 }
 
 export function POS() {
@@ -81,14 +92,14 @@ export function POS() {
 
   // Cart state
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [fuelCart, setFuelCart] = useState<FuelCartItem | null>(null);
+  const [fuelTransactions, setFuelTransactions] = useState<FuelTransaction[]>([]);
 
-  // Fuel sale form
-  const [selectedFuelTypeId, setSelectedFuelTypeId] = useState('');
-  const [liters, setLiters] = useState('');
-  // meterReadingData state removed
+  // Fuel grouped layout state
+  const [isAddFuelGroupOpen, setIsAddFuelGroupOpen] = useState(false);
+  const [fuelCustomerSearchQuery, setFuelCustomerSearchQuery] = useState('');
+  const [openFuelAccordionItems, setOpenFuelAccordionItems] = useState<string[]>([]);
 
-  // Customer selection (both tabs)
+  // Customer selection (non-fuel tab only)
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [vehicleNumber, setVehicleNumber] = useState('');
 
@@ -173,6 +184,27 @@ export function POS() {
     ? products
     : products.filter(p => p.category === categoryFilter);
 
+  // Fuel customer grouping (newest first)
+  const fuelCustomerGroups = useMemo(() => {
+    const grouped = new Map<string, { indices: number[]; txns: FuelTransaction[] }>();
+    fuelTransactions.forEach((txn, idx) => {
+      const key = txn.customerId;
+      if (!grouped.has(key)) grouped.set(key, { indices: [], txns: [] });
+      grouped.get(key)!.indices.push(idx);
+      grouped.get(key)!.txns.push(txn);
+    });
+    // Sort groups by most recent first (highest first index = added later)
+    return Array.from(grouped.entries())
+      .map(([customerId, { indices, txns }]) => ({
+        customerId,
+        customerName: txns[0]?.customerName || 'Unknown',
+        indices,
+        txns,
+        total: txns.reduce((sum, t) => sum + parseFloat(t.lineTotal || '0'), 0),
+      }))
+      .sort((a, b) => Math.max(...b.indices) - Math.max(...a.indices));
+  }, [fuelTransactions]);
+
   // Cart helpers (non-fuel)
   const addToCart = useCallback((product: Product) => {
     setCart(prev => {
@@ -212,15 +244,88 @@ export function POS() {
 
   const clearCart = useCallback(() => {
     setCart([]);
-    setFuelCart(null);
-    setLiters('');
-    setSelectedFuelTypeId('');
+    setFuelTransactions([]);
     setSelectedCustomerId('');
     setVehicleNumber('');
     setSlipNumber('');
   }, []);
 
-  // Fuel cart helpers
+  // Fuel transaction helpers (grouped layout)
+  const addFuelTransactionToCustomer = (customerId: string, customerName: string) => {
+    const newTransaction: FuelTransaction = {
+      id: `fuel-${Date.now()}-${Math.random()}`,
+      customerId,
+      customerName,
+      vehicleNumber: '',
+      fuelTypeId: '',
+      fuelTypeName: '',
+      quantityLiters: '',
+      pricePerLiter: '',
+      lineTotal: '0',
+    };
+    setFuelTransactions(prev => [...prev, newTransaction]);
+
+    // Ensure accordion is open
+    if (!openFuelAccordionItems.includes(customerId)) {
+      setOpenFuelAccordionItems(prev => [...prev, customerId]);
+    }
+  };
+
+  const duplicateLastFuelInGroup = (indices: number[]) => {
+    if (indices.length === 0) return;
+    const lastIdx = Math.max(...indices);
+    const lastTxn = fuelTransactions[lastIdx];
+    if (!lastTxn) return;
+
+    const duplicate: FuelTransaction = {
+      ...lastTxn,
+      id: `fuel-${Date.now()}-${Math.random()}`,
+      vehicleNumber: '', // Clear vehicle number for new entry
+    };
+    setFuelTransactions(prev => [...prev, duplicate]);
+  };
+
+  const updateFuelTransaction = (index: number, field: keyof FuelTransaction, value: any) => {
+    setFuelTransactions(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+
+      // Recalculate lineTotal if quantity or price changes
+      if (field === 'quantityLiters' || field === 'pricePerLiter') {
+        const qty = parseFloat(updated[index].quantityLiters || '0');
+        const price = parseFloat(updated[index].pricePerLiter || '0');
+        updated[index].lineTotal = (qty * price).toFixed(2);
+      }
+
+      // Auto-populate price when fuel type changes
+      if (field === 'fuelTypeId' && value) {
+        const fuelType = fuelTypes?.find(ft => ft.id === value);
+        if (fuelType) {
+          updated[index].fuelTypeName = fuelType.name;
+          const price = priceLookup.get(fuelType.id) || 0;
+          updated[index].pricePerLiter = price.toFixed(2);
+
+          // Recalculate total if quantity exists
+          const qty = parseFloat(updated[index].quantityLiters || '0');
+          updated[index].lineTotal = (qty * price).toFixed(2);
+        }
+      }
+
+      return updated;
+    });
+  };
+
+  const removeFuelTransaction = (index: number) => {
+    setFuelTransactions(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const addFuelCustomerGroup = (customerId: string, customerName: string) => {
+    addFuelTransactionToCustomer(customerId, customerName);
+    setIsAddFuelGroupOpen(false);
+    setFuelCustomerSearchQuery('');
+  };
+
+  // Fuel cart helpers (legacy - to be removed in Phase B)
   const addFuelToCart = useCallback(() => {
     if (!selectedFuelTypeId || !liters || parseFloat(liters) <= 0) {
       toast({ title: 'Invalid input', description: 'Select a fuel type and enter liters', variant: 'destructive' });
@@ -254,7 +359,7 @@ export function POS() {
 
   // Totals
   const subtotalNonFuel = cart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
-  const subtotalFuel = fuelCart ? fuelCart.quantityLiters * fuelCart.pricePerLiter : 0;
+  const subtotalFuel = fuelTransactions.reduce((sum, txn) => sum + parseFloat(txn.lineTotal || '0'), 0);
   const totalAmount = activeTab === 'fuel' ? subtotalFuel : subtotalNonFuel;
 
   // Credit limit warning (current_balance not yet implemented in backend, using 0 for now)
@@ -263,8 +368,8 @@ export function POS() {
 
   // Submit sale
   const handleSubmit = async () => {
-    if (activeTab === 'fuel' && !fuelCart) {
-      toast({ title: 'No fuel sale', description: 'Add fuel to cart before completing sale.', variant: 'destructive' });
+    if (activeTab === 'fuel' && fuelTransactions.length === 0) {
+      toast({ title: 'No fuel transactions', description: 'Add at least one fuel transaction before completing sale.', variant: 'destructive' });
       return;
     }
 
@@ -272,6 +377,8 @@ export function POS() {
       toast({ title: 'Cart is empty', description: 'Add products before completing sale.', variant: 'destructive' });
       return;
     }
+
+    // TODO: Phase B - Validate individual transactions (vehicle#, fuel type, quantity)
 
     if (!branchId) {
       toast({ title: 'No branch assigned', description: 'Your user account has no branch. Contact admin.', variant: 'destructive' });
@@ -298,13 +405,11 @@ export function POS() {
         slipNumber: slipNumber || undefined,
         customerId: selectedCustomerId && selectedCustomerId !== 'none' ? selectedCustomerId : undefined,
         vehicleNumber: vehicleNumber || undefined,
-        fuelSales: activeTab === 'fuel' && fuelCart ? [{
-          nozzleId: fuelCart.nozzleId,
-          fuelTypeId: fuelCart.fuelTypeId,
-          quantityLiters: fuelCart.quantityLiters,
-          pricePerLiter: fuelCart.pricePerLiter,
-          totalAmount: fuelCart.quantityLiters * fuelCart.pricePerLiter,
-        }] : undefined,
+        fuelSales: activeTab === 'fuel' && fuelTransactions.length > 0 ? (
+          // TODO: Phase B - Map fuelTransactions to API payload format
+          // For now, temporarily disabled until Phase B wiring
+          (() => { throw new Error('Fuel submission not yet wired in Phase A - coming in Phase B'); })()
+        ) : undefined,
         nonFuelSales: activeTab === 'product' ? cart.map(item => ({
           productId: item.productId,
           quantity: item.quantity,
@@ -520,96 +625,150 @@ export function POS() {
         {/* FUEL SALE TAB */}
         <TabsContent value="fuel" className="space-y-4">
           <div className="grid gap-4 lg:grid-cols-3">
-            {/* Left: Fuel Sale Form (2 cols) */}
-            <div className="lg:col-span-2">
+            {/* Left: Fuel Transactions (2 cols) */}
+            <div className="lg:col-span-2 space-y-4">
+              {/* Add Customer Group Button */}
               <Card>
-                <CardHeader>
-                  <CardTitle>Fuel Sale</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {/* Nozzle Selection */}
-                  <div className="space-y-2">
-                    <Label>Fuel Type *</Label>
-                    <Select value={selectedFuelTypeId} onValueChange={setSelectedFuelTypeId} disabled={fuelTypesLoading || !!fuelTypesError}>
-                      <SelectTrigger>
-                        <SelectValue placeholder={fuelTypesLoading ? "Loading fuel types..." : "Select fuel type (PMG/HSD)"} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {fuelTypes?.map(ft => (
-                          <SelectItem key={ft.id} value={ft.id}>
-                            {ft.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {fuelTypesError && (
-                      <Alert variant="destructive" className="py-2">
-                        <AlertCircle className="h-4 w-4" />
-                        <AlertDescription className="text-xs">
-                          Failed to load fuel types. <Button variant="link" size="sm" className="h-auto p-0 text-xs underline" onClick={() => refetchFuelTypes()}>Retry</Button>
-                        </AlertDescription>
-                      </Alert>
-                    )}
-                  </div>
-
-                  {/* Fuel Price Display */}
-                  {selectedFuelTypeId && (() => {
-                    const fuelType = fuelTypes?.find(ft => ft.id === selectedFuelTypeId);
-                    const price = fuelType ? (priceLookup.get(fuelType.id) || 0) : 0;
-                    return (
-                      <div className="p-3 rounded-lg border bg-muted/50">
-                        <div className="flex justify-between items-center">
-                          <div>
-                            <p className="text-sm font-medium">{fuelType?.name || 'Unknown'}</p>
-                            <p className="text-xs text-muted-foreground">Fuel Type</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-lg font-bold">{formatCurrency(price)}/L</p>
-                            <p className="text-xs text-muted-foreground">Current Price</p>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {/* Liters Input */}
-                  <div className="space-y-2">
-                    <Label>Quantity (Liters) *</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={liters}
-                      onChange={(e) => setLiters(e.target.value)}
-                    />
-                  </div>
-
-                  {/* Meter reading removed - use dedicated Meter Readings page */}
-
-                  {/* Total Calculation Display */}
-                  {selectedFuelTypeId && liters && parseFloat(liters) > 0 && (() => {
-                    const fuelType = fuelTypes?.find(ft => ft.id === selectedFuelTypeId);
-                    const price = fuelType ? (priceLookup.get(fuelType.id) || 0) : 0;
-                    const total = parseFloat(liters) * price;
-                    return (
-                      <div className="p-4 rounded-lg border-2 border-primary bg-primary/5">
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm text-muted-foreground">Total Amount</span>
-                          <span className="text-2xl font-bold">{formatCurrency(total)}</span>
-                        </div>
-                        <div className="text-xs text-muted-foreground mt-1">
-                          {liters}L × {formatCurrency(price)}/L
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  <Button onClick={addFuelToCart} className="w-full" disabled={!selectedFuelTypeId || !liters}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add to Cart
+                <CardContent className="pt-6">
+                  <Button
+                    onClick={() => setIsAddFuelGroupOpen(true)}
+                    variant="outline"
+                    className="w-full border-dashed border-2 h-auto py-4"
+                  >
+                    <Users className="mr-2 h-5 w-5" />
+                    Add Customer (Fuel Sale)
                   </Button>
                 </CardContent>
               </Card>
+
+              {/* Customer Groups Accordion */}
+              {fuelCustomerGroups.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <CardTitle>Fuel Transactions</CardTitle>
+                      <Badge variant="secondary">{fuelTransactions.length} row{fuelTransactions.length !== 1 ? 's' : ''}</Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <Accordion
+                      type="multiple"
+                      value={openFuelAccordionItems}
+                      onValueChange={setOpenFuelAccordionItems}
+                      className="space-y-2"
+                    >
+                      {fuelCustomerGroups.map((group) => (
+                        <AccordionItem
+                          key={group.customerId}
+                          value={group.customerId}
+                          className="border rounded-lg"
+                        >
+                          <AccordionTrigger className="hover:no-underline px-4 py-3">
+                            <div className="flex items-center justify-between w-full pr-4">
+                              <div className="flex items-center gap-3">
+                                <span className="font-semibold text-base">{group.customerName}</span>
+                                <Badge variant="outline">{group.txns.length} transaction{group.txns.length !== 1 ? 's' : ''}</Badge>
+                              </div>
+                              <span className="text-sm font-medium text-green-600">
+                                {formatCurrency(group.total)}
+                              </span>
+                            </div>
+                          </AccordionTrigger>
+                          <AccordionContent className="px-4 pb-4">
+                            <div className="space-y-3 mt-2">
+                              {group.indices.map((globalIdx) => {
+                                const txn = fuelTransactions[globalIdx];
+                                return (
+                                  <div key={txn.id} className="grid grid-cols-12 gap-2 items-start p-2 rounded border bg-muted/30">
+                                    {/* Vehicle Number */}
+                                    <div className="col-span-3">
+                                      <Input
+                                        placeholder="Vehicle#"
+                                        value={txn.vehicleNumber}
+                                        onChange={(e) => updateFuelTransaction(globalIdx, 'vehicleNumber', e.target.value)}
+                                        className="h-8 text-xs"
+                                      />
+                                    </div>
+
+                                    {/* Fuel Type */}
+                                    <div className="col-span-3">
+                                      <Select
+                                        value={txn.fuelTypeId}
+                                        onValueChange={(v) => updateFuelTransaction(globalIdx, 'fuelTypeId', v)}
+                                      >
+                                        <SelectTrigger className="h-8 text-xs">
+                                          <SelectValue placeholder="Fuel" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {fuelTypes?.map(ft => (
+                                            <SelectItem key={ft.id} value={ft.id}>{ft.name}</SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+
+                                    {/* Quantity */}
+                                    <div className="col-span-2">
+                                      <Input
+                                        type="number"
+                                        step="0.01"
+                                        placeholder="Liters"
+                                        value={txn.quantityLiters}
+                                        onChange={(e) => updateFuelTransaction(globalIdx, 'quantityLiters', e.target.value)}
+                                        className="h-8 text-xs"
+                                      />
+                                    </div>
+
+                                    {/* Unit Price (read-only, auto-filled) */}
+                                    <div className="col-span-2">
+                                      <Input
+                                        value={txn.pricePerLiter}
+                                        readOnly
+                                        className="h-8 text-xs bg-muted"
+                                        title="Price per liter (auto-filled)"
+                                      />
+                                    </div>
+
+                                    {/* Line Total (read-only) */}
+                                    <div className="col-span-1">
+                                      <Input
+                                        value={txn.lineTotal}
+                                        readOnly
+                                        className="h-8 text-xs bg-muted font-semibold"
+                                        title="Total"
+                                      />
+                                    </div>
+
+                                    {/* Remove Button */}
+                                    <div className="col-span-1 flex justify-end">
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        onClick={() => removeFuelTransaction(globalIdx)}
+                                        className="h-8 w-8"
+                                      >
+                                        <Trash2 className="h-4 w-4 text-red-500" />
+                                      </Button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <div className="flex justify-end gap-2 mt-3">
+                              <Button size="sm" variant="outline" onClick={() => duplicateLastFuelInGroup(group.indices)}>
+                                <Copy className="h-3 w-3 mr-1" /> Duplicate Last
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => addFuelTransactionToCustomer(group.customerId, group.customerName)}>
+                                <Plus className="h-3 w-3 mr-1" /> Add Row
+                              </Button>
+                            </div>
+                          </AccordionContent>
+                        </AccordionItem>
+                      ))}
+                    </Accordion>
+                  </CardContent>
+                </Card>
+              )}
             </div>
 
             {/* Right: Cart + Checkout (shared with both tabs) */}
@@ -694,6 +853,57 @@ export function POS() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Add Fuel Customer Group Dialog */}
+      <Dialog open={isAddFuelGroupOpen} onOpenChange={(open) => {
+        setIsAddFuelGroupOpen(open);
+        if (!open) setFuelCustomerSearchQuery('');
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Select Customer for Fuel Sale</DialogTitle>
+            <DialogDescription>Choose a customer to add fuel transactions</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Search Customer</Label>
+              <Input
+                placeholder="Search by name..."
+                value={fuelCustomerSearchQuery}
+                onChange={(e) => setFuelCustomerSearchQuery(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="max-h-[300px] overflow-y-auto space-y-1">
+              {customers
+                .filter(c =>
+                  !fuelCustomerSearchQuery ||
+                  c.name.toLowerCase().includes(fuelCustomerSearchQuery.toLowerCase())
+                )
+                .slice(0, 20)
+                .map(c => (
+                  <Button
+                    key={c.id}
+                    variant="ghost"
+                    className="w-full justify-start text-left"
+                    onClick={() => addFuelCustomerGroup(c.id, c.name)}
+                  >
+                    <Users className="h-4 w-4 mr-2" />
+                    <div>
+                      <div className="font-medium">{c.name}</div>
+                      {c.phone && <div className="text-xs text-muted-foreground">{c.phone}</div>}
+                    </div>
+                  </Button>
+                ))}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAddFuelGroupOpen(false)}>
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Receipt Dialog */}
       <Dialog open={showReceipt} onOpenChange={setShowReceipt}>
