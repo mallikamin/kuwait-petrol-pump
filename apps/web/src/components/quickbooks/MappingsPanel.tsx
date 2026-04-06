@@ -505,11 +505,11 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                         </div>
                       )}
 
-                      {item.candidates.length > 1 && (
+                      {item.candidates.length > 0 && (
                         <div className="mt-2">
-                          <Label className="text-xs">Other candidates:</Label>
+                          <Label className="text-xs">All candidates ({item.candidates.length}):</Label>
                           <Select
-                            value={item.decisionAccountId || undefined}
+                            value={item.decisionAccountId ?? ''}
                             onValueChange={(value) => {
                               const candidate = item.candidates.find((c) => c.qbAccountId === value);
                               if (candidate) {
@@ -518,12 +518,16 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                             }}
                           >
                             <SelectTrigger className="mt-1 h-8 text-xs">
-                              <SelectValue placeholder="Select alternate..." />
+                              <SelectValue placeholder="Select candidate...">
+                                {item.decisionAccountId
+                                  ? item.candidates.find(c => c.qbAccountId === item.decisionAccountId)?.qbAccountName || 'Selected'
+                                  : 'Select candidate...'}
+                              </SelectValue>
                             </SelectTrigger>
                             <SelectContent>
-                              {item.candidates.slice(1).map((candidate) => (
+                              {item.candidates.map((candidate, idx) => (
                                 <SelectItem key={candidate.qbAccountId || candidate.qbEntityId} value={candidate.qbAccountId || candidate.qbEntityId}>
-                                  {candidate.qbAccountName || candidate.qbEntityName} ({(candidate.score * 100).toFixed(0)}%)
+                                  {idx === 0 && '⭐ '}{candidate.qbAccountName || candidate.qbEntityName} ({(candidate.score * 100).toFixed(0)}%)
                                 </SelectItem>
                               ))}
                             </SelectContent>
@@ -604,16 +608,17 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                           </div>
                         )}
 
-                        {item.candidates.length > 1 && (
+                        {item.candidates.length > 0 && (
                           <div className="mt-2">
-                            <Label className="text-xs">All candidates:</Label>
+                            <Label className="text-xs">All candidates ({item.candidates.length}):</Label>
                             <Select
-                              value={item.decisionEntityId || undefined}
+                              value={item.decisionEntityId ?? ''}
                               onValueChange={(value) => {
                                 console.log('[Dropdown] Selected value:', value);
                                 const candidate = item.candidates.find((c) => c.qbEntityId === value);
                                 console.log('[Dropdown] Found candidate:', candidate);
                                 if (candidate) {
+                                  console.log('[Dropdown] Updating decision for', item.localId, 'to', value);
                                   handleEntityDecisionChange(
                                     item.localId,
                                     item.entityType,
@@ -625,7 +630,11 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                               }}
                             >
                               <SelectTrigger className="mt-1 h-8 text-xs">
-                                <SelectValue placeholder="Select..." />
+                                <SelectValue placeholder="Select candidate...">
+                                  {item.decisionEntityId
+                                    ? item.candidates.find(c => c.qbEntityId === item.decisionEntityId)?.qbEntityName || 'Selected'
+                                    : 'Select candidate...'}
+                                </SelectValue>
                               </SelectTrigger>
                               <SelectContent>
                                 {item.candidates.map((candidate, idx) => (

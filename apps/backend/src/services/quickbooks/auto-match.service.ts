@@ -204,33 +204,57 @@ export class AutoMatchService {
       // 1. Fetch QB entities
       const snapshot = await QuickBooksEntityFetcher.fetchAllEntities(organizationId);
 
-      // 2. Fetch local entities
-      const [customers, fuelTypes, products, banks] = await Promise.all([
+      // 2. Fetch local entities and existing mappings
+      const [customers, fuelTypes, products, banks, existingMappings] = await Promise.all([
         prisma.customer.findMany({ where: { organizationId }, select: { id: true, name: true } }),
         prisma.fuelType.findMany({ select: { id: true, name: true } }),
         prisma.product.findMany({ where: { organizationId }, select: { id: true, name: true } }),
         prisma.bank.findMany({ where: { organizationId }, select: { id: true, name: true } }),
+        prisma.qBEntityMapping.findMany({
+          where: { organizationId, isActive: true },
+          select: { entityType: true, localId: true },
+        }),
       ]);
+
+      // 2a. Filter out already-mapped entities
+      const mappedLocalIds = new Map<string, Set<string>>();
+      for (const mapping of existingMappings) {
+        if (!mappedLocalIds.has(mapping.entityType)) {
+          mappedLocalIds.set(mapping.entityType, new Set());
+        }
+        mappedLocalIds.get(mapping.entityType)!.add(mapping.localId);
+      }
+
+      const unmappedCustomers = customers.filter(c => !mappedLocalIds.get('customer')?.has(c.id));
+      const unmappedFuelTypes = fuelTypes.filter(f => !mappedLocalIds.get('item')?.has(f.id));
+      const unmappedProducts = products.filter(p => !mappedLocalIds.get('item')?.has(p.id));
+      const unmappedBanks = banks.filter(b => !mappedLocalIds.get('bank')?.has(b.id));
+
+      console.log('[Auto-Match] Filtered entities:', {
+        customers: { total: customers.length, unmapped: unmappedCustomers.length },
+        items: { total: fuelTypes.length + products.length, unmapped: unmappedFuelTypes.length + unmappedProducts.length },
+        banks: { total: banks.length, unmapped: unmappedBanks.length },
+      });
 
       // 3. Match Accounts
       const { items: accountItems, matched: accountsMatched, candidates: accountsCandidates, unmatched: accountsUnmatched, unmappedQB } =
         await this.matchAccounts(snapshot.accounts);
 
-      // 4. Match Customers
+      // 4. Match Customers (only unmapped)
       const { items: customerItems, matched: customersMatched, candidates: customersCandidates, unmatched: customersUnmatched } =
-        this.matchCustomers(customers, snapshot.customers);
+        this.matchCustomers(unmappedCustomers, snapshot.customers);
 
-      // 5. Match Items (Fuel Types + Products)
-      const allItems = [
-        ...fuelTypes.map(f => ({ ...f, localType: 'fuel' as const })),
-        ...products.map(p => ({ ...p, localType: 'product' as const })),
+      // 5. Match Items (Fuel Types + Products, only unmapped)
+      const allUnmappedItems = [
+        ...unmappedFuelTypes.map(f => ({ ...f, localType: 'fuel' as const })),
+        ...unmappedProducts.map(p => ({ ...p, localType: 'product' as const })),
       ];
       const { items: itemItems, matched: itemsMatched, candidates: itemsCandidates, unmatched: itemsUnmatched } =
-        this.matchItems(allItems, snapshot.items);
+        this.matchItems(allUnmappedItems, snapshot.items);
 
-      // 6. Match Banks
+      // 6. Match Banks (only unmapped)
       const { items: bankItems, matched: banksMatched, candidates: banksCandidates, unmatched: banksUnmatched } =
-        this.matchBanks(banks, snapshot.accounts); // Banks match to QB Bank accounts
+        this.matchBanks(unmappedBanks, snapshot.accounts); // Banks match to QB Bank accounts
 
       // 6a. Find unmapped QB entities (QB entities not matched to any POS entity)
       const mappedQBCustomerIds = new Set(
@@ -273,7 +297,7 @@ export class AutoMatchService {
       const accountsHealthGrade = computeHealthGrade(accountsMatched, accountsCandidates, accountsTotal);
       const accountsCoveragePct = accountsTotal > 0 ? Math.round((accountsMatched / accountsTotal) * 100) : 0;
 
-      const totalEntities = accountsTotal + customers.length + allItems.length + banks.length;
+      const totalEntities = accountsTotal + unmappedCustomers.length + allUnmappedItems.length + unmappedBanks.length;
       const totalMatched = accountsMatched + customersMatched + itemsMatched + banksMatched;
       const overallCoveragePct = totalEntities > 0 ? Math.round((totalMatched / totalEntities) * 100) : 0;
       const overallHealthGrade = computeHealthGrade(
@@ -300,21 +324,21 @@ export class AutoMatchService {
         accountItems,
         unmappedQBAccounts: unmappedQB,
 
-        customersTotal: customers.length,
+        customersTotal: unmappedCustomers.length,
         customersMatched,
         customersCandidates,
         customersUnmatched,
         customerItems,
         unmappedQBCustomers,
 
-        itemsTotal: allItems.length,
+        itemsTotal: allUnmappedItems.length,
         itemsMatched,
         itemsCandidates,
         itemsUnmatched,
         itemItems,
         unmappedQBItems,
 
-        banksTotal: banks.length,
+        banksTotal: unmappedBanks.length,
         banksMatched,
         banksCandidates,
         banksUnmatched,
