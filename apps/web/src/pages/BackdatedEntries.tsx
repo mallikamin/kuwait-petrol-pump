@@ -16,7 +16,7 @@ import {
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle, Users, Copy, Search, Gauge, Camera, Edit, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle, Users, Copy, Search, Gauge, Camera, Edit, Loader2, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { branchesApi, customersApi, meterReadingsApi } from '@/api';
 import { banksApi } from '@/api/banks';
@@ -677,13 +677,7 @@ export function BackdatedEntries() {
 
     const currentKey = `${selectedBranchId}_${businessDate}_${selectedShiftId || 'all'}`;
 
-    // Only load if we haven't loaded this combination yet (prevents resets on refetch)
-    if (getLoadedKey() === currentKey) {
-      console.log('[Transactions] Already loaded this key, skipping:', currentKey);
-      return;
-    }
-
-    console.log('[Transactions] Loading NEW key:', {
+    console.log('[Transactions] Loading key:', {
       currentKey,
       hasAPIData: !!dailySummaryData?.transactions,
       apiCount: dailySummaryData?.transactions?.length || 0,
@@ -1169,10 +1163,31 @@ export function BackdatedEntries() {
           {/* Entry Details */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Calendar className="h-5 w-5" />
-                Daily Entry Context
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <Calendar className="h-5 w-5" />
+                  Daily Entry Context
+                </CardTitle>
+                {selectedBranchId && businessDate && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      // Clear cache and force refetch
+                      const currentKey = `${selectedBranchId}_${businessDate}_${selectedShiftId || 'all'}`;
+                      const sessionKey = `backdated_transactions_${currentKey}`;
+                      sessionStorage.removeItem(sessionKey);
+                      setLoadedKey('');
+                      refetchDailySummary();
+                      toast.info('Refreshing from server...');
+                    }}
+                    className="text-xs"
+                  >
+                    <RefreshCw className="h-3 w-3 mr-1" />
+                    Refresh from Server
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
