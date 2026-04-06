@@ -35,6 +35,15 @@ apiClient.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+
+    // Normalize URLs: prevent /api/api/... duplication
+    // baseURL is already '/api', so strip '/api/' prefix from request URLs
+    if (config.url?.startsWith('/api/')) {
+      config.url = config.url.replace(/^\/api\//, '/');
+    } else if (config.url?.startsWith('api/')) {
+      config.url = '/' + config.url.replace(/^api\//, '');
+    }
+
     return config;
   },
   (error) => {
