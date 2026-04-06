@@ -537,6 +537,7 @@ export function BackdatedEntries() {
     setTransactions([
       ...transactions,
       {
+        id: crypto.randomUUID(), // ✅ Generate stable client-side ID for upsert (prevents data loss)
         customerId: customerId === '__walkin__' ? '' : customerId,
         customerName: customerId === '__walkin__' ? '' : customerName,
         fuelCode: '',
@@ -606,7 +607,7 @@ export function BackdatedEntries() {
     const lastRow = transactions[lastIdx];
     setTransactions([
       ...transactions,
-      { ...lastRow, id: undefined, quantity: '', lineTotal: '0', _localStatus: 'draft' },
+      { ...lastRow, id: crypto.randomUUID(), quantity: '', lineTotal: '0', _localStatus: 'draft' }, // ✅ New UUID for duplicate
     ]);
   };
 
