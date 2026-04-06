@@ -58,6 +58,18 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 type PaymentMethod = 'cash' | 'credit_card' | 'bank_card' | 'pso_card' | 'credit_customer';
 type SaleTab = 'fuel' | 'product';
 
+// Map UI payment method to backend API enum
+const mapPaymentMethodToAPI = (uiMethod: PaymentMethod): string => {
+  const mapping: Record<PaymentMethod, string> = {
+    cash: 'cash',
+    credit_customer: 'credit',
+    credit_card: 'card',
+    bank_card: 'card',
+    pso_card: 'pso_card',
+  };
+  return mapping[uiMethod];
+};
+
 interface CartItem {
   productId: string;
   name: string;
@@ -445,7 +457,7 @@ export function POS() {
             saleType: 'fuel',
             saleDate: new Date().toISOString(),
             totalAmount: groupTotal,
-            paymentMethod: groupPaymentMethod,
+            paymentMethod: mapPaymentMethodToAPI(groupPaymentMethod) as any, // Map to backend enum
             bankId: groupBankId,
             slipNumber: groupSlipNumber,
             customerId: group.customerId,
@@ -469,7 +481,7 @@ export function POS() {
           saleType: 'non_fuel',
           saleDate: new Date().toISOString(),
           totalAmount,
-          paymentMethod,
+          paymentMethod: mapPaymentMethodToAPI(paymentMethod) as any, // Map to backend enum
           bankId: (paymentMethod === 'credit_card' || paymentMethod === 'bank_card') ? selectedBankId : undefined,
           slipNumber: slipNumber || undefined,
           customerId: selectedCustomerId && selectedCustomerId !== 'none' ? selectedCustomerId : undefined,

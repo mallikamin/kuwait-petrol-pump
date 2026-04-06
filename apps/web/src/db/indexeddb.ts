@@ -261,7 +261,7 @@ export class OfflineQueue {
 
           const putRequest = store.put(sale);
           putRequest.onsuccess = () => {
-            console.log(`❌ Marked sale failed: ${offlineQueueId} (${sale.attempts} attempts)`);
+            console.error(`❌ Marked sale failed: ${offlineQueueId} (${sale.attempts} attempts)`, error);
             resolve();
           };
           putRequest.onerror = () => reject(putRequest.error);
@@ -363,8 +363,13 @@ export class OfflineQueue {
         failed: result.failed,
         duplicates: result.duplicates,
       };
-    } catch (error) {
-      console.error('❌ Flush failed:', error);
+    } catch (error: any) {
+      const errorDetails = {
+        message: error?.message,
+        status: error?.response?.status,
+        data: error?.response?.data,
+      };
+      console.error('❌ Flush failed:', errorDetails);
       throw error;
     }
   }
