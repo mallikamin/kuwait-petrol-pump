@@ -26,6 +26,7 @@ interface DailyTransactionInput {
   unitPrice: number;
   lineTotal: number;
   paymentMethod: 'cash' | 'credit_card' | 'bank_card' | 'pso_card' | 'credit_customer';
+  bankId?: string; // Required for credit_card/bank_card payments
 }
 
 interface DailySaveInput {
@@ -197,6 +198,7 @@ export class DailyBackdatedEntriesService {
               name: txn.customer.name,
             }
           : null,
+        fuelCode: (txn as any).fuelType?.code || entry.nozzle.fuelType?.code || '', // ✅ ADD: Return fuelCode from transaction's fuelType
         vehicleNumber: txn.vehicleNumber,
         slipNumber: txn.slipNumber,
         productName: txn.productName,
@@ -204,6 +206,7 @@ export class DailyBackdatedEntriesService {
         unitPrice: parseFloat(txn.unitPrice.toString()),
         lineTotal: parseFloat(txn.lineTotal.toString()),
         paymentMethod: txn.paymentMethod,
+        bankId: (txn as any).bankId || '', // ✅ ADD: Return bankId for card transactions
         transactionDateTime: txn.transactionDateTime,
         qbSyncStatus: (txn as any).qbSyncStatus || 'pending',
         qbId: (txn as any).qbId || null,
@@ -474,6 +477,7 @@ export class DailyBackdatedEntriesService {
             unitPrice: new Prisma.Decimal(txn.unitPrice),
             lineTotal: new Prisma.Decimal(txn.lineTotal),
             paymentMethod: txn.paymentMethod,
+            bankId: txn.bankId || null, // ✅ ADD: Save bankId for card transactions
             fuelTypeId: nozzle.fuelTypeId,
             transactionDateTime: businessDateObj, // Use business date as transaction time
             createdBy: userId || null, // Audit: who created this transaction
@@ -578,6 +582,7 @@ export class DailyBackdatedEntriesService {
           unitPrice: new Prisma.Decimal(txn.unitPrice),
           lineTotal: new Prisma.Decimal(txn.lineTotal),
           paymentMethod: txn.paymentMethod,
+          bankId: txn.bankId || null, // ✅ ADD: Save bankId for card transactions
           fuelTypeId: txn.fuelCode ? (fuelTypesMap.get(txn.fuelCode) || null) : null,
           transactionDateTime: businessDateObj,
           createdBy: userId || null, // Audit: who created this transaction

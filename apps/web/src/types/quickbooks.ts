@@ -114,12 +114,18 @@ export interface AccountingNeed {
 }
 
 export interface MatchCandidate {
-  qbAccountId: string;
-  qbAccountName: string;
-  qbAccountType: string;
-  qbAccountSubType?: string;
+  qbEntityId: string;
+  qbEntityName: string;
+  qbEntityType: string;
+  qbEntitySubType?: string;
   score: number;
-  reason: string;
+  matchReason: string;
+  // Legacy support
+  qbAccountId?: string;
+  qbAccountName?: string;
+  qbAccountType?: string;
+  qbAccountSubType?: string;
+  reason?: string;
 }
 
 export interface MatchItem {
@@ -135,31 +141,78 @@ export interface MatchItem {
   decision: 'use_existing' | 'create_new' | null;
   decisionAccountId: string | null;
   decisionAccountName: string | null;
+  needsClientReview?: boolean;
+}
+
+export interface EntityMatchItem {
+  localId: string;
+  localName: string;
+  entityType: 'customer' | 'item' | 'bank';
+  status: 'matched' | 'candidates' | 'unmatched';
+  bestMatch: MatchCandidate | null;
+  candidates: MatchCandidate[];
+  decision: 'use_existing' | 'create_new' | null;
+  decisionEntityId: string | null;
+  decisionEntityName: string | null;
+  needsClientReview?: boolean;
 }
 
 export interface MatchResult {
   id: string;
   createdAt: string;
   isLive: boolean;
-  totalNeeds: number;
-  totalQBAccounts: number;
-  matched: number;
-  candidates: number;
-  unmatched: number;
-  requiredTotal: number;
-  requiredMatched: number;
-  coveragePct: number;
-  healthGrade: string;
-  items: MatchItem[];
+  // Accounts
+  accountsTotal: number;
+  accountsMatched: number;
+  accountsCandidates: number;
+  accountsUnmatched: number;
+  accountsRequired: number;
+  accountsRequiredMatched: number;
+  accountsCoveragePct: number;
+  accountsHealthGrade: string;
+  accountItems: MatchItem[];
   unmappedQBAccounts: Array<{
     qbAccountId: string;
     qbAccountName: string;
     qbAccountType: string;
     qbAccountSubType?: string;
-    fullyQualifiedName?: string;
     active: boolean;
     suggestedMappingType: string | null;
   }>;
+  // Customers
+  customersTotal: number;
+  customersMatched: number;
+  customersCandidates: number;
+  customersUnmatched: number;
+  customerItems: EntityMatchItem[];
+  unmappedQBCustomers: Array<{
+    id: string;
+    name: string;
+  }>;
+  // Items
+  itemsTotal: number;
+  itemsMatched: number;
+  itemsCandidates: number;
+  itemsUnmatched: number;
+  itemItems: EntityMatchItem[];
+  unmappedQBItems: Array<{
+    id: string;
+    name: string;
+    type: string;
+  }>;
+  // Banks
+  banksTotal: number;
+  banksMatched: number;
+  banksCandidates: number;
+  banksUnmatched: number;
+  bankItems: EntityMatchItem[];
+  unmappedQBBanks: Array<{
+    id: string;
+    name: string;
+  }>;
+  // Overall
+  overallHealthGrade: string;
+  overallCoveragePct: number;
 }
 
 export interface MatchDecision {
@@ -169,9 +222,15 @@ export interface MatchDecision {
   accountName?: string;
 }
 
+export interface EntityDecision {
+  localId: string;
+  decision: 'use_existing' | 'create_new';
+  qbEntityId?: string;
+  qbEntityName?: string;
+}
+
 export interface ApplyMatchResult {
   success: boolean;
   mappingsCreated: number;
-  qbAccountsCreated: number;
   errors: string[];
 }

@@ -6,7 +6,8 @@
  */
 
 import { QBSyncQueue } from '@prisma/client';
-import { decryptToken, encryptToken } from '../encryption';
+import { encryptToken } from '../encryption';
+import { getValidAccessToken as getValidToken } from '../token-refresh';
 import { AuditLogger } from '../audit-logger';
 import { checkKillSwitch, checkSyncMode } from '../safety-gates';
 import { CompanyLock } from '../company-lock';
@@ -23,6 +24,7 @@ export interface FuelSalePayload {
   saleId: string;
   organizationId: string;
   customerId?: string;
+  bankId?: string; // Required if paymentMethod='card'
   txnDate: string;
   paymentMethod: string;
   lineItems: Array<{
@@ -97,7 +99,7 @@ export async function handleFuelSaleCreate(
     await CompanyLock.lockConnectionToOrganization(connection.id, job.organizationId);
 
     // 6. Refresh token if expired
-    const accessToken = await getValidAccessToken(connection);
+    const { accessToken } = await getValidToken(job.organizationId, prisma);
 
     // 7. Build SalesReceipt JSON (with entity mapping lookups)
     const salesReceiptPayload = await buildSalesReceiptPayload(job.organizationId, payload);
@@ -266,68 +268,6 @@ function validatePayload(payload: FuelSalePayload): void {
 }
 
 /**
- * Get valid access token (refresh if expired)
- */
-async function getValidAccessToken(connection: any): Promise<string> {
-  const now = new Date();
-
-  // Check if token is expired (with 5 minute buffer)
-  const expiryBuffer = new Date(connection.accessTokenExpiresAt.getTime() - 5 * 60 * 1000);
-
-  if (now < expiryBuffer) {
-    // Token still valid, decrypt and return
-    return decryptToken(connection.accessTokenEncrypted);
-  }
-
-  // Token expired, refresh it
-  console.log(`[QB Handler] Access token expired for connection ${connection.id}, refreshing...`);
-
-  const refreshToken = decryptToken(connection.refreshTokenEncrypted);
-
-  // Call QuickBooks OAuth2 token endpoint
-  const response = await fetch(QB_TOKEN_URL, {
-    method: 'POST',
-    headers: {
-      'Accept': 'application/json',
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Authorization': `Basic ${Buffer.from(
-        `${process.env.QUICKBOOKS_CLIENT_ID}:${process.env.QUICKBOOKS_CLIENT_SECRET}`
-      ).toString('base64')}`
-    },
-    body: new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: refreshToken
-    }).toString()
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Token refresh failed: ${response.status} ${response.statusText} - ${errorText}`);
-  }
-
-  const tokenData = await response.json() as any;
-
-  // Encrypt new tokens
-  const newAccessTokenEncrypted = encryptToken(tokenData.access_token);
-  const newRefreshTokenEncrypted = encryptToken(tokenData.refresh_token);
-
-  // Update connection with new tokens
-  await prisma.qBConnection.update({
-    where: { id: connection.id },
-    data: {
-      accessTokenEncrypted: newAccessTokenEncrypted,
-      refreshTokenEncrypted: newRefreshTokenEncrypted,
-      accessTokenExpiresAt: new Date(Date.now() + tokenData.expires_in * 1000),
-      refreshTokenExpiresAt: new Date(Date.now() + tokenData.x_refresh_token_expires_in * 1000)
-    }
-  });
-
-  console.log(`[QB Handler] Access token refreshed successfully for connection ${connection.id}`);
-
-  return tokenData.access_token;
-}
-
-/**
  * Build QuickBooks SalesReceipt JSON payload
  * Uses EntityMappingService to resolve QB entity IDs
  */
@@ -385,6 +325,32 @@ async function buildSalesReceiptPayload(
       `Payment method mapping not found: localId=${payload.paymentMethod}. ` +
       `Please create mapping via /api/quickbooks/mappings before syncing.`
     );
+  }
+
+  // 2a. Resolve bank account mapping for card payments
+  let depositToAccountQbId: string | undefined;
+
+  if (payload.paymentMethod === 'card' || payload.paymentMethod === 'debit' || payload.paymentMethod === 'credit') {
+    if (!payload.bankId) {
+      throw new Error(
+        `Bank ID required for card payments but not provided. ` +
+        `paymentMethod=${payload.paymentMethod} requires bankId field.`
+      );
+    }
+
+    // Map local bank ID to QB bank account ID
+    depositToAccountQbId = await EntityMappingService.getQbId(
+      organizationId,
+      'bank',
+      payload.bankId
+    );
+
+    if (!depositToAccountQbId) {
+      throw new Error(
+        `Bank account mapping not found: localId=${payload.bankId}. ` +
+        `Please create bank mapping via /api/quickbooks/mappings before syncing card transactions.`
+      );
+    }
   }
 
   // 3. Map line items to QB format (with item mapping lookups)
@@ -449,7 +415,7 @@ async function buildSalesReceiptPayload(
   }
 
   // 5. Build final SalesReceipt payload
-  return {
+  const salesReceiptPayload: any = {
     TxnDate: payload.txnDate,
     PrivateNote: `Kuwait POS Sale #${payload.saleId}`,
     CustomerRef: {
@@ -461,6 +427,15 @@ async function buildSalesReceiptPayload(
       value: paymentMethodQbId
     }
   };
+
+  // Add bank deposit account for card payments
+  if (depositToAccountQbId) {
+    salesReceiptPayload.DepositToAccountRef = {
+      value: depositToAccountQbId
+    };
+  }
+
+  return salesReceiptPayload;
 }
 
 /**

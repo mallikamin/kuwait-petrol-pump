@@ -4,7 +4,7 @@
  */
 
 import { PrismaClient } from '@prisma/client';
-import { decryptToken } from './encryption';
+import { getValidAccessToken, getQBApiUrl } from './token-refresh';
 
 const prisma = new PrismaClient();
 
@@ -50,24 +50,9 @@ export class QuickBooksEntityFetcher {
    * Fetch all QB entities for mapping purposes
    */
   static async fetchAllEntities(organizationId: string): Promise<QBEntitiesSnapshot> {
-    // Get active QB connection
-    const connection = await prisma.qBConnection.findFirst({
-      where: { organizationId, isActive: true },
-    });
-
-    if (!connection) {
-      throw new Error('No active QuickBooks connection found');
-    }
-
-    // Decrypt access token
-    const accessToken = decryptToken(connection.accessTokenEncrypted);
-
-    const apiUrl =
-      process.env.QUICKBOOKS_ENVIRONMENT === 'production'
-        ? 'https://quickbooks.api.intuit.com'
-        : 'https://sandbox-quickbooks.api.intuit.com';
-
-    const realmId = connection.realmId;
+    // Get valid access token (auto-refreshes if expired)
+    const { accessToken, realmId } = await getValidAccessToken(organizationId, prisma);
+    const apiUrl = getQBApiUrl();
 
     // Fetch all entity types in parallel
     const [customers, items, accounts, paymentMethods] = await Promise.all([

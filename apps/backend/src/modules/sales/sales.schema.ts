@@ -8,6 +8,7 @@ export const createFuelSaleSchema = z.object({
   quantityLiters: z.number().positive(),
   pricePerLiter: z.number().positive(),
   paymentMethod: z.enum(['cash', 'credit', 'card', 'pso_card']),
+  bankId: z.string().uuid().optional(), // Required if paymentMethod='card'
   customerId: z.string().uuid().optional(),
   vehicleNumber: z.string().optional(),
   slipNumber: z.string().optional(),
@@ -31,6 +32,7 @@ export const createNonFuelSaleSchema = z.object({
     })
   ).min(1),
   paymentMethod: z.enum(['cash', 'credit', 'card']),
+  bankId: z.string().uuid().optional(), // Required if paymentMethod='card'
   customerId: z.string().uuid().optional(),
   taxAmount: z.number().nonnegative().optional(),
   discountAmount: z.number().nonnegative().optional(),

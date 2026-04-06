@@ -16,6 +16,41 @@ Each entry follows:
 
 ---
 
+## 2026-04-06 — Fuel type selection lost after navigation (P0)
+
+- **Error**: User added credit transaction with HSD fuel type, navigated to reports tab and came back. HSD option disappeared but other transaction details (customer, vehicle, slip) remained. 404 error: `api/fuel-prices/for-date?date=2026-04-01`
+- **Context**: Production testing - entering backdated transactions with fuel selection, navigating between tabs
+- **Root Cause**: Backend was saving `fuelTypeId` correctly but NOT returning `fuelCode` field in API response. Frontend expected `fuelCode` to restore fuel selection. Also missing `bankId` field for card transactions.
+- **Fix**: RESOLVED (commits 3c4a363, cd2a3bf)
+  1. **Backend response** (daily.service.ts line 195): Added `fuelCode: (txn as any).fuelType?.code || entry.nozzle.fuelType?.code || ''` to return fuel code from transaction
+  2. **Backend response** (daily.service.ts line 207): Added `bankId: (txn as any).bankId || ''` to return bank selection
+  3. **Schema** (schema.prisma line 1062): Added `bankId String? @map("bank_id") @db.Uuid` field to BackdatedTransaction model
+  4. **Schema** (schema.prisma line 1082): Added `bank Bank? @relation(fields: [bankId], references: [id])` relation
+  5. **Schema** (schema.prisma line 320): Added `backdatedTransactions BackdatedTransaction[]` to Bank model
+  6. **Backend save** (daily.service.ts line 479): Added `bankId: txn.bankId || null` when saving nozzle transactions
+  7. **Backend save** (daily.service.ts line 583): Added `bankId: txn.bankId || null` when saving walk-in transactions
+  8. **Controller** (daily.controller.ts line 34): Added `bankId: z.string().uuid().optional()` to schema validation
+  9. **Interface** (daily.service.ts line 30): Added `bankId?: string` to DailyTransactionInput interface
+- **Rule**:
+  1. **Always return display fields**: If frontend uses a field to restore UI state (like `fuelCode`), backend MUST return it in API response, even if stored as foreign key
+  2. **Test persistence**: After saving, navigate away and back to verify ALL fields (including dropdowns) restore correctly
+  3. **Card payments need bankId**: Any payment method involving cards (credit_card, bank_card) requires bankId for settlement tracking
+  4. **Complete CRUD**: When adding a field, update: schema → interface → validation → save → load → response
+
+---
+
+## 2026-04-06 — Bank dropdown empty string crash in BackdatedEntries (P0)
+
+- **Error**: `Uncaught Error: A <Select.Item /> must have a value prop that is not an empty string.`
+- **Context**: User tried posting bank card transaction in BackdatedEntries. Bank dropdown rendered with fallback "No banks available" option using `value=""`.
+- **Root Cause**: Same as 2026-04-04 error. Bank dropdown had `<SelectItem value="" disabled>` for "No banks available" fallback when banksData is empty.
+- **Fix**: RESOLVED
+  - Line 1589: Changed `value=""` to `value="__no_banks__"`
+  - Disabled state prevents selection, so no need to map back in handler
+- **Rule**: REMINDER - NEVER use `<SelectItem value="">` anywhere. Always use sentinel values (`__none__`, `__no_banks__`, etc.) even for disabled placeholder items.
+
+---
+
 ## 2026-04-04 — Radix UI SelectItem empty string crash (P0)
 
 - **Error**: `Uncaught Error: A <Select.Item /> must have a value prop that is not an empty string.`
@@ -521,5 +556,33 @@ Each entry follows:
   5. Removed `status: 'open'` requirement (works for backdated entries)
 - **Manual cleanup**: Deleted 6 incorrect Mar 2 Night openings, created correct 6 Mar 2 Day openings from Mar 1 Night closings
 - **Rule**: Petrol pump auto-sync must follow shift sequence, not same-shift-next-day. Always check shift type (Day/Night) to determine target shift and date. Within same day: Day→Night. Across days: Night→Day.
+
+---
+
+## 2026-04-06 — Meter Readings appearing in Backdated Entries (P0)
+
+- **Error**: Data entered in Meter Readings tab populated in Backdated Entries tab - pages were synced when they should be separate
+- **Context**: Client testing - entered current day data in Meter Readings, saw it appear in Backdated Entries page
+- **Root Cause**: Both pages query same API endpoint without proper date filtering:
+  - **MeterReadings.tsx** (line 107): Called `meterReadingsApi.getAll()` with NO date filter → returned ALL readings from all dates
+  - **BackdatedEntries.tsx** (line 210): Called `meterReadingsApi.getAll({ date: businessDate })` → returned specific historical date
+  - Result: Current day readings appeared in BOTH pages when user selected today's date in Backdated Entries
+- **Architectural Intent**:
+  - **Meter Readings page** = Live operations, CURRENT DAY data only (today's shift operations)
+  - **Backdated Entries page** = Historical backlog, PAST DATES only (accountant backfill)
+  - These should be completely separate workflows
+- **Fix**: RESOLVED
+  1. **MeterReadings.tsx** (line 107): Added `date: filterDate` parameter to API call (defaults to today)
+  2. Updated queryKey to include `filterDate` for proper cache invalidation
+  3. Added UI clarification: "Live operations - Current day meter readings" + note to use Backdated Entries for historical data
+  4. **BackdatedEntries.tsx** (line 981): Added UI clarification: "Historical backlog" + note to use Meter Readings for live ops
+- **Additional Fixes** (same commit):
+  - **POS.tsx**: Removed MeterReadingCapture component from Fuel Sale page (user request - meter readings should only be in dedicated page)
+  - **MeterReadings.tsx** (line 971-981): Fixed shift duration display to show "Shift overdue - please close" for shifts > 24 hours old (prevents 849h display bug)
+- **Rule**:
+  1. **ALWAYS filter Meter Readings by date** - never query all historical data on live operations page
+  2. **Page separation**: Meter Readings = TODAY (live), Backdated Entries = HISTORICAL (backfill) - keep these workflows distinct
+  3. **Date filters**: Any page showing transactional data MUST filter by business date to prevent cross-contamination
+  4. **Test both pages**: After changes, verify that data entered in one page does NOT appear in the other (unless same date selected)
 
 ---

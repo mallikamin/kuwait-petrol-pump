@@ -9,7 +9,7 @@
 
 import { prisma } from '../../config/database';
 
-export type EntityType = 'customer' | 'payment_method' | 'item' | 'vendor' | 'expense_account' | 'bank_account';
+export type EntityType = 'customer' | 'payment_method' | 'item' | 'vendor' | 'expense_account' | 'bank_account' | 'bank' | 'account';
 
 export interface MappingFilter {
   entityType?: EntityType;

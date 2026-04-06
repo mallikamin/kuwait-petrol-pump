@@ -19,6 +19,7 @@ export class SalesService {
       quantityLiters,
       pricePerLiter,
       paymentMethod,
+      bankId,
       customerId,
       vehicleNumber,
       slipNumber,
@@ -29,6 +30,11 @@ export class SalesService {
       ocrConfidence,
       isManualReading,
     } = data;
+
+    // Validate card payments require bankId
+    if (paymentMethod === 'card' && !bankId) {
+      throw new AppError(400, 'Bank ID required for card payments');
+    }
 
     // Verify branch belongs to organization
     const branch = await prisma.branch.findFirst({
@@ -76,6 +82,7 @@ export class SalesService {
         saleType: 'fuel',
         totalAmount: new Decimal(totalAmount),
         paymentMethod,
+        bankId,
         customerId,
         vehicleNumber,
         slipNumber,
@@ -130,10 +137,16 @@ export class SalesService {
       shiftInstanceId,
       items,
       paymentMethod,
+      bankId,
       customerId,
       taxAmount = 0,
       discountAmount = 0,
     } = data;
+
+    // Validate card payments require bankId
+    if (paymentMethod === 'card' && !bankId) {
+      throw new AppError(400, 'Bank ID required for card payments');
+    }
 
     // Verify branch belongs to organization
     const branch = await prisma.branch.findFirst({
@@ -182,6 +195,7 @@ export class SalesService {
         taxAmount: new Decimal(taxAmount),
         discountAmount: new Decimal(discountAmount),
         paymentMethod,
+        bankId,
         customerId,
         cashierId: userId,
         nonFuelSales: {

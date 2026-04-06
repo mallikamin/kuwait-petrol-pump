@@ -96,4 +96,38 @@ export const quickbooksApi = {
     const response = await apiClient.post(`/api/quickbooks/match/${matchId}/apply`);
     return response.data;
   },
+
+  async updateEntityDecisions(
+    matchId: string,
+    entityType: 'customer' | 'item' | 'bank',
+    decisions: any[]
+  ): Promise<{ success: boolean; result: any }> {
+    const response = await apiClient.post(
+      `/api/quickbooks/match/${matchId}/entity-decisions`,
+      { entityType, decisions }
+    );
+    return response.data;
+  },
+
+  async applyEntityMappings(
+    matchId: string,
+    entityType: 'customer' | 'item' | 'bank'
+  ): Promise<{ success: boolean; result: any }> {
+    const response = await apiClient.post(
+      `/api/quickbooks/match/${matchId}/apply-entities`,
+      { entityType }
+    );
+    return response.data;
+  },
+
+  async getUnmappedPreflight(): Promise<{
+    success: boolean;
+    hasBlockers: boolean;
+    totalUnmapped: number;
+    unmapped: any;
+    summary: any;
+  }> {
+    const response = await apiClient.get('/api/quickbooks/preflight/unmapped');
+    return response.data;
+  },
 };

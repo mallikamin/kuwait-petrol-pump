@@ -78,4 +78,29 @@ export class FuelPricesService {
       orderBy: { code: 'asc' },
     });
   }
+
+  /**
+   * Get fuel prices effective for a specific date
+   * Used for backdated transactions to get historical prices
+   */
+  async getPricesForDate(date: Date) {
+    const prices = await prisma.fuelPrice.findMany({
+      where: {
+        effectiveFrom: { lte: date },
+        OR: [
+          { effectiveTo: null },
+          { effectiveTo: { gte: date } },
+        ],
+      },
+      include: {
+        fuelType: true,
+        changedByUser: {
+          select: { id: true, fullName: true },
+        },
+      },
+      orderBy: { effectiveFrom: 'desc' },
+    });
+
+    return prices;
+  }
 }

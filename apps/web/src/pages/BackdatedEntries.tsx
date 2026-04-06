@@ -16,9 +16,10 @@ import {
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle, Users, Copy, Search, Gauge, Camera, Edit } from 'lucide-react';
+import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle, Users, Copy, Search, Gauge, Camera, Edit, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { branchesApi, customersApi, meterReadingsApi } from '@/api';
+import { banksApi } from '@/api/banks';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { MeterReadingCapture, type MeterReadingData } from '@/components/MeterReadingCapture';
@@ -35,6 +36,7 @@ interface Transaction {
   unitPrice: string;
   lineTotal: string;
   paymentMethod: 'cash' | 'credit_card' | 'bank_card' | 'pso_card' | 'credit_customer';
+  bankId?: string; // Required for card payments (credit_card, bank_card)
   _localStatus?: 'draft' | 'saved'; // Local status for UI feedback
   // Audit fields
   createdBy?: string;
@@ -114,7 +116,7 @@ export function BackdatedEntries() {
   });
 
   // Fetch customers for autocomplete
-  const { data: customersData } = useQuery({
+  const { data: customersData, refetch: refetchCustomers } = useQuery({
     queryKey: ['customers'],
     queryFn: async () => {
       const res = await customersApi.getAll();
@@ -122,12 +124,24 @@ export function BackdatedEntries() {
     },
   });
 
-  // Fetch current fuel prices from API
-  const { data: fuelPricesData } = useQuery({
-    queryKey: ['fuel-prices', 'current'],
+  // Fetch QB banks for card payment selection
+  const { data: banksData } = useQuery({
+    queryKey: ['quickbooks', 'banks'],
     queryFn: async () => {
-      const res = await apiClient.get('/api/fuel-prices/current');
-      // API returns array directly, not wrapped in prices property
+      const res = await banksApi.getAll();
+      return res.banks;
+    },
+  });
+
+  // Fetch fuel prices for the selected business date (historical prices for backdated entries)
+  const { data: fuelPricesData } = useQuery({
+    queryKey: ['fuel-prices', 'for-date', businessDate],
+    enabled: !!businessDate,
+    queryFn: async () => {
+      if (!businessDate) return [];
+      const res = await apiClient.get('/api/fuel-prices/for-date', {
+        params: { date: businessDate },
+      });
       return res.data || [];
     },
   });
@@ -466,9 +480,33 @@ export function BackdatedEntries() {
     }));
   }, [transactions]);
 
+  // Keep accordion items open by default (sync with customer groups)
+  useEffect(() => {
+    const allCustomerIds = customerGroups.map(g => g.customerId);
+    // Add any new customer IDs that aren't already in the open list
+    const newIds = allCustomerIds.filter(id => !openAccordionItems.includes(id));
+    if (newIds.length > 0) {
+      setOpenAccordionItems([...openAccordionItems, ...newIds]);
+    }
+  }, [customerGroups]);
+
   // Add customer group dialog state
   const [isAddGroupOpen, setIsAddGroupOpen] = useState(false);
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
+
+  // Add new customer dialog state
+  const [showAddCustomerDialog, setShowAddCustomerDialog] = useState(false);
+  const [isSubmittingCustomer, setIsSubmittingCustomer] = useState(false);
+  const [newCustomer, setNewCustomer] = useState({ name: '', phone: '', email: '' });
+
+  // Ref for scrolling to transactions section
+  const transactionsCardRef = useRef<HTMLDivElement>(null);
+
+  // Accordion state - track which customer groups are open
+  const [openAccordionItems, setOpenAccordionItems] = useState<string[]>([]);
+
+  // Reconciliation panel collapse state
+  const [isReconciliationCollapsed, setIsReconciliationCollapsed] = useState(false);
 
   // Meter reading dialog state
   const [isMeterReadingOpen, setIsMeterReadingOpen] = useState(false);
@@ -506,6 +544,56 @@ export function BackdatedEntries() {
         _localStatus: 'draft', // Mark as draft until saved
       },
     ]);
+
+    // Ensure the customer's accordion is open
+    if (!openAccordionItems.includes(customerId)) {
+      setOpenAccordionItems([...openAccordionItems, customerId]);
+    }
+
+    // Scroll to the newly added customer's accordion item
+    setTimeout(() => {
+      const accordionItem = document.querySelector(`[data-customer-id="${customerId}"]`);
+      if (accordionItem) {
+        accordionItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 150); // Slightly longer delay to ensure accordion opens
+  };
+
+  const handleAddNewCustomer = async () => {
+    if (!newCustomer.name.trim()) {
+      toast.error('Customer name is required');
+      return;
+    }
+
+    setIsSubmittingCustomer(true);
+    try {
+      const response = await customersApi.create({
+        name: newCustomer.name.trim(),
+        phone: newCustomer.phone.trim() || undefined,
+        email: newCustomer.email.trim() || undefined,
+      });
+
+      const customer = response; // API returns customer directly (not nested)
+
+      toast.success('Customer added successfully');
+      setShowAddCustomerDialog(false);
+      setNewCustomer({ name: '', phone: '', email: '' });
+
+      // Refresh customer list
+      refetchCustomers();
+
+      // Auto-add transaction for this customer (dialog stays open until transaction added)
+      if (customer && customer.id && customer.name) {
+        setTimeout(() => {
+          addTransactionToCustomer(customer.id, customer.name);
+          setIsAddGroupOpen(false);
+        }, 100); // Small delay to allow customer list refresh
+      }
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || 'Failed to add customer');
+    } finally {
+      setIsSubmittingCustomer(false);
+    }
   };
 
   const duplicateLastInGroup = (groupIndices: number[]) => {
@@ -546,25 +634,26 @@ export function BackdatedEntries() {
   );
 
   // REMOVED: Duplicate useEffect that was overwriting transactions after save.
-  // The second useEffect (below) handles both API data and localStorage backup properly.
 
   // Auto-save effect (mark dirty on transaction changes)
   useEffect(() => {
     if (transactions.length > 0) setIsDirty(true);
   }, [transactions]);
 
-  // LocalStorage backup to prevent data loss (CRITICAL)
+  // Save transactions to sessionStorage on every change (prevents data loss on navigation)
   useEffect(() => {
-    if (transactions.length > 0 && selectedBranchId && businessDate) {
-      const backupKey = `backdated_draft_${selectedBranchId}_${businessDate}${selectedShiftId ? '_' + selectedShiftId : ''}`;
-      localStorage.setItem(backupKey, JSON.stringify({
+    if (selectedBranchId && businessDate && transactions.length > 0) {
+      const key = `backdated_transactions_${selectedBranchId}_${businessDate}_${selectedShiftId || 'all'}`;
+      sessionStorage.setItem(key, JSON.stringify({
         transactions,
-        timestamp: new Date().toISOString(),
+        timestamp: Date.now(),
       }));
+      console.log('[SessionStorage] Saved', transactions.length, 'transactions');
     }
   }, [transactions, selectedBranchId, businessDate, selectedShiftId]);
 
-  // Restore from localStorage if API returns empty but backup exists
+
+  // Load transactions from API on branch/date/shift change
   useEffect(() => {
     // Skip if we just saved (prevents overwriting local state after save)
     if (justSavedRef.current) {
@@ -589,17 +678,34 @@ export function BackdatedEntries() {
       return;
     }
 
-    const backupKey = `backdated_draft_${selectedBranchId}_${businessDate}${selectedShiftId ? '_' + selectedShiftId : ''}`;
-    const backup = localStorage.getItem(backupKey);
-
     console.log('[Transactions] Loading NEW key:', {
       currentKey,
-      backupKey,
       hasAPIData: !!dailySummaryData?.transactions,
       apiCount: dailySummaryData?.transactions?.length || 0,
-      hasBackup: !!backup,
     });
 
+    // Try loading from sessionStorage first (preserves unsaved work)
+    const sessionKey = `backdated_transactions_${currentKey}`;
+    const sessionData = sessionStorage.getItem(sessionKey);
+    if (sessionData) {
+      try {
+        const { transactions: sessionTxns, timestamp } = JSON.parse(sessionData);
+        const ageMinutes = (Date.now() - timestamp) / 1000 / 60;
+
+        // Use session data if less than 30 minutes old
+        if (ageMinutes < 30 && sessionTxns.length > 0) {
+          console.log('[Transactions] Loading from sessionStorage:', sessionTxns.length, '(age:', Math.round(ageMinutes), 'min)');
+          setTransactions(sessionTxns);
+          setSyncMessage(`Restored ${sessionTxns.length} unsaved transactions from session.`);
+          setLoadedKey(currentKey);
+          return;
+        }
+      } catch (e) {
+        console.error('[SessionStorage] Parse error:', e);
+      }
+    }
+
+    // Load from API (server-saved data)
     if (dailySummaryData?.transactions && dailySummaryData.transactions.length > 0) {
       console.log('[Transactions] Loading from API:', dailySummaryData.transactions.length);
       setTransactions(
@@ -615,6 +721,7 @@ export function BackdatedEntries() {
           unitPrice: toNumber(txn.unitPrice).toFixed(2),
           lineTotal: toNumber(txn.lineTotal).toFixed(2),
           paymentMethod: txn.paymentMethod,
+          bankId: txn.bankId || '',
           // Audit fields
           createdBy: txn.createdBy,
           createdByUser: txn.createdByUser,
@@ -625,26 +732,11 @@ export function BackdatedEntries() {
         }))
       );
       setSyncMessage(`Loaded ${dailySummaryData.transactions.length} existing transactions.`);
-      setLoadedKey(currentKey); // Mark as loaded
-      // Clear backup when API data loads successfully
-      localStorage.removeItem(backupKey);
-    } else if (backup) {
-      // API returned empty but we have a localStorage backup
-      console.log('[Transactions] Loading from localStorage backup');
-      try {
-        const parsed = JSON.parse(backup);
-        setTransactions(parsed.transactions);
-        setSyncMessage(`⚠️ Restored ${parsed.transactions.length} transactions from backup (${new Date(parsed.timestamp).toLocaleTimeString()}). Please save draft to persist.`);
-        toast.warning('Draft restored from local backup. Click "Save Draft" to persist to server.');
-        setLoadedKey(currentKey); // Mark as loaded
-      } catch (err) {
-        console.error('Failed to restore backup:', err);
-        setTransactions([]);
-        setSyncMessage('No existing transactions. Start adding customer groups.');
-        setLoadedKey(currentKey); // Mark as loaded even if empty
-      }
+      setLoadedKey(currentKey);
+      // Clear sessionStorage since we loaded from server
+      sessionStorage.removeItem(sessionKey);
     } else {
-      console.log('[Transactions] No API data or backup, clearing');
+      console.log('[Transactions] No API data, clearing');
       setTransactions([]);
       setSyncMessage('No existing transactions. Start adding customer groups.');
       setLoadedKey(currentKey); // Mark as loaded even if empty
@@ -655,6 +747,8 @@ export function BackdatedEntries() {
     selectedShiftId,
     dailySummaryData,
   ]);
+
+
 
   // Auto-save timer (2 minutes)
   useEffect(() => {
@@ -716,22 +810,44 @@ export function BackdatedEntries() {
   // Save daily draft mutation (new consolidated API)
   const saveDailyDraftMutation = useMutation({
     mutationFn: async () => {
+      console.log('[Save Draft] Starting...', {
+        branchId: selectedBranchId,
+        businessDate,
+        transactionCount: transactions.length,
+      });
+
       if (!selectedBranchId) {
-        throw new Error('Please select a branch');
+        const error = 'Please select a branch';
+        console.error('[Save Draft] Validation failed:', error);
+        throw new Error(error);
       }
 
       if (transactions.length === 0) {
-        throw new Error('No transactions to save');
+        const error = 'No transactions to save';
+        console.error('[Save Draft] Validation failed:', error);
+        throw new Error(error);
       }
 
       // Validate credit customer requirements
       for (const txn of transactions) {
         if (txn.paymentMethod === 'credit_customer') {
           if (!txn.customerId || !txn.vehicleNumber || !txn.slipNumber) {
-            throw new Error(`Credit customer transaction requires customer, vehicle#, and slip# (row with ${txn.quantity}L)`);
+            const error = `Credit customer transaction requires customer, vehicle#, and slip# (row with ${txn.quantity}L)`;
+            console.error('[Save Draft] Validation failed:', error);
+            throw new Error(error);
           }
         }
       }
+
+      console.log('[Save Draft] Sending to API:', {
+        endpoint: '/api/backdated-entries/daily',
+        payload: {
+          branchId: selectedBranchId,
+          businessDate,
+          shiftId: selectedShiftId || undefined,
+          transactionCount: transactions.length,
+        },
+      });
 
       const res = await apiClient.post('/api/backdated-entries/daily', {
         branchId: selectedBranchId,
@@ -747,20 +863,35 @@ export function BackdatedEntries() {
           unitPrice: toNumber(txn.unitPrice),
           lineTotal: toNumber(txn.lineTotal),
           paymentMethod: txn.paymentMethod,
+          bankId: txn.bankId || undefined,
         })),
       });
 
+      console.log('[Save Draft] API response:', res.data);
       return res.data.data;
     },
     onSuccess: () => {
+      console.log('[Save Draft] Success!');
       toast.success('Draft saved successfully');
       setLastSaved(new Date());
       setIsDirty(false);
       justSavedRef.current = true; // Prevent useEffect from overwriting local state
       setLoadedKey(''); // Allow reload on next navigation (fresh data from server)
+
+      // Clear sessionStorage since data is now on server
+      const sessionKey = `backdated_transactions_${selectedBranchId}_${businessDate}_${selectedShiftId || 'all'}`;
+      sessionStorage.removeItem(sessionKey);
+      console.log('[SessionStorage] Cleared after successful save');
+
       refetchDailySummary();
     },
     onError: (error: any) => {
+      console.error('[Save Draft] Error:', {
+        message: error.message,
+        response: error?.response?.data,
+        status: error?.response?.status,
+      });
+
       const errorMsg = error?.response?.data?.error || error.message || 'Failed to save draft';
       toast.error(errorMsg);
     },
@@ -797,6 +928,11 @@ export function BackdatedEntries() {
   });
 
   const handleSaveDraft = async () => {
+    console.log('[Save Draft] Button clicked', {
+      transactionCount: transactions.length,
+      branchId: selectedBranchId,
+      businessDate,
+    });
     await saveDailyDraftMutation.mutateAsync();
   };
 
@@ -967,7 +1103,11 @@ export function BackdatedEntries() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Backdated Entries</h1>
-          <p className="text-muted-foreground">Transaction-level backfill for accountant processing</p>
+          <p className="text-muted-foreground">
+            Historical backlog - Transaction-level backfill for accountant processing
+            <br />
+            <span className="text-xs text-orange-600">For today's live operations, use the <strong>Meter Readings</strong> page</span>
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <Badge variant="outline" className="text-orange-600 border-orange-600">
@@ -984,9 +1124,9 @@ export function BackdatedEntries() {
         </AlertDescription>
       </Alert>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="flex flex-col lg:flex-row gap-6">
         {/* Left: Entry Form + Transactions */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="flex-1 space-y-6">
           {/* Entry Details */}
           <Card>
             <CardHeader>
@@ -1421,7 +1561,7 @@ export function BackdatedEntries() {
           )}
 
           {/* Transactions — Customer-Grouped */}
-          <Card>
+          <Card ref={transactionsCardRef}>
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
@@ -1442,9 +1582,19 @@ export function BackdatedEntries() {
                   <p className="text-sm mt-1">Click &quot;Add Customer Group&quot; to start reconciling</p>
                 </div>
               ) : (
-                <Accordion type="multiple" defaultValue={customerGroups.map(g => g.customerId)} className="space-y-2">
+                <Accordion
+                  type="multiple"
+                  value={openAccordionItems}
+                  onValueChange={setOpenAccordionItems}
+                  className="space-y-2"
+                >
                   {customerGroups.map((group) => (
-                    <AccordionItem key={group.customerId} value={group.customerId} className="border rounded-lg">
+                    <AccordionItem
+                      key={group.customerId}
+                      value={group.customerId}
+                      data-customer-id={group.customerId}
+                      className="border rounded-lg"
+                    >
                       <AccordionTrigger className="hover:no-underline px-4 py-3">
                         <div className="flex items-center justify-between w-full pr-4">
                           <div className="flex items-center gap-3">
@@ -1473,6 +1623,7 @@ export function BackdatedEntries() {
                               <TableHead className="min-w-[140px] text-right">Price/L</TableHead>
                               <TableHead className="min-w-[180px] text-right">Total (PKR)</TableHead>
                               <TableHead className="min-w-[200px]">Payment</TableHead>
+                              <TableHead className="min-w-[200px]">Bank (Cards)</TableHead>
                               <TableHead className="w-[100px] text-center">Save</TableHead>
                               <TableHead className="w-[60px]"></TableHead>
                             </TableRow>
@@ -1557,6 +1708,33 @@ export function BackdatedEntries() {
                                       </SelectContent>
                                     </Select>
                                   </TableCell>
+                                  <TableCell className="p-2">
+                                    {(txn.paymentMethod === 'credit_card' || txn.paymentMethod === 'bank_card') ? (
+                                      <Select
+                                        value={txn.bankId || ''}
+                                        onValueChange={(v: any) => updateTransaction(globalIdx, 'bankId', v)}
+                                      >
+                                        <SelectTrigger className="h-11 text-base">
+                                          <SelectValue placeholder="Select bank..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {banksData && banksData.length > 0 ? (
+                                            banksData.map((bank) => (
+                                              <SelectItem key={bank.id} value={bank.id}>
+                                                {bank.name}
+                                              </SelectItem>
+                                            ))
+                                          ) : (
+                                            <SelectItem value="__no_banks__" disabled>
+                                              No banks available
+                                            </SelectItem>
+                                          )}
+                                        </SelectContent>
+                                      </Select>
+                                    ) : (
+                                      <span className="text-sm text-muted-foreground italic">N/A</span>
+                                    )}
+                                  </TableCell>
                                   <TableCell className="p-2 text-center" title={
                                     txn.createdByUser || txn.updatedByUser
                                       ? `Created: ${txn.createdByUser?.fullName || 'System'} (${new Date(txn.createdAt!).toLocaleString()})\nUpdated: ${txn.updatedByUser?.fullName || txn.createdByUser?.fullName || 'System'} (${new Date(txn.updatedAt!).toLocaleString()})`
@@ -1602,25 +1780,43 @@ export function BackdatedEntries() {
               )}
 
               {transactions.length > 0 && (
-                <div className="flex justify-end gap-2 mt-6 pt-4 border-t">
-                  <Button variant="outline" onClick={resetForm}>Cancel</Button>
-                  <Button
-                    variant="outline"
-                    onClick={handleSaveDraft}
-                    disabled={saveDailyDraftMutation.isPending}
-                  >
-                    <Save className="h-4 w-4 mr-2" />
-                    Save Draft
-                    {lastSaved && <span className="text-xs ml-2">({format(lastSaved, 'HH:mm')})</span>}
-                  </Button>
-                  <Button
-                    onClick={handleFinalizeDay}
-                    disabled={finalizeDayMutation.isPending || isDirty}
-                    className="bg-green-600 hover:bg-green-700"
-                  >
-                    <CheckCircle className="h-4 w-4 mr-2" />
-                    Finalize Day
-                  </Button>
+                <div className="flex justify-between items-center gap-4 mt-6 pt-4 border-t">
+                  {/* Transaction count indicator */}
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <span className="font-semibold">{transactions.length}</span>
+                    <span>transaction{transactions.length !== 1 ? 's' : ''} ready to save</span>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={resetForm}>Cancel</Button>
+                    <Button
+                      variant="outline"
+                      onClick={handleSaveDraft}
+                      disabled={saveDailyDraftMutation.isPending || transactions.length === 0}
+                      title={transactions.length === 0 ? 'Add transactions first' : 'Save all transactions'}
+                    >
+                      {saveDailyDraftMutation.isPending ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <Save className="h-4 w-4 mr-2" />
+                          Save Draft
+                          {lastSaved && <span className="text-xs ml-2">({format(lastSaved, 'HH:mm')})</span>}
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      onClick={handleFinalizeDay}
+                      disabled={finalizeDayMutation.isPending || isDirty}
+                      className="bg-green-600 hover:bg-green-700"
+                    >
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      Finalize Day
+                    </Button>
+                  </div>
                 </div>
               )}
             </CardContent>
@@ -1654,6 +1850,20 @@ export function BackdatedEntries() {
                 >
                   <Users className="h-5 w-5 mr-2" />
                   Walk-in Sales
+                </Button>
+
+                {/* Add New Customer Button */}
+                <Button
+                  type="button"
+                  variant="default"
+                  className="w-full"
+                  onClick={() => {
+                    setShowAddCustomerDialog(true);
+                    setIsAddGroupOpen(false);
+                  }}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add New Customer
                 </Button>
 
                 {/* Search Input */}
@@ -1746,17 +1956,102 @@ export function BackdatedEntries() {
               )}
             </DialogContent>
           </Dialog>
+
+          {/* Add New Customer Dialog */}
+          <Dialog open={showAddCustomerDialog} onOpenChange={setShowAddCustomerDialog}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add New Customer</DialogTitle>
+                <DialogDescription>
+                  Enter customer details to create a new customer record. The customer will be automatically added to your transaction list.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label htmlFor="new-customer-name">Name *</Label>
+                  <Input
+                    id="new-customer-name"
+                    placeholder="Customer name"
+                    value={newCustomer.name}
+                    onChange={(e) => setNewCustomer({ ...newCustomer, name: e.target.value })}
+                    disabled={isSubmittingCustomer}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="new-customer-phone">Phone</Label>
+                  <Input
+                    id="new-customer-phone"
+                    placeholder="Phone number"
+                    value={newCustomer.phone}
+                    onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })}
+                    disabled={isSubmittingCustomer}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="new-customer-email">Email</Label>
+                  <Input
+                    id="new-customer-email"
+                    type="email"
+                    placeholder="Email address"
+                    value={newCustomer.email}
+                    onChange={(e) => setNewCustomer({ ...newCustomer, email: e.target.value })}
+                    disabled={isSubmittingCustomer}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowAddCustomerDialog(false)}
+                  disabled={isSubmittingCustomer}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleAddNewCustomer}
+                  disabled={isSubmittingCustomer}
+                >
+                  {isSubmittingCustomer ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Adding...
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Customer
+                    </>
+                  )}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
 
-        {/* Right: Reconciliation Panel - Collapsible */}
-        <div className="space-y-6">
-          <Accordion type="single" collapsible defaultValue="reconciliation" className="sticky top-6">
-            <AccordionItem value="reconciliation" className="border rounded-lg">
-              <AccordionTrigger className="px-4 hover:no-underline">
-                <CardTitle className="text-base">Reconciliation</CardTitle>
-              </AccordionTrigger>
-              <AccordionContent className="px-4 pb-4">
-                <div className="space-y-4 text-sm">
+        {/* Right: Reconciliation Panel - Horizontally Collapsible */}
+        <div className={`transition-all duration-300 ease-in-out ${isReconciliationCollapsed ? 'w-12' : 'w-96'} flex-shrink-0 relative`}>
+          <div className="sticky top-6 space-y-6">
+            {/* Toggle Button */}
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setIsReconciliationCollapsed(!isReconciliationCollapsed)}
+              className="absolute -left-6 top-2 z-10 rounded-full shadow-lg"
+              title={isReconciliationCollapsed ? 'Expand Reconciliation' : 'Collapse Reconciliation'}
+            >
+              {isReconciliationCollapsed ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            </Button>
+
+            {/* Reconciliation Content */}
+            {!isReconciliationCollapsed && (
+              <Card className="border rounded-lg">
+                <CardHeader className="px-4 py-3 border-b">
+                  <CardTitle className="text-base">Reconciliation</CardTitle>
+                </CardHeader>
+                <CardContent className="px-4 py-4">
+                  <div className="space-y-4 text-sm">
               {/* Totals Integrity Diagnostics */}
               {selectedBranchId && businessDate && (
                 <div className={`border-2 rounded-lg p-3 ${
@@ -1977,10 +2272,11 @@ export function BackdatedEntries() {
                   )}
                 </div>
               )}
-                </div>
-              </AccordionContent>
-            </AccordionItem>
-          </Accordion>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
         </div>
       </div>
     </div>

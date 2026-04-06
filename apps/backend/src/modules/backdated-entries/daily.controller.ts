@@ -31,6 +31,7 @@ const saveDailyDraftSchema = z.object({
       unitPrice: z.number().positive(),
       lineTotal: z.number().positive(),
       paymentMethod: z.enum(['cash', 'credit_card', 'bank_card', 'pso_card', 'credit_customer']),
+      bankId: z.string().uuid().optional(), // Required for credit_card/bank_card payments
     })
   ),
 });

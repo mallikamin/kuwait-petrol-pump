@@ -23,11 +23,11 @@ import {
 import { CustomerSelector } from '@/components/ui/customer-selector';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuthStore } from '@/store/auth';
-import { productsApi, fuelPricesApi, customersApi, dashboardApi, salesApi } from '@/api';
+import { productsApi, fuelPricesApi, customersApi, dashboardApi, salesApi, banksApi } from '@/api';
 import { OfflineQueue, QueuedSale } from '@/db/indexeddb';
 import { SyncStatus } from '@/components/SyncStatus';
 import { Receipt, ReceiptData } from '@/components/Receipt';
-import { MeterReadingCapture, MeterReadingData } from '@/components/MeterReadingCapture';
+// Meter reading removed - use dedicated Meter Readings page instead
 import { formatCurrency } from '@/utils/format';
 import { Product } from '@/types';
 import {
@@ -64,7 +64,7 @@ interface FuelCartItem {
   fuelTypeName: string;
   quantityLiters: number;
   pricePerLiter: number;
-  meterReading?: MeterReadingData;
+  // meterReading removed
 }
 
 export function POS() {
@@ -86,7 +86,7 @@ export function POS() {
   // Fuel sale form
   const [selectedFuelTypeId, setSelectedFuelTypeId] = useState('');
   const [liters, setLiters] = useState('');
-  const [meterReadingData, setMeterReadingData] = useState<MeterReadingData | null>(null);
+  // meterReadingData state removed
 
   // Customer selection (both tabs)
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
@@ -94,6 +94,7 @@ export function POS() {
 
   // Payment
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
+  const [selectedBankId, setSelectedBankId] = useState<string>('');
   const [slipNumber, setSlipNumber] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -132,7 +133,7 @@ export function POS() {
   });
 
   // Fetch customers
-  const { data: customersData } = useQuery({
+  const { data: customersData, refetch: refetchCustomers } = useQuery({
     queryKey: ['pos-customers'],
     queryFn: () => customersApi.getAll({ size: 500 }),
     staleTime: 300000,
@@ -152,7 +153,15 @@ export function POS() {
     refetchInterval: 10000, // Refetch every 10 seconds
   });
 
+  // Fetch banks (for card payments)
+  const { data: banksData } = useQuery({
+    queryKey: ['banks'],
+    queryFn: () => banksApi.getAll(),
+    staleTime: 300000,
+  });
+
   const customers = customersData?.items || [];
+  const banks = banksData?.banks || [];
   const selectedCustomer = selectedCustomerId && selectedCustomerId !== 'none'
     ? customers.find(c => c.id === selectedCustomerId)
     : undefined;
@@ -206,7 +215,6 @@ export function POS() {
     setFuelCart(null);
     setLiters('');
     setSelectedFuelTypeId('');
-    setMeterReadingData(null);
     setSelectedCustomerId('');
     setVehicleNumber('');
     setSlipNumber('');
@@ -239,7 +247,6 @@ export function POS() {
       fuelTypeName: fuelType.name,
       quantityLiters: parseFloat(liters),
       pricePerLiter,
-      meterReading: meterReadingData || undefined,
     });
 
     toast({ title: 'Fuel added', description: `${liters}L ${fuelType.name}` });
@@ -287,6 +294,7 @@ export function POS() {
         saleDate: new Date().toISOString(),
         totalAmount,
         paymentMethod,
+        bankId: paymentMethod === 'card' ? selectedBankId : undefined,
         slipNumber: slipNumber || undefined,
         customerId: selectedCustomerId && selectedCustomerId !== 'none' ? selectedCustomerId : undefined,
         vehicleNumber: vehicleNumber || undefined,
@@ -296,12 +304,6 @@ export function POS() {
           quantityLiters: fuelCart.quantityLiters,
           pricePerLiter: fuelCart.pricePerLiter,
           totalAmount: fuelCart.quantityLiters * fuelCart.pricePerLiter,
-          previousReading: fuelCart.meterReading?.previousReading,
-          currentReading: fuelCart.meterReading?.currentReading,
-          calculatedLiters: fuelCart.meterReading?.calculatedLiters,
-          imageUrl: fuelCart.meterReading?.imageUrl,
-          ocrConfidence: fuelCart.meterReading?.ocrConfidence,
-          isManualReading: fuelCart.meterReading?.isManualReading,
         }] : undefined,
         nonFuelSales: activeTab === 'product' ? cart.map(item => ({
           productId: item.productId,
@@ -568,20 +570,7 @@ export function POS() {
                     />
                   </div>
 
-                  {/* Meter Reading Capture */}
-                  {selectedFuelTypeId && (
-                    <MeterReadingCapture
-                      nozzleId=""
-                      fuelTypeId={selectedFuelTypeId}
-                      onCapture={(data) => {
-                        setMeterReadingData(data);
-                        // Auto-fill liters if OCR captured it
-                        if (data.calculatedLiters && !liters) {
-                          setLiters(data.calculatedLiters.toFixed(2));
-                        }
-                      }}
-                    />
-                  )}
+                  {/* Meter reading removed - use dedicated Meter Readings page */}
 
                   {/* Total Calculation Display */}
                   {selectedFuelTypeId && liters && parseFloat(liters) > 0 && (() => {
@@ -831,6 +820,7 @@ export function POS() {
                 value={selectedCustomerId}
                 onChange={setSelectedCustomerId}
                 placeholder="Walk-in customer"
+                onCustomerAdded={() => refetchCustomers()}
               />
               {selectedCustomer && (
                 <div className="text-xs text-muted-foreground space-y-0.5">
@@ -870,7 +860,10 @@ export function POS() {
 
             <div className="space-y-1.5">
               <Label className="text-xs">Payment Method</Label>
-              <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as PaymentMethod)}>
+              <Select value={paymentMethod} onValueChange={(v) => {
+                setPaymentMethod(v as PaymentMethod);
+                if (v !== 'card') setSelectedBankId(''); // Clear bank when not card
+              }}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -884,6 +877,31 @@ export function POS() {
               </Select>
             </div>
 
+            {/* Bank selector - only for card payments */}
+            {paymentMethod === 'card' && (
+              <div className="space-y-1.5">
+                <Label className="text-xs">Bank *</Label>
+                <Select value={selectedBankId} onValueChange={setSelectedBankId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select bank..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {banks.length > 0 ? (
+                      banks.map((bank: any) => (
+                        <SelectItem key={bank.id} value={bank.id}>
+                          {bank.name}
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <SelectItem value="__no_banks__" disabled>
+                        No banks available
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             <div className="space-y-1.5">
               <Label className="text-xs">Slip Number (optional)</Label>
               <Input
@@ -896,7 +914,7 @@ export function POS() {
             <Button
               className="w-full"
               size="lg"
-              disabled={submitting || !hasItems || (activeTab === 'fuel' && paymentMethod === 'credit' && !vehicleNumber)}
+              disabled={submitting || !hasItems || (activeTab === 'fuel' && paymentMethod === 'credit' && !vehicleNumber) || (paymentMethod === 'card' && !selectedBankId)}
               onClick={handleSubmit}
             >
               <Send className="mr-2 h-4 w-4" />

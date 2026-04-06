@@ -28,6 +28,7 @@ import { EntityMappingService, EntityType } from './entity-mapping.service';
 import { PrismaClient } from '@prisma/client';
 import { encryptToken, decryptToken } from './encryption';
 import { generateState, validateState } from './oauth-state';
+import { getValidAccessToken, getQBApiUrl } from './token-refresh';
 import { authenticate, authorize } from '../../middleware/auth.middleware';
 import { runPreflightChecks } from './preflight.service';
 import { OpLog } from './error-classifier';
@@ -298,6 +299,59 @@ router.get('/health', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/quickbooks/banks
+ * Fetch all bank accounts from QuickBooks
+ */
+router.get('/banks', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { organizationId } = req.user;
+
+    // Get valid access token (auto-refreshes if expired)
+    const { accessToken, realmId } = await getValidAccessToken(organizationId, prisma);
+    const apiUrl = getQBApiUrl();
+
+    const response = await fetch(
+      `${apiUrl}/v3/company/${realmId}/query?query=SELECT * FROM Account WHERE AccountType='Bank' AND Active=true MAXRESULTS 1000`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch banks: ${response.statusText}`);
+    }
+
+    const data = (await response.json()) as any;
+    const banks = data.QueryResponse?.Account || [];
+
+    res.json({
+      success: true,
+      count: banks.length,
+      banks: banks.map((bank: any) => ({
+        id: bank.Id,
+        name: bank.Name,
+        accountNumber: bank.AcctNum || null,
+        accountType: bank.AccountType,
+        accountSubType: bank.AccountSubType || null,
+        currentBalance: bank.CurrentBalance || 0,
+        active: bank.Active,
+      })),
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/**
  * GET /api/quickbooks/preflight
  * Run production readiness checks (authenticated admin/manager)
  */
@@ -314,6 +368,86 @@ router.get('/preflight', authenticate, authorize('admin', 'manager'), async (req
     const result = await runPreflightChecks(organizationId);
 
     res.json(result);
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/**
+ * GET /api/quickbooks/preflight/unmapped
+ * Check for unmapped entities that would block QB sync (authenticated admin/manager)
+ */
+router.get('/preflight/unmapped', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { organizationId } = req.user;
+
+    console.log(`[QB Preflight] Checking unmapped entities for org ${organizationId}`);
+
+    // Fetch all local entities
+    const [customers, fuelTypes, products, banks] = await Promise.all([
+      prisma.customer.findMany({ where: { organizationId }, select: { id: true, name: true } }),
+      prisma.fuelType.findMany({ select: { id: true, name: true } }),
+      prisma.product.findMany({ where: { organizationId }, select: { id: true, name: true } }),
+      prisma.bank.findMany({ where: { organizationId }, select: { id: true, name: true } }),
+    ]);
+
+    // Fetch existing mappings
+    const [customerMappings, itemMappings, bankMappings] = await Promise.all([
+      prisma.qBEntityMapping.findMany({
+        where: { organizationId, entityType: 'customer', isActive: true },
+        select: { localId: true },
+      }),
+      prisma.qBEntityMapping.findMany({
+        where: { organizationId, entityType: 'item', isActive: true },
+        select: { localId: true },
+      }),
+      prisma.qBEntityMapping.findMany({
+        where: { organizationId, entityType: 'bank', isActive: true },
+        select: { localId: true },
+      }),
+    ]);
+
+    // Find unmapped entities
+    const mappedCustomerIds = new Set(customerMappings.map(m => m.localId));
+    const mappedItemIds = new Set(itemMappings.map(m => m.localId));
+    const mappedBankIds = new Set(bankMappings.map(m => m.localId));
+
+    const unmappedCustomers = customers.filter(c => !mappedCustomerIds.has(c.id));
+    const unmappedFuelTypes = fuelTypes.filter(f => !mappedItemIds.has(f.id));
+    const unmappedProducts = products.filter(p => !mappedItemIds.has(p.id));
+    const unmappedBanks = banks.filter(b => !mappedBankIds.has(b.id));
+
+    const totalUnmapped =
+      unmappedCustomers.length +
+      unmappedFuelTypes.length +
+      unmappedProducts.length +
+      unmappedBanks.length;
+
+    const hasBlockers = unmappedCustomers.length > 0 || unmappedFuelTypes.length > 0 || unmappedBanks.length > 0;
+
+    res.json({
+      success: true,
+      hasBlockers,
+      totalUnmapped,
+      unmapped: {
+        customers: unmappedCustomers,
+        fuelTypes: unmappedFuelTypes,
+        products: unmappedProducts,
+        banks: unmappedBanks,
+      },
+      summary: {
+        customers: { total: customers.length, mapped: customers.length - unmappedCustomers.length, unmapped: unmappedCustomers.length },
+        fuelTypes: { total: fuelTypes.length, mapped: fuelTypes.length - unmappedFuelTypes.length, unmapped: unmappedFuelTypes.length },
+        products: { total: products.length, mapped: products.length - unmappedProducts.length, unmapped: unmappedProducts.length },
+        banks: { total: banks.length, mapped: banks.length - unmappedBanks.length, unmapped: unmappedBanks.length },
+      },
+    });
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : String(error),
@@ -1102,10 +1236,11 @@ router.post('/match/run', authenticate, authorize('admin', 'manager'), async (re
       metadata: {
         userId,
         organizationId,
-        healthGrade: result.healthGrade,
-        matched: result.matched,
-        candidates: result.candidates,
-        unmatched: result.unmatched,
+        overallHealthGrade: result.overallHealthGrade,
+        accountsMatched: result.accountsMatched,
+        customersMatched: result.customersMatched,
+        itemsMatched: result.itemsMatched,
+        banksMatched: result.banksMatched,
       },
     });
 
@@ -1159,20 +1294,11 @@ router.get('/match/:matchId', authenticate, async (req: Request, res: Response) 
  * GET /api/quickbooks/match/results/list
  * List all match results (authenticated)
  */
-router.get('/match/results/list', authenticate, async (req: Request, res: Response) => {
-  try {
-    const results = AutoMatchService.listResults();
-    res.json({ success: true, results });
-  } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-});
+// Removed listResults endpoint - not needed for multi-entity matching
 
 /**
  * POST /api/quickbooks/match/:matchId/decisions
- * Update admin decisions on match results (authenticated admin/manager)
+ * Update admin decisions on ACCOUNT match results (authenticated admin/manager)
  */
 router.post('/match/:matchId/decisions', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
   try {
@@ -1187,7 +1313,7 @@ router.post('/match/:matchId/decisions', authenticate, authorize('admin', 'manag
       return res.status(400).json({ error: 'decisions (array) required' });
     }
 
-    const result = AutoMatchService.updateDecisions(matchId, decisions);
+    const result = AutoMatchService.updateAccountDecisions(matchId, decisions);
 
     await AuditLogger.log({
       operation: 'QB_MATCH_DECISIONS_SAVED',
@@ -1198,6 +1324,52 @@ router.post('/match/:matchId/decisions', authenticate, authorize('admin', 'manag
       metadata: {
         userId: req.user.userId,
         organizationId: req.user.organizationId,
+        entityType: 'account',
+        decisionsCount: decisions.length,
+      },
+    });
+
+    res.json({ success: true, result });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/**
+ * POST /api/quickbooks/match/:matchId/entity-decisions
+ * Update admin decisions on entity match results (customers, items, banks)
+ */
+router.post('/match/:matchId/entity-decisions', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { matchId } = req.params;
+    const { entityType, decisions } = req.body;
+
+    if (!entityType || !['customer', 'item', 'bank'].includes(entityType)) {
+      return res.status(400).json({ error: 'entityType required (customer, item, or bank)' });
+    }
+
+    if (!decisions || !Array.isArray(decisions)) {
+      return res.status(400).json({ error: 'decisions (array) required' });
+    }
+
+    const result = AutoMatchService.updateEntityDecisions(matchId, entityType, decisions);
+
+    await AuditLogger.log({
+      operation: 'QB_MATCH_ENTITY_DECISIONS_SAVED',
+      entity_type: 'match_result',
+      entity_id: matchId,
+      direction: 'APP_TO_QB',
+      status: 'SUCCESS',
+      metadata: {
+        userId: req.user.userId,
+        organizationId: req.user.organizationId,
+        entityType,
         decisionsCount: decisions.length,
       },
     });
@@ -1212,7 +1384,7 @@ router.post('/match/:matchId/decisions', authenticate, authorize('admin', 'manag
 
 /**
  * POST /api/quickbooks/match/:matchId/apply
- * Apply decisions: create QB entities and mappings (authenticated admin/manager)
+ * Apply ACCOUNT mapping decisions (authenticated admin/manager)
  */
 router.post('/match/:matchId/apply', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
   try {
@@ -1223,9 +1395,9 @@ router.post('/match/:matchId/apply', authenticate, authorize('admin', 'manager')
     const { matchId } = req.params;
     const { organizationId, userId } = req.user;
 
-    console.log(`[QB Auto-Match] Applying decisions for match ${matchId}`);
+    console.log(`[QB Auto-Match] Applying account decisions for match ${matchId}`);
 
-    const result = await AutoMatchService.applyDecisions(matchId, organizationId);
+    const result = await AutoMatchService.applyAccountDecisions(matchId, organizationId);
 
     await AuditLogger.log({
       operation: 'QB_MATCH_APPLY_COMPLETE',
@@ -1236,8 +1408,8 @@ router.post('/match/:matchId/apply', authenticate, authorize('admin', 'manager')
       metadata: {
         userId,
         organizationId,
+        entityType: 'account',
         mappingsCreated: result.mappingsCreated,
-        qbAccountsCreated: result.qbAccountsCreated,
         errors: result.errors,
       },
     });
@@ -1252,6 +1424,67 @@ router.post('/match/:matchId/apply', authenticate, authorize('admin', 'manager')
       direction: 'APP_TO_QB',
       status: 'FAILURE',
       metadata: { error: errorMsg },
+    });
+
+    if (error instanceof QBTokenExpiredError) {
+      return res.status(401).json({
+        error: errorMsg,
+        code: 'QB_TOKEN_EXPIRED',
+        message: 'QuickBooks token expired. Please reconnect.',
+      });
+    }
+
+    res.status(500).json({ error: errorMsg });
+  }
+});
+
+/**
+ * POST /api/quickbooks/match/:matchId/apply-entities
+ * Apply ENTITY mapping decisions (customers, items, banks)
+ */
+router.post('/match/:matchId/apply-entities', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { matchId } = req.params;
+    const { entityType } = req.body;
+    const { organizationId, userId } = req.user;
+
+    if (!entityType || !['customer', 'item', 'bank'].includes(entityType)) {
+      return res.status(400).json({ error: 'entityType required (customer, item, or bank)' });
+    }
+
+    console.log(`[QB Auto-Match] Applying ${entityType} decisions for match ${matchId}`);
+
+    const result = await AutoMatchService.applyEntityDecisions(matchId, organizationId, entityType);
+
+    await AuditLogger.log({
+      operation: 'QB_MATCH_APPLY_ENTITIES_COMPLETE',
+      entity_type: 'match_result',
+      entity_id: matchId,
+      direction: 'APP_TO_QB',
+      status: result.success ? 'SUCCESS' : 'FAILURE',
+      metadata: {
+        userId,
+        organizationId,
+        entityType,
+        mappingsCreated: result.mappingsCreated,
+        errors: result.errors,
+      },
+    });
+
+    res.json({ success: result.success, result });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+
+    await AuditLogger.log({
+      operation: 'QB_MATCH_APPLY_ENTITIES_FAILED',
+      entity_type: 'match_result',
+      direction: 'APP_TO_QB',
+      status: 'FAILURE',
+      metadata: { error: errorMsg, entityType: req.body.entityType },
     });
 
     if (error instanceof QBTokenExpiredError) {

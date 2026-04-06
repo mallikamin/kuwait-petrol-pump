@@ -27,6 +27,7 @@ model Organization {
   branches        Branch[]
   users           User[]
   customers       Customer[]
+  banks           Bank[]
   products        Product[]
   suppliers       Supplier[]
   purchaseOrders  PurchaseOrder[]
@@ -53,6 +54,7 @@ model Branch {
   organization      Organization      @relation(fields: [organizationId], references: [id])
   dispensingUnits   DispensingUnit[]
   users             User[]
+  banks             Bank[]
   shifts            Shift[]
   shiftInstances    ShiftInstance[]
   sales             Sale[]
@@ -298,6 +300,30 @@ model Customer {
   @@map("customers")
 }
 
+/// Bank (Bank accounts for card settlements - maps to QB Bank Accounts)
+model Bank {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  branchId       String?  @map("branch_id") @db.Uuid // NULL for org-level banks
+  name           String   @db.VarChar(255) // "Allied Bank Limited", "MCB", "NBK"
+  code           String?  @db.VarChar(50)  // "ABL", "MCB", "NBK" (short code)
+  accountNumber  String?  @map("account_number") @db.VarChar(50)
+  accountTitle   String?  @map("account_title") @db.VarChar(255)
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  organization          Organization          @relation(fields: [organizationId], references: [id])
+  branch                Branch?               @relation(fields: [branchId], references: [id])
+  sales                 Sale[]
+  backdatedTransactions BackdatedTransaction[]
+
+  @@index([organizationId], name: "idx_banks_org")
+  @@index([branchId], name: "idx_banks_branch")
+  @@map("banks")
+}
+
 // ============================================================
 // SUPPLIERS & PURCHASES
 // ============================================================
@@ -497,6 +523,7 @@ model Sale {
   taxAmount       Decimal   @default(0) @map("tax_amount") @db.Decimal(12, 2)
   discountAmount  Decimal   @default(0) @map("discount_amount") @db.Decimal(12, 2)
   paymentMethod   String    @map("payment_method") @db.VarChar(50) // 'cash', 'credit', 'card', 'pso_card'
+  bankId          String?   @map("bank_id") @db.Uuid // Required if paymentMethod='card', tracks which bank account for settlement
   customerId      String?   @map("customer_id") @db.Uuid
   vehicleNumber   String?   @map("vehicle_number") @db.VarChar(50)
   slipNumber      String?   @map("slip_number") @db.VarChar(100)
@@ -516,6 +543,7 @@ model Sale {
   // Relations
   branch        Branch         @relation(fields: [branchId], references: [id])
   shiftInstance ShiftInstance? @relation(fields: [shiftInstanceId], references: [id])
+  bank          Bank?          @relation(fields: [bankId], references: [id])
   customer      Customer?      @relation(fields: [customerId], references: [id])
   cashier       User?          @relation(fields: [cashierId], references: [id])
   fuelSales     FuelSale[]
@@ -1032,6 +1060,7 @@ model BackdatedTransaction {
 
   // Payment method
   paymentMethod       String   @map("payment_method") @db.VarChar(50) // 'cash', 'credit_card', 'bank_card', 'pso_card', 'credit_customer'
+  bankId              String?  @map("bank_id") @db.Uuid // Required if paymentMethod='credit_card' or 'bank_card'
 
   // Transaction timestamp (backdated)
   transactionDateTime DateTime @map("transaction_datetime") @db.Timestamptz
@@ -1051,6 +1080,7 @@ model BackdatedTransaction {
 
   // Relations
   backdatedEntry      BackdatedEntry @relation(fields: [backdatedEntryId], references: [id], onDelete: Cascade)
+  bank                Bank?          @relation(fields: [bankId], references: [id])
   createdByUser       User?          @relation("BackdatedTransactionCreatedBy", fields: [createdBy], references: [id])
   updatedByUser       User?          @relation("BackdatedTransactionUpdatedBy", fields: [updatedBy], references: [id])
   customer            Customer?      @relation(fields: [customerId], references: [id])
