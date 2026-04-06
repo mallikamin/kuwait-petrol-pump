@@ -212,7 +212,7 @@ export class AutoMatchService {
         prisma.bank.findMany({ where: { organizationId }, select: { id: true, name: true } }),
         prisma.qBEntityMapping.findMany({
           where: { organizationId, isActive: true },
-          select: { entityType: true, localId: true },
+          select: { entityType: true, localId: true, qbId: true },
         }),
       ]);
 
