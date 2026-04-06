@@ -123,7 +123,7 @@ export function POS() {
   });
 
   // Fetch fuel types
-  const { data: fuelTypes, isLoading: fuelTypesLoading, error: fuelTypesError, refetch: refetchFuelTypes } = useQuery({
+  const { data: fuelTypes } = useQuery({
     queryKey: ['fuel-types'],
     queryFn: () => fuelPricesApi.getFuelTypes(),
   });
@@ -325,37 +325,7 @@ export function POS() {
     setFuelCustomerSearchQuery('');
   };
 
-  // Fuel cart helpers (legacy - to be removed in Phase B)
-  const addFuelToCart = useCallback(() => {
-    if (!selectedFuelTypeId || !liters || parseFloat(liters) <= 0) {
-      toast({ title: 'Invalid input', description: 'Select a fuel type and enter liters', variant: 'destructive' });
-      return;
-    }
-
-    const fuelType = fuelTypes?.find(ft => ft.id === selectedFuelTypeId);
-    if (!fuelType) {
-      toast({ title: 'Error', description: 'Invalid fuel type', variant: 'destructive' });
-      return;
-    }
-
-    const pricePerLiter = priceLookup.get(fuelType.id) || 0;
-
-    if (pricePerLiter <= 0) {
-      toast({ title: 'Price not set', description: `No price configured for ${fuelType.name}`, variant: 'destructive' });
-      return;
-    }
-
-    setFuelCart({
-      nozzleId: '', // No nozzle tracking
-      nozzleName: fuelType.name,
-      fuelTypeId: fuelType.id,
-      fuelTypeName: fuelType.name,
-      quantityLiters: parseFloat(liters),
-      pricePerLiter,
-    });
-
-    toast({ title: 'Fuel added', description: `${liters}L ${fuelType.name}` });
-  }, [selectedFuelTypeId, liters, fuelTypes, priceLookup, toast]);
+  // Legacy fuel cart helper - removed in Phase A (grouped layout replaces this)
 
   // Totals
   const subtotalNonFuel = cart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
@@ -426,13 +396,13 @@ export function POS() {
         date: new Date().toLocaleString('en-PK'),
         cashier: user?.full_name || user?.username || 'Unknown',
         branch: 'Main Branch',
-        items: activeTab === 'fuel' && fuelCart ? [{
-          name: `${fuelCart.fuelTypeName} (${fuelCart.nozzleName})`,
-          sku: `${fuelCart.quantityLiters}L`,
-          quantity: fuelCart.quantityLiters,
-          unitPrice: fuelCart.pricePerLiter,
-          totalPrice: fuelCart.quantityLiters * fuelCart.pricePerLiter,
-        }] : cart.map(item => ({
+        items: activeTab === 'fuel' && fuelTransactions.length > 0 ? fuelTransactions.map(txn => ({
+          name: `${txn.fuelTypeName} (${txn.customerName})`,
+          sku: `${txn.vehicleNumber || 'N/A'}`,
+          quantity: parseFloat(txn.quantityLiters || '0'),
+          unitPrice: parseFloat(txn.pricePerLiter || '0'),
+          totalPrice: parseFloat(txn.lineTotal || '0'),
+        })) : cart.map(item => ({
           name: item.name,
           sku: item.sku,
           quantity: item.quantity,
@@ -466,8 +436,8 @@ export function POS() {
       // Reset form
       clearCart();
 
-      const itemsText = activeTab === 'fuel' && fuelCart
-        ? `${fuelCart.quantityLiters}L ${fuelCart.fuelTypeName}`
+      const itemsText = activeTab === 'fuel' && fuelTransactions.length > 0
+        ? `${fuelTransactions.length} fuel transaction(s)`
         : `${cart.length} item(s)`;
 
       toast({ title: 'Sale completed', description: `${formatCurrency(totalAmount)} - ${itemsText}` });
@@ -934,7 +904,7 @@ export function POS() {
 
   // Shared checkout panel for both tabs
   function renderCheckoutPanel() {
-    const hasItems = activeTab === 'fuel' ? !!fuelCart : cart.length > 0;
+    const hasItems = activeTab === 'fuel' ? fuelTransactions.length > 0 : cart.length > 0;
 
     return (
       <div className="space-y-4">
@@ -944,7 +914,7 @@ export function POS() {
             <CardTitle className="flex items-center justify-between">
               <span className="flex items-center gap-2">
                 <ShoppingCart className="h-5 w-5" />
-                Cart {activeTab === 'fuel' ? (fuelCart ? '(1)' : '(0)') : `(${cart.length})`}
+                Cart {activeTab === 'fuel' ? `(${fuelTransactions.length})` : `(${cart.length})`}
               </span>
               {hasItems && (
                 <Button variant="ghost" size="sm" onClick={clearCart} className="text-xs h-7">
@@ -957,18 +927,24 @@ export function POS() {
           <CardContent>
             {!hasItems ? (
               <p className="text-sm text-muted-foreground text-center py-6">
-                {activeTab === 'fuel' ? 'Add fuel to cart above' : 'Tap products to add them to cart'}
+                {activeTab === 'fuel' ? 'Add customer group above' : 'Tap products to add them to cart'}
               </p>
-            ) : activeTab === 'fuel' && fuelCart ? (
-              <div className="space-y-2">
-                <div className="p-3 rounded-md bg-muted/50">
-                  <p className="text-sm font-medium">{fuelCart.fuelTypeName}</p>
-                  <p className="text-xs text-muted-foreground">{fuelCart.nozzleName}</p>
-                  <div className="flex justify-between mt-2">
-                    <span className="text-xs">{fuelCart.quantityLiters}L × {formatCurrency(fuelCart.pricePerLiter)}</span>
-                    <span className="text-sm font-bold">{formatCurrency(fuelCart.quantityLiters * fuelCart.pricePerLiter)}</span>
+            ) : activeTab === 'fuel' && fuelTransactions.length > 0 ? (
+              <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                {fuelTransactions.map((txn) => (
+                  <div key={txn.id} className="p-2 rounded-md bg-muted/50">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="text-sm font-medium">{txn.customerName}</p>
+                        <p className="text-xs text-muted-foreground">{txn.fuelTypeName} • {txn.vehicleNumber || 'No vehicle'}</p>
+                      </div>
+                      <span className="text-sm font-bold">{formatCurrency(parseFloat(txn.lineTotal || '0'))}</span>
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {txn.quantityLiters}L × {formatCurrency(parseFloat(txn.pricePerLiter || '0'))}/L
+                    </div>
                   </div>
-                </div>
+                ))}
               </div>
             ) : (
               <div className="space-y-2 max-h-[300px] overflow-y-auto">
