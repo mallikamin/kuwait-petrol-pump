@@ -66,14 +66,16 @@ export class TenantValidator {
   /**
    * Validate that a nozzle belongs to a branch in the specified organization
    *
-   * @param nozzleId Nozzle UUID
+   * @param nozzleId Nozzle UUID (can be null/undefined)
    * @param organizationId Organization UUID (from JWT)
    * @throws Error if nozzle not found or belongs to different organization
    */
   static async validateNozzle(
-    nozzleId: string,
+    nozzleId: string | null | undefined,
     organizationId: string
   ): Promise<void> {
+    if (!nozzleId) return; // Optional field - POS doesn't track nozzles
+
     const nozzle = await prisma.nozzle.findUnique({
       where: { id: nozzleId },
       include: {
