@@ -470,14 +470,18 @@ export function BackdatedEntries() {
       grouped.get(key)!.indices.push(idx);
       grouped.get(key)!.txns.push(txn);
     });
-    return Array.from(grouped.entries()).map(([customerId, { indices, txns }]) => ({
-      customerId,
-      customerName: customerId === '__walkin__' ? 'Walk-in Sales' : (txns[0].customerName || 'Unknown'),
-      indices,
-      transactions: txns,
-      totalLiters: txns.reduce((s, t) => s + toNumber(t.quantity), 0),
-      totalAmount: txns.reduce((s, t) => s + toNumber(t.lineTotal), 0),
-    }));
+    // Sort groups by most recent first (highest first index = added later)
+    return Array.from(grouped.entries())
+      .map(([customerId, { indices, txns }]) => ({
+        customerId,
+        customerName: customerId === '__walkin__' ? 'Walk-in Sales' : (txns[0].customerName || 'Unknown'),
+        indices,
+        transactions: txns,
+        totalLiters: txns.reduce((s, t) => s + toNumber(t.quantity), 0),
+        totalAmount: txns.reduce((s, t) => s + toNumber(t.lineTotal), 0),
+        firstIndex: indices[0], // Track first occurrence for sorting
+      }))
+      .sort((a, b) => b.firstIndex - a.firstIndex); // Descending: newest at top
   }, [transactions]);
 
   // Keep accordion items open by default (sync with customer groups)
