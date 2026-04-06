@@ -166,7 +166,7 @@ export class TenantValidator {
       branchId: string;
       customerId?: string | null;
       shiftInstanceId?: string;
-      fuelSales?: Array<{ nozzleId: string }>;
+      fuelSales?: Array<{ nozzleId?: string }>; // Optional - POS doesn't track nozzles
       nonFuelSales?: Array<{ productId: string }>;
     },
     organizationId: string
@@ -184,10 +184,12 @@ export class TenantValidator {
       await this.validateShiftInstance(queuedSale.shiftInstanceId, organizationId);
     }
 
-    // Validate all nozzles in fuel sales
+    // Validate all nozzles in fuel sales (only if nozzleId provided)
     if (queuedSale.fuelSales) {
       for (const fuelSale of queuedSale.fuelSales) {
-        await this.validateNozzle(fuelSale.nozzleId, organizationId);
+        if (fuelSale.nozzleId) {
+          await this.validateNozzle(fuelSale.nozzleId, organizationId);
+        }
       }
     }
 
