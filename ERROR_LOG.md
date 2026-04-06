@@ -16,6 +16,18 @@ Each entry follows:
 
 ---
 
+## 2026-04-06 — Bank dropdown empty string crash in BackdatedEntries (P0)
+
+- **Error**: `Uncaught Error: A <Select.Item /> must have a value prop that is not an empty string.`
+- **Context**: User tried posting bank card transaction in BackdatedEntries. Bank dropdown rendered with fallback "No banks available" option using `value=""`.
+- **Root Cause**: Same as 2026-04-04 error. Bank dropdown had `<SelectItem value="" disabled>` for "No banks available" fallback when banksData is empty.
+- **Fix**: RESOLVED
+  - Line 1589: Changed `value=""` to `value="__no_banks__"`
+  - Disabled state prevents selection, so no need to map back in handler
+- **Rule**: REMINDER - NEVER use `<SelectItem value="">` anywhere. Always use sentinel values (`__none__`, `__no_banks__`, etc.) even for disabled placeholder items.
+
+---
+
 ## 2026-04-04 — Radix UI SelectItem empty string crash (P0)
 
 - **Error**: `Uncaught Error: A <Select.Item /> must have a value prop that is not an empty string.`

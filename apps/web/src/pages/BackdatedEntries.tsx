@@ -1586,7 +1586,7 @@ export function BackdatedEntries() {
                                               </SelectItem>
                                             ))
                                           ) : (
-                                            <SelectItem value="" disabled>
+                                            <SelectItem value="__no_banks__" disabled>
                                               No banks available
                                             </SelectItem>
                                           )}
