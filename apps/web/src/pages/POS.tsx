@@ -112,7 +112,7 @@ export function POS() {
   });
 
   // Fetch fuel types
-  const { data: fuelTypes } = useQuery({
+  const { data: fuelTypes, isLoading: fuelTypesLoading, error: fuelTypesError, refetch: refetchFuelTypes } = useQuery({
     queryKey: ['fuel-types'],
     queryFn: () => fuelPricesApi.getFuelTypes(),
   });
@@ -133,7 +133,7 @@ export function POS() {
   });
 
   // Fetch customers
-  const { data: customersData, refetch: refetchCustomers } = useQuery({
+  const { data: customersData, isLoading: customersLoading, error: customersError, refetch: refetchCustomers } = useQuery({
     queryKey: ['pos-customers'],
     queryFn: () => customersApi.getAll({ size: 500 }),
     staleTime: 300000,
@@ -530,9 +530,9 @@ export function POS() {
                   {/* Nozzle Selection */}
                   <div className="space-y-2">
                     <Label>Fuel Type *</Label>
-                    <Select value={selectedFuelTypeId} onValueChange={setSelectedFuelTypeId}>
+                    <Select value={selectedFuelTypeId} onValueChange={setSelectedFuelTypeId} disabled={fuelTypesLoading || !!fuelTypesError}>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select fuel type (PMG/HSD)" />
+                        <SelectValue placeholder={fuelTypesLoading ? "Loading fuel types..." : "Select fuel type (PMG/HSD)"} />
                       </SelectTrigger>
                       <SelectContent>
                         {fuelTypes?.map(ft => (
@@ -542,6 +542,14 @@ export function POS() {
                         ))}
                       </SelectContent>
                     </Select>
+                    {fuelTypesError && (
+                      <Alert variant="destructive" className="py-2">
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertDescription className="text-xs">
+                          Failed to load fuel types. <Button variant="link" size="sm" className="h-auto p-0 text-xs underline" onClick={() => refetchFuelTypes()}>Retry</Button>
+                        </AlertDescription>
+                      </Alert>
+                    )}
                   </div>
 
                   {/* Fuel Price Display */}
@@ -825,9 +833,17 @@ export function POS() {
                 customers={customers}
                 value={selectedCustomerId}
                 onChange={setSelectedCustomerId}
-                placeholder="Walk-in customer"
+                placeholder={customersLoading ? "Loading customers..." : "Walk-in customer"}
                 onCustomerAdded={() => refetchCustomers()}
               />
+              {customersError && (
+                <Alert variant="destructive" className="py-2">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription className="text-xs">
+                    Failed to load customers. <Button variant="link" size="sm" className="h-auto p-0 text-xs underline" onClick={() => refetchCustomers()}>Retry</Button>
+                  </AlertDescription>
+                </Alert>
+              )}
               {selectedCustomer && (
                 <div className="text-xs text-muted-foreground space-y-0.5">
                   <div className="flex justify-between">

@@ -897,8 +897,18 @@ export function BackdatedEntries() {
         status: error?.response?.status,
       });
 
-      const errorMsg = error?.response?.data?.error || error.message || 'Failed to save draft';
-      toast.error(errorMsg);
+      // Detect network errors (ERR_NAME_NOT_RESOLVED, ERR_CONNECTION_REFUSED, etc.)
+      const isNetworkError = !error?.response && (error.message?.includes('ERR_') || error.message?.includes('Network Error'));
+
+      if (isNetworkError) {
+        toast.error('Network error - draft kept locally. Retry when connection is restored.', { duration: 5000 });
+      } else {
+        const errorMsg = error?.response?.data?.error || error.message || 'Failed to save draft';
+        toast.error(`Save failed: ${errorMsg}. Draft kept locally - you can retry.`, { duration: 5000 });
+      }
+
+      // DO NOT clear sessionStorage or local state on error - preserve user's work
+      console.log('[Save Draft] Draft preserved locally after error');
     },
   });
 

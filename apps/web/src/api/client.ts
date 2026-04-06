@@ -1,10 +1,28 @@
 import axios, { AxiosError, AxiosInstance } from 'axios';
 import { useAuthStore } from '@/store/auth';
 
-const API_URL = import.meta.env.VITE_API_URL || '';
+// Guard: Default to '/api' if VITE_API_URL is empty/invalid
+const API_URL = import.meta.env.VITE_API_URL?.trim() || '/api';
+
+// Validate baseURL is not malformed
+const isValidBaseURL = (url: string): boolean => {
+  if (url.startsWith('/')) return true; // Relative URL
+  try {
+    new URL(url); // Try parsing as absolute URL
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const FINAL_API_URL = isValidBaseURL(API_URL) ? API_URL : '/api';
+
+if (FINAL_API_URL !== API_URL) {
+  console.warn(`[API Client] Invalid VITE_API_URL="${API_URL}", falling back to "/api"`);
+}
 
 export const apiClient: AxiosInstance = axios.create({
-  baseURL: API_URL,
+  baseURL: FINAL_API_URL,
   headers: {
     'Content-Type': 'application/json',
   },
