@@ -497,6 +497,39 @@ export class DailyBackdatedEntriesService {
               updatedCount++;
             } else {
               // Create new transaction (with stable ID if provided)
+              // ✅ DUPLICATE GUARD: If no ID provided, check for fingerprint match to prevent accidental duplicates
+              if (!txn.id) {
+                const fingerprint = await prisma.backdatedTransaction.findFirst({
+                  where: {
+                    backdatedEntryId: entryId,
+                    customerId: txn.customerId || null,
+                    productName: txn.productName,
+                    quantity: new Prisma.Decimal(txn.quantity),
+                    unitPrice: new Prisma.Decimal(txn.unitPrice),
+                    lineTotal: new Prisma.Decimal(txn.lineTotal),
+                    slipNumber: txn.slipNumber || null,
+                    vehicleNumber: txn.vehicleNumber || null,
+                    paymentMethod: txn.paymentMethod,
+                    createdAt: {
+                      gte: new Date(Date.now() - 60000), // Within last 60 seconds
+                    },
+                  },
+                  select: { id: true },
+                });
+
+                if (fingerprint) {
+                  console.warn('[BackdatedEntries] Duplicate fingerprint detected, skipping insert:', {
+                    entryId,
+                    productName: txn.productName,
+                    quantity: txn.quantity,
+                    existingId: fingerprint.id,
+                  });
+                  // Skip insert, treat as already saved
+                  upsertedCount++;
+                  continue;
+                }
+              }
+
               await prisma.backdatedTransaction.create({
                 data: {
                   id: txn.id, // Use client-provided ID if available
@@ -705,6 +738,37 @@ export class DailyBackdatedEntriesService {
             updatedCount++;
           } else {
             // Create new
+            // ✅ DUPLICATE GUARD: Check fingerprint for walk-in transactions too
+            if (!txn.id) {
+              const fingerprint = await prisma.backdatedTransaction.findFirst({
+                where: {
+                  backdatedEntryId: walkInEntryId,
+                  customerId: txn.customerId || null,
+                  productName: txn.productName,
+                  quantity: new Prisma.Decimal(txn.quantity),
+                  unitPrice: new Prisma.Decimal(txn.unitPrice),
+                  lineTotal: new Prisma.Decimal(txn.lineTotal),
+                  slipNumber: txn.slipNumber || null,
+                  vehicleNumber: txn.vehicleNumber || null,
+                  paymentMethod: txn.paymentMethod,
+                  createdAt: {
+                    gte: new Date(Date.now() - 60000), // Within last 60 seconds
+                  },
+                },
+                select: { id: true },
+              });
+
+              if (fingerprint) {
+                console.warn('[BackdatedEntries] Duplicate walk-in fingerprint detected, skipping:', {
+                  walkInEntryId,
+                  productName: txn.productName,
+                  existingId: fingerprint.id,
+                });
+                upsertedCount++;
+                continue;
+              }
+            }
+
             await prisma.backdatedTransaction.create({
               data: {
                 id: txn.id,

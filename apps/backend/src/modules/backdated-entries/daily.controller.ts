@@ -2,6 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 import { DailyBackdatedEntriesService } from './daily.service';
 import { hasRole } from '../../middleware/auth.middleware';
 import { z } from 'zod';
+import { createHash } from 'crypto';
+import { redis } from '../../config/redis';
 
 /**
  * Daily Backdated Entries Controller
@@ -111,6 +113,33 @@ export class DailyBackdatedEntriesController {
 
       const validatedData = saveDailyDraftSchema.parse(req.body);
 
+      // ✅ IDEMPOTENCY GUARD: Prevent duplicate saves from rapid clicks/retries/multi-tab
+      const payloadHash = createHash('sha256')
+        .update(JSON.stringify({
+          transactions: validatedData.transactions.map(t => ({
+            id: t.id,
+            productName: t.productName,
+            quantity: t.quantity,
+            unitPrice: t.unitPrice,
+            paymentMethod: t.paymentMethod,
+          })),
+        }))
+        .digest('hex')
+        .substring(0, 16);
+
+      const idempotencyKey = `save-draft:${req.user.organizationId}:${validatedData.branchId}:${validatedData.businessDate}:${validatedData.shiftId || 'no-shift'}:${payloadHash}`;
+
+      const existing = await redis.get(idempotencyKey);
+      if (existing) {
+        return res.status(409).json({
+          error: 'Save already in progress',
+          message: 'A save request with the same data is currently being processed. Please wait.',
+        });
+      }
+
+      // Set key with 45s TTL (enough for save + network lag, but not too long)
+      await redis.set(idempotencyKey, '1', 'EX', 45);
+
       const summary = await this.service.saveDailyDraft(
         {
           branchId: validatedData.branchId,
@@ -122,12 +151,35 @@ export class DailyBackdatedEntriesController {
         req.user.userId // Pass user ID for audit trail
       );
 
+      // Clear idempotency key after successful save
+      await redis.del(idempotencyKey);
+
       res.status(200).json({
         success: true,
         message: 'Daily draft saved successfully',
         data: summary,
       });
     } catch (error) {
+      // Clear idempotency key on error to allow retry
+      try {
+        const validatedData = saveDailyDraftSchema.parse(req.body);
+        const payloadHash = createHash('sha256')
+          .update(JSON.stringify({
+            transactions: validatedData.transactions.map(t => ({
+              id: t.id,
+              productName: t.productName,
+              quantity: t.quantity,
+              unitPrice: t.unitPrice,
+              paymentMethod: t.paymentMethod,
+            })),
+          }))
+          .digest('hex')
+          .substring(0, 16);
+        const idempotencyKey = `save-draft:${req.user?.organizationId}:${validatedData.branchId}:${validatedData.businessDate}:${validatedData.shiftId || 'no-shift'}:${payloadHash}`;
+        await redis.del(idempotencyKey);
+      } catch {
+        // Ignore cleanup errors
+      }
       next(error);
     }
   };
