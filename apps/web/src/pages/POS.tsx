@@ -448,9 +448,9 @@ export function POS() {
           const firstTxn = group.txns[0];
           const groupPaymentMethod = firstTxn.paymentMethod;
           const groupBankId = (groupPaymentMethod === 'credit_card' || groupPaymentMethod === 'bank_card')
-            ? firstTxn.bankId
+            ? (firstTxn.bankId && firstTxn.bankId.trim() !== '' ? firstTxn.bankId : undefined)
             : undefined;
-          const groupSlipNumber = firstTxn.slipNumber || undefined;
+          const groupSlipNumber = firstTxn.slipNumber && firstTxn.slipNumber.trim() !== '' ? firstTxn.slipNumber : undefined;
 
           const saleData: Omit<QueuedSale, 'offlineQueueId' | 'queuedAt' | 'attempts' | 'status'> = {
             branchId,
@@ -463,7 +463,7 @@ export function POS() {
             customerId: group.customerId,
             vehicleNumber: undefined, // Each fuel sale has its own vehicle number
             fuelSales: group.txns.map(txn => ({
-              nozzleId: '', // No nozzle tracking in POS
+              nozzleId: undefined, // No nozzle tracking in POS (undefined, not empty string)
               fuelTypeId: txn.fuelTypeId,
               quantityLiters: parseFloat(txn.quantityLiters || '0'),
               pricePerLiter: parseFloat(txn.pricePerLiter || '0'),
@@ -482,10 +482,12 @@ export function POS() {
           saleDate: new Date().toISOString(),
           totalAmount,
           paymentMethod: mapPaymentMethodToAPI(paymentMethod) as any, // Map to backend enum
-          bankId: (paymentMethod === 'credit_card' || paymentMethod === 'bank_card') ? selectedBankId : undefined,
-          slipNumber: slipNumber || undefined,
-          customerId: selectedCustomerId && selectedCustomerId !== 'none' ? selectedCustomerId : undefined,
-          vehicleNumber: vehicleNumber || undefined,
+          bankId: (paymentMethod === 'credit_card' || paymentMethod === 'bank_card')
+            ? (selectedBankId && selectedBankId.trim() !== '' ? selectedBankId : undefined)
+            : undefined,
+          slipNumber: slipNumber && slipNumber.trim() !== '' ? slipNumber : undefined,
+          customerId: selectedCustomerId && selectedCustomerId !== 'none' && selectedCustomerId.trim() !== '' ? selectedCustomerId : undefined,
+          vehicleNumber: vehicleNumber && vehicleNumber.trim() !== '' ? vehicleNumber : undefined,
           nonFuelSales: cart.map(item => ({
             productId: item.productId,
             quantity: item.quantity,

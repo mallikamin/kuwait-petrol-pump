@@ -32,7 +32,7 @@ export interface QueuedSale {
   slipNumber?: string;
   cashierId?: string;
   fuelSales?: Array<{
-    nozzleId: string;
+    nozzleId?: string; // Optional - POS doesn't track nozzles
     fuelTypeId: string;
     quantityLiters: number;
     pricePerLiter: number;

@@ -45,9 +45,9 @@ export class SalesService {
       throw new AppError(404, 'Branch not found');
     }
 
-    // Verify nozzle exists and is active (only if nozzleId provided)
+    // Verify nozzle exists and is active (only if nozzleId provided and non-empty)
     // Client removed nozzle selection from POS, so nozzleId is now optional
-    if (nozzleId) {
+    if (nozzleId && nozzleId.trim() !== '') {
       const nozzle = await prisma.nozzle.findFirst({
         where: {
           id: nozzleId,
