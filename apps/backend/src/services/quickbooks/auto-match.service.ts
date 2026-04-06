@@ -216,13 +216,22 @@ export class AutoMatchService {
         }),
       ]);
 
-      // 2a. Filter out already-mapped entities
+      // 2a. Filter out already-mapped entities (both local and QB)
       const mappedLocalIds = new Map<string, Set<string>>();
+      const mappedQBIds = new Map<string, Set<string>>();
+
       for (const mapping of existingMappings) {
+        // Track mapped local IDs
         if (!mappedLocalIds.has(mapping.entityType)) {
           mappedLocalIds.set(mapping.entityType, new Set());
         }
         mappedLocalIds.get(mapping.entityType)!.add(mapping.localId);
+
+        // Track mapped QB IDs
+        if (!mappedQBIds.has(mapping.entityType)) {
+          mappedQBIds.set(mapping.entityType, new Set());
+        }
+        mappedQBIds.get(mapping.entityType)!.add(mapping.qbId);
       }
 
       const unmappedCustomers = customers.filter(c => !mappedLocalIds.get('customer')?.has(c.id));
@@ -234,27 +243,33 @@ export class AutoMatchService {
         customers: { total: customers.length, unmapped: unmappedCustomers.length },
         items: { total: fuelTypes.length + products.length, unmapped: unmappedFuelTypes.length + unmappedProducts.length },
         banks: { total: banks.length, unmapped: unmappedBanks.length },
+        mappedQBIds: {
+          accounts: mappedQBIds.get('account')?.size || 0,
+          customers: mappedQBIds.get('customer')?.size || 0,
+          items: mappedQBIds.get('item')?.size || 0,
+          banks: mappedQBIds.get('bank')?.size || 0,
+        },
       });
 
-      // 3. Match Accounts
+      // 3. Match Accounts (exclude already-mapped QB accounts)
       const { items: accountItems, matched: accountsMatched, candidates: accountsCandidates, unmatched: accountsUnmatched, unmappedQB } =
-        await this.matchAccounts(snapshot.accounts);
+        await this.matchAccounts(snapshot.accounts, mappedQBIds.get('account') || new Set());
 
-      // 4. Match Customers (only unmapped)
+      // 4. Match Customers (only unmapped, exclude already-mapped QB customers)
       const { items: customerItems, matched: customersMatched, candidates: customersCandidates, unmatched: customersUnmatched } =
-        this.matchCustomers(unmappedCustomers, snapshot.customers);
+        this.matchCustomers(unmappedCustomers, snapshot.customers, mappedQBIds.get('customer') || new Set());
 
-      // 5. Match Items (Fuel Types + Products, only unmapped)
+      // 5. Match Items (Fuel Types + Products, only unmapped, exclude already-mapped QB items)
       const allUnmappedItems = [
         ...unmappedFuelTypes.map(f => ({ ...f, localType: 'fuel' as const })),
         ...unmappedProducts.map(p => ({ ...p, localType: 'product' as const })),
       ];
       const { items: itemItems, matched: itemsMatched, candidates: itemsCandidates, unmatched: itemsUnmatched } =
-        this.matchItems(allUnmappedItems, snapshot.items);
+        this.matchItems(allUnmappedItems, snapshot.items, mappedQBIds.get('item') || new Set());
 
-      // 6. Match Banks (only unmapped)
+      // 6. Match Banks (only unmapped, exclude already-mapped QB banks)
       const { items: bankItems, matched: banksMatched, candidates: banksCandidates, unmatched: banksUnmatched } =
-        this.matchBanks(unmappedBanks, snapshot.accounts); // Banks match to QB Bank accounts
+        this.matchBanks(unmappedBanks, snapshot.accounts, mappedQBIds.get('bank') || new Set()); // Banks match to QB Bank accounts
 
       // 6a. Find unmapped QB entities (QB entities not matched to any POS entity)
       const mappedQBCustomerIds = new Set(
@@ -362,18 +377,27 @@ export class AutoMatchService {
   /**
    * Match POS account needs against QB Chart of Accounts
    */
-  private static async matchAccounts(qbAccounts: any[]) {
+  private static async matchAccounts(qbAccounts: any[], excludeQBIds: Set<string> = new Set()) {
     const items: MatchItem[] = [];
     const matchedAccountIds: Set<string> = new Set();
     let matchedCount = 0;
     let candidateCount = 0;
     let unmatchedCount = 0;
 
+    // Filter out already-mapped QB accounts from candidate pool
+    const availableQBAccounts = qbAccounts.filter(a => !excludeQBIds.has(a.Id));
+
+    console.log('[matchAccounts] Filtering QB accounts:', {
+      total: qbAccounts.length,
+      excluded: excludeQBIds.size,
+      available: availableQBAccounts.length,
+    });
+
     for (const need of FUEL_STATION_NEEDS) {
       let candidates = findBestMatches(
         need.label,
         need.expectedQBTypes[0] || 'Income',
-        qbAccounts.map((a) => ({
+        availableQBAccounts.map((a) => ({
           id: a.Id,
           name: a.Name,
           account_type: a.AccountType,
@@ -385,12 +409,12 @@ export class AutoMatchService {
         0.15
       );
 
-      // Also try each search hint
+      // Also try each search hint (use filtered accounts)
       for (const hint of need.searchHints) {
         const hintCandidates = findBestMatches(
           hint,
           need.expectedQBTypes[0] || 'Income',
-          qbAccounts.map((a) => ({
+          availableQBAccounts.map((a) => ({
             id: a.Id,
             name: a.Name,
             account_type: a.AccountType,
@@ -452,18 +476,28 @@ export class AutoMatchService {
    */
   private static matchCustomers(
     localCustomers: Array<{ id: string; name: string }>,
-    qbCustomers: any[]
+    qbCustomers: any[],
+    excludeQBIds: Set<string> = new Set()
   ) {
     const items: EntityMatchItem[] = [];
     let matchedCount = 0;
     let candidateCount = 0;
     let unmatchedCount = 0;
 
+    // Filter out already-mapped QB customers
+    const availableQBCustomers = qbCustomers.filter(c => !excludeQBIds.has(c.Id));
+
+    console.log('[matchCustomers] Filtering QB customers:', {
+      total: qbCustomers.length,
+      excluded: excludeQBIds.size,
+      available: availableQBCustomers.length,
+    });
+
     for (const customer of localCustomers) {
       const candidates = findBestMatches(
         customer.name,
         'Customer',
-        qbCustomers.map((c) => ({
+        availableQBCustomers.map((c) => ({
           id: c.Id,
           name: c.DisplayName,
           type: 'Customer',
@@ -490,18 +524,28 @@ export class AutoMatchService {
    */
   private static matchItems(
     localItems: Array<{ id: string; name: string; localType: 'fuel' | 'product' }>,
-    qbItems: any[]
+    qbItems: any[],
+    excludeQBIds: Set<string> = new Set()
   ) {
     const items: EntityMatchItem[] = [];
     let matchedCount = 0;
     let candidateCount = 0;
     let unmatchedCount = 0;
 
+    // Filter out already-mapped QB items
+    const availableQBItems = qbItems.filter(i => !excludeQBIds.has(i.Id));
+
+    console.log('[matchItems] Filtering QB items:', {
+      total: qbItems.length,
+      excluded: excludeQBIds.size,
+      available: availableQBItems.length,
+    });
+
     for (const localItem of localItems) {
       const candidates = findBestMatches(
         localItem.name,
         'Item',
-        qbItems.map((i) => ({
+        availableQBItems.map((i) => ({
           id: i.Id,
           name: i.Name,
           type: i.Type || 'Item',
@@ -528,7 +572,8 @@ export class AutoMatchService {
    */
   private static matchBanks(
     localBanks: Array<{ id: string; name: string }>,
-    qbAccounts: any[]
+    qbAccounts: any[],
+    excludeQBIds: Set<string> = new Set()
   ) {
     const items: EntityMatchItem[] = [];
     let matchedCount = 0;
@@ -540,11 +585,20 @@ export class AutoMatchService {
       ['Bank', 'Other Current Asset'].includes(a.AccountType)
     );
 
+    // Filter out already-mapped QB banks
+    const availableBankAccounts = bankAccounts.filter(a => !excludeQBIds.has(a.Id));
+
+    console.log('[matchBanks] Filtering QB bank accounts:', {
+      totalBankAccounts: bankAccounts.length,
+      excluded: excludeQBIds.size,
+      available: availableBankAccounts.length,
+    });
+
     for (const bank of localBanks) {
       const candidates = findBestMatches(
         bank.name,
         'Bank',
-        bankAccounts.map((a) => ({
+        availableBankAccounts.map((a) => ({
           id: a.Id,
           name: a.Name,
           account_type: a.AccountType,

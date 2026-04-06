@@ -167,6 +167,10 @@ function countSynonymOverlaps(tokens1: string[], tokens2: string[]): number {
  * - Jaccard similarity: 0.40
  * - Substring match: 0.15
  *
+ * Fuel Code Anchor Rules (Heavy Penalty):
+ * - PMG needs must match PMG/Premium signals (reject HSD/Diesel)
+ * - HSD needs must match HSD/Diesel signals (reject PMG/Premium)
+ *
  * @param templateName - POS need name (e.g., "Fuel Sales PMG")
  * @param templateType - Expected QB type (e.g., "Income")
  * @param qbEntities - List of QB entities to match against
@@ -197,12 +201,30 @@ export function findBestMatches(
   const templateTokens = tokenize(templateName);
   const templateAnchors = extractAnchors(templateName);
 
+  // Fuel code anchor detection
+  const templateHasPMG = templateTokens.some(t => ['pmg', 'premium'].includes(t));
+  const templateHasHSD = templateTokens.some(t => ['hsd', 'diesel'].includes(t));
+
   for (const entity of qbEntities) {
     const entityLower = normalize(entity.name);
     const entityTokens = tokenize(entity.name);
     const entityAnchors = extractAnchors(entity.name);
     const entityType = entity.account_type || entity.type || '';
     const entitySubType = entity.account_sub_type || entity.sub_type || '';
+
+    // Fuel code anchor enforcement: Hard reject cross-matches
+    const entityHasPMG = entityTokens.some(t => ['pmg', 'premium'].includes(t));
+    const entityHasHSD = entityTokens.some(t => ['hsd', 'diesel', 'high', 'speed'].includes(t));
+
+    // Reject if fuel codes don't match
+    if (templateHasPMG && entityHasHSD) {
+      // Template is PMG but entity is HSD - REJECT
+      continue;
+    }
+    if (templateHasHSD && entityHasPMG) {
+      // Template is HSD but entity is PMG - REJECT
+      continue;
+    }
 
     let score = 0;
     const reasons: string[] = [];
@@ -251,6 +273,17 @@ export function findBestMatches(
     if (substringMatch(templateName, entity.name)) {
       score += 0.15;
       reasons.push('substring');
+    }
+
+    // Signal 7: Fuel code anchor bonus (weight 0.30)
+    // Reward exact fuel code matches to prioritize them
+    if (templateHasPMG && entityHasPMG) {
+      score += 0.30;
+      reasons.push('pmg-match');
+    }
+    if (templateHasHSD && entityHasHSD) {
+      score += 0.30;
+      reasons.push('hsd-match');
     }
 
     // Only include if above threshold
