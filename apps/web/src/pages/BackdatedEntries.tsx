@@ -1671,6 +1671,7 @@ export function BackdatedEntries() {
                             {group.transactions.map((txn, localIdx) => {
                               const globalIdx = group.indices[localIdx];
                               return (
+                                <>
                                 <TableRow key={globalIdx}>
                                   <TableCell className="p-2">
                                     <Select
@@ -1799,6 +1800,24 @@ export function BackdatedEntries() {
                                     </Button>
                                   </TableCell>
                                 </TableRow>
+                                {/* Audit stamp row */}
+                                <TableRow key={`${globalIdx}-audit`} className="bg-muted/30 border-b-2">
+                                  <TableCell colSpan={10} className="px-4 py-1 text-xs text-muted-foreground">
+                                    {txn.id ? (
+                                      <>
+                                        Created: {txn.createdByUser?.fullName || 'System'} • {txn.createdAt ? new Date(txn.createdAt).toLocaleString('en-PK', { day: '2-digit', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : '—'}
+                                        {txn.updatedAt && txn.updatedBy && new Date(txn.updatedAt).getTime() > new Date(txn.createdAt!).getTime() + 1000 && (
+                                          <span className="ml-4">
+                                            Updated: {txn.updatedByUser?.fullName || txn.createdByUser?.fullName || 'System'} • {new Date(txn.updatedAt).toLocaleString('en-PK', { day: '2-digit', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
+                                          </span>
+                                        )}
+                                      </>
+                                    ) : (
+                                      <span className="italic text-amber-600">Unsaved draft</span>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                                </>
                               );
                             })}
                           </TableBody>

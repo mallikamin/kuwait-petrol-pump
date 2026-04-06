@@ -487,6 +487,12 @@ export function POS() {
                     {sale.customer && (
                       <p className="text-xs text-muted-foreground">{sale.customer.name}</p>
                     )}
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Created: {sale.cashier?.fullName || 'System'} • {sale.createdAt ? new Date(sale.createdAt).toLocaleString('en-PK', { day: '2-digit', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : '—'}
+                      {sale.updatedAt && new Date(sale.updatedAt).getTime() > new Date(sale.createdAt).getTime() + 1000 && (
+                        <span className="block">Updated: {sale.cashier?.fullName || 'System'} • {new Date(sale.updatedAt).toLocaleString('en-PK', { day: '2-digit', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}</span>
+                      )}
+                    </p>
                   </div>
                   <div className="text-right">
                     <p className="font-semibold">{formatCurrency(sale.totalAmount)}</p>

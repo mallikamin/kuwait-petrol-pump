@@ -500,6 +500,13 @@ export class SalesService {
             name: true,
           },
         },
+        cashier: {
+          select: {
+            id: true,
+            fullName: true,
+            username: true,
+          },
+        },
         fuelSales: {
           include: {
             fuelType: {
@@ -533,7 +540,9 @@ export class SalesService {
       vehicleNumber: sale.vehicleNumber,
       slipNumber: sale.slipNumber,
       customer: sale.customer,
+      cashier: sale.cashier,
       createdAt: sale.createdAt,
+      updatedAt: sale.updatedAt,
       items: sale.saleType === 'fuel'
         ? sale.fuelSales.map((fs: any) => ({
             fuelType: fs.fuelType.name,
