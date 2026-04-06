@@ -1142,9 +1142,9 @@ export function BackdatedEntries() {
               Branch: {branchesData.find((b: any) => b.id === selectedBranchId)?.name || 'Unknown'}
             </Badge>
           )}
-          {selectedShiftId && shiftsData && (
+          {selectedShiftId && shiftTemplatesData && (
             <Badge variant="secondary" className="bg-blue-100 text-blue-900">
-              Shift: {shiftsData.find((s: any) => s.id === selectedShiftId)?.name || 'Unknown'}
+              Shift: {shiftTemplatesData.find((s: any) => s.id === selectedShiftId)?.name || 'Unknown'}
             </Badge>
           )}
           {!selectedShiftId && (
