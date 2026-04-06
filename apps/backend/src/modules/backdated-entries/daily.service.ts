@@ -510,6 +510,7 @@ export class DailyBackdatedEntriesService {
           }
 
           // ✅ FIX #1: Only delete if ALL incoming rows are ID-qualified
+          let deletedCount = 0;
           if (allIncomingHaveIds) {
             // Delete transactions that exist in DB but NOT in incoming payload (user removed them)
             const txnsToDelete = Array.from(existingTxnIds).filter(id => !incomingTxnIds.has(id));
@@ -520,7 +521,8 @@ export class DailyBackdatedEntriesService {
                   backdatedEntryId: entryId, // Extra safety: scope to entry
                 },
               });
-              console.log('[BackdatedEntries] Deleted removed transactions:', txnsToDelete.length);
+              deletedCount = txnsToDelete.length;
+              console.log('[BackdatedEntries] Deleted removed transactions:', deletedCount);
             }
           }
 
@@ -530,7 +532,7 @@ export class DailyBackdatedEntriesService {
             total: upsertedCount,
             created: createdCount,
             updated: updatedCount,
-            deleted: txnsToDelete.length,
+            deleted: deletedCount,
           });
         } else {
           console.log('[BackdatedEntries] Creating new entry for nozzle:', nozzleId);
@@ -716,6 +718,7 @@ export class DailyBackdatedEntriesService {
         }
 
         // ✅ FIX #1: Only delete if all walk-in transactions are ID-qualified
+        let deletedCount = 0;
         if (allWalkInHaveIds) {
           const txnsToDelete = Array.from(existingTxnIds).filter(id => !incomingTxnIds.has(id));
           if (txnsToDelete.length > 0) {
@@ -725,6 +728,7 @@ export class DailyBackdatedEntriesService {
                 backdatedEntryId: walkInEntryId, // Extra safety: scope to entry
               },
             });
+            deletedCount = txnsToDelete.length;
           }
         }
 
@@ -732,7 +736,7 @@ export class DailyBackdatedEntriesService {
           total: upsertedCount,
           created: createdCount,
           updated: updatedCount,
-          deleted: txnsToDelete.length,
+          deleted: deletedCount,
         });
       } else {
         // Create walk-in entry (use placeholder nozzle, zero meter readings)
