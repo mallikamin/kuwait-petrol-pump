@@ -415,7 +415,7 @@ export function POS() {
     }
 
     // Check credit limit (product tab only - fuel uses per-customer grouping)
-    if (activeTab === 'product' && creditLimitExceeded && paymentMethod === 'credit') {
+    if (activeTab === 'product' && creditLimitExceeded && paymentMethod === 'credit_customer') {
       const confirmed = window.confirm(
         `Credit limit exceeded!\nCurrent balance: ${formatCurrency(currentBalance)}\nCredit limit: ${formatCurrency(selectedCustomer!.creditLimit || 0)}\n\nProceed anyway?`
       );
@@ -470,7 +470,7 @@ export function POS() {
           saleDate: new Date().toISOString(),
           totalAmount,
           paymentMethod,
-          bankId: paymentMethod === 'card' ? selectedBankId : undefined,
+          bankId: (paymentMethod === 'credit_card' || paymentMethod === 'bank_card') ? selectedBankId : undefined,
           slipNumber: slipNumber || undefined,
           customerId: selectedCustomerId && selectedCustomerId !== 'none' ? selectedCustomerId : undefined,
           vehicleNumber: vehicleNumber || undefined,
