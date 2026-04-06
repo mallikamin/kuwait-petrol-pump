@@ -16,6 +16,7 @@ interface DailyQueryParams {
 }
 
 interface DailyTransactionInput {
+  id?: string; // ✅ NEW: Stable client-side ID (UUID) - used for upsert to prevent data loss
   customerId?: string;
   nozzleId?: string; // Optional - some slips don't specify nozzle
   fuelCode?: string; // HSD, PMG, etc. - used when nozzleId not available
@@ -435,12 +436,75 @@ export class DailyBackdatedEntriesService {
 
           entryId = existingEntry.id;
 
-          // Delete existing transactions for this entry (will be replaced)
-          const deletedCount = await prisma.backdatedTransaction.deleteMany({
+          // ✅ FIX: NON-DESTRUCTIVE UPSERT - prevent data loss from partial payloads
+          // Get existing transactions
+          const existingTxns = await prisma.backdatedTransaction.findMany({
             where: { backdatedEntryId: existingEntry.id },
           });
 
-          console.log('[BackdatedEntries] Deleted existing transactions:', deletedCount.count);
+          const existingTxnIds = new Set(existingTxns.map(t => t.id));
+          const incomingTxnIds = new Set(nozzleTxns.filter(t => t.id).map(t => t.id!));
+
+          // Upsert each transaction individually
+          let upsertedCount = 0;
+          let createdCount = 0;
+          let updatedCount = 0;
+
+          for (const txn of nozzleTxns) {
+            const txnData = {
+              backdatedEntryId: entryId,
+              customerId: txn.customerId,
+              vehicleNumber: txn.vehicleNumber,
+              slipNumber: txn.slipNumber,
+              productName: txn.productName,
+              quantity: new Prisma.Decimal(txn.quantity),
+              unitPrice: new Prisma.Decimal(txn.unitPrice),
+              lineTotal: new Prisma.Decimal(txn.lineTotal),
+              paymentMethod: txn.paymentMethod,
+              bankId: txn.bankId || null,
+              fuelTypeId: nozzle.fuelTypeId,
+              transactionDateTime: businessDateObj,
+              updatedBy: userId || null,
+            };
+
+            if (txn.id && existingTxnIds.has(txn.id)) {
+              // Update existing transaction
+              await prisma.backdatedTransaction.update({
+                where: { id: txn.id },
+                data: txnData,
+              });
+              updatedCount++;
+            } else {
+              // Create new transaction (with stable ID if provided)
+              await prisma.backdatedTransaction.create({
+                data: {
+                  id: txn.id, // Use client-provided ID if available
+                  ...txnData,
+                  createdBy: userId || null,
+                },
+              });
+              createdCount++;
+            }
+            upsertedCount++;
+          }
+
+          // Delete transactions that exist in DB but NOT in incoming payload (user removed them)
+          const txnsToDelete = Array.from(existingTxnIds).filter(id => !incomingTxnIds.has(id));
+          if (txnsToDelete.length > 0) {
+            await prisma.backdatedTransaction.deleteMany({
+              where: { id: { in: txnsToDelete } },
+            });
+            console.log('[BackdatedEntries] Deleted removed transactions:', txnsToDelete.length);
+          }
+
+          console.log('[BackdatedEntries] Upserted transactions:', {
+            entryId,
+            nozzleId,
+            total: upsertedCount,
+            created: createdCount,
+            updated: updatedCount,
+            deleted: txnsToDelete.length,
+          });
         } else {
           console.log('[BackdatedEntries] Creating new entry for nozzle:', nozzleId);
 
@@ -463,33 +527,38 @@ export class DailyBackdatedEntriesService {
           console.log('[BackdatedEntries] Created new entry:', newEntry.id);
 
           entryId = newEntry.id;
+
+          // Create all transactions for new entry
+          let createdCount = 0;
+          for (const txn of nozzleTxns) {
+            await prisma.backdatedTransaction.create({
+              data: {
+                id: txn.id, // Use client-provided ID if available
+                backdatedEntryId: entryId,
+                customerId: txn.customerId,
+                vehicleNumber: txn.vehicleNumber,
+                slipNumber: txn.slipNumber,
+                productName: txn.productName,
+                quantity: new Prisma.Decimal(txn.quantity),
+                unitPrice: new Prisma.Decimal(txn.unitPrice),
+                lineTotal: new Prisma.Decimal(txn.lineTotal),
+                paymentMethod: txn.paymentMethod,
+                bankId: txn.bankId || null,
+                fuelTypeId: nozzle.fuelTypeId,
+                transactionDateTime: businessDateObj,
+                createdBy: userId || null,
+                updatedBy: userId || null,
+              },
+            });
+            createdCount++;
+          }
+
+          console.log('[BackdatedEntries] Created transactions:', {
+            entryId,
+            nozzleId,
+            count: createdCount,
+          });
         }
-
-        // Create all transactions for this entry
-        const createdTxns = await prisma.backdatedTransaction.createMany({
-          data: nozzleTxns.map((txn) => ({
-            backdatedEntryId: entryId,
-            customerId: txn.customerId,
-            vehicleNumber: txn.vehicleNumber,
-            slipNumber: txn.slipNumber,
-            productName: txn.productName,
-            quantity: new Prisma.Decimal(txn.quantity),
-            unitPrice: new Prisma.Decimal(txn.unitPrice),
-            lineTotal: new Prisma.Decimal(txn.lineTotal),
-            paymentMethod: txn.paymentMethod,
-            bankId: txn.bankId || null, // ✅ ADD: Save bankId for card transactions
-            fuelTypeId: nozzle.fuelTypeId,
-            transactionDateTime: businessDateObj, // Use business date as transaction time
-            createdBy: userId || null, // Audit: who created this transaction
-            updatedBy: userId || null, // Audit: who last updated this transaction
-          })),
-        });
-
-        console.log('[BackdatedEntries] Created transactions:', {
-          entryId,
-          nozzleId,
-          count: createdTxns.count,
-        });
 
         return { nozzleId, entryId };
       })
@@ -535,9 +604,83 @@ export class DailyBackdatedEntriesService {
         console.log('[BackdatedEntries] Using existing walk-in entry:', existingWalkInEntry.id);
         walkInEntryId = existingWalkInEntry.id;
 
-        // Delete existing walk-in transactions (will be replaced)
-        await prisma.backdatedTransaction.deleteMany({
+        // ✅ FIX: NON-DESTRUCTIVE UPSERT for walk-in transactions
+        const existingWalkInTxns = await prisma.backdatedTransaction.findMany({
           where: { backdatedEntryId: existingWalkInEntry.id },
+        });
+
+        const existingTxnIds = new Set(existingWalkInTxns.map(t => t.id));
+        const incomingTxnIds = new Set(txnsWithoutNozzle.filter(t => t.id).map(t => t.id!));
+
+        // Lookup fuelTypeIds for walk-in transactions by fuelCode
+        const fuelTypesMap = new Map<string, string>();
+        const uniqueFuelCodes = [...new Set(txnsWithoutNozzle.map(t => t.fuelCode).filter(Boolean))];
+
+        if (uniqueFuelCodes.length > 0) {
+          const fuelTypes = await prisma.fuelType.findMany({
+            where: {
+              code: { in: uniqueFuelCodes as string[] },
+            },
+          });
+          fuelTypes.forEach(ft => fuelTypesMap.set(ft.code, ft.id));
+        }
+
+        // Upsert each walk-in transaction
+        let upsertedCount = 0;
+        let createdCount = 0;
+        let updatedCount = 0;
+
+        for (const txn of txnsWithoutNozzle) {
+          const txnData = {
+            backdatedEntryId: walkInEntryId,
+            customerId: txn.customerId,
+            vehicleNumber: txn.vehicleNumber,
+            slipNumber: txn.slipNumber,
+            productName: txn.productName,
+            quantity: new Prisma.Decimal(txn.quantity),
+            unitPrice: new Prisma.Decimal(txn.unitPrice),
+            lineTotal: new Prisma.Decimal(txn.lineTotal),
+            paymentMethod: txn.paymentMethod,
+            bankId: txn.bankId || null,
+            fuelTypeId: txn.fuelCode ? (fuelTypesMap.get(txn.fuelCode) || null) : null,
+            transactionDateTime: businessDateObj,
+            updatedBy: userId || null,
+          };
+
+          if (txn.id && existingTxnIds.has(txn.id)) {
+            // Update existing
+            await prisma.backdatedTransaction.update({
+              where: { id: txn.id },
+              data: txnData,
+            });
+            updatedCount++;
+          } else {
+            // Create new
+            await prisma.backdatedTransaction.create({
+              data: {
+                id: txn.id,
+                ...txnData,
+                createdBy: userId || null,
+              },
+            });
+            createdCount++;
+          }
+          upsertedCount++;
+        }
+
+        // Delete removed transactions
+        const txnsToDelete = Array.from(existingTxnIds).filter(id => !incomingTxnIds.has(id));
+        if (txnsToDelete.length > 0) {
+          await prisma.backdatedTransaction.deleteMany({
+            where: { id: { in: txnsToDelete } },
+          });
+        }
+
+        console.log('[BackdatedEntries] Upserted walk-in transactions:', {
+          total: upsertedCount,
+          created: createdCount,
+          updated: updatedCount,
+          deleted: txnsToDelete.length,
         });
       } else {
         // Create walk-in entry (use placeholder nozzle, zero meter readings)
@@ -555,42 +698,47 @@ export class DailyBackdatedEntriesService {
         });
 
         walkInEntryId = walkInEntry.id;
+
+        // Lookup fuelTypeIds
+        const fuelTypesMap = new Map<string, string>();
+        const uniqueFuelCodes = [...new Set(txnsWithoutNozzle.map(t => t.fuelCode).filter(Boolean))];
+
+        if (uniqueFuelCodes.length > 0) {
+          const fuelTypes = await prisma.fuelType.findMany({
+            where: {
+              code: { in: uniqueFuelCodes as string[] },
+            },
+          });
+          fuelTypes.forEach(ft => fuelTypesMap.set(ft.code, ft.id));
+        }
+
+        // Create all walk-in transactions
+        let createdCount = 0;
+        for (const txn of txnsWithoutNozzle) {
+          await prisma.backdatedTransaction.create({
+            data: {
+              id: txn.id,
+              backdatedEntryId: walkInEntryId,
+              customerId: txn.customerId,
+              vehicleNumber: txn.vehicleNumber,
+              slipNumber: txn.slipNumber,
+              productName: txn.productName,
+              quantity: new Prisma.Decimal(txn.quantity),
+              unitPrice: new Prisma.Decimal(txn.unitPrice),
+              lineTotal: new Prisma.Decimal(txn.lineTotal),
+              paymentMethod: txn.paymentMethod,
+              bankId: txn.bankId || null,
+              fuelTypeId: txn.fuelCode ? (fuelTypesMap.get(txn.fuelCode) || null) : null,
+              transactionDateTime: businessDateObj,
+              createdBy: userId || null,
+              updatedBy: userId || null,
+            },
+          });
+          createdCount++;
+        }
+
+        console.log('[BackdatedEntries] Created walk-in transactions:', createdCount);
       }
-
-      // Lookup fuelTypeIds for walk-in transactions by fuelCode
-      const fuelTypesMap = new Map<string, string>();
-      const uniqueFuelCodes = [...new Set(txnsWithoutNozzle.map(t => t.fuelCode).filter(Boolean))];
-
-      if (uniqueFuelCodes.length > 0) {
-        const fuelTypes = await prisma.fuelType.findMany({
-          where: {
-            code: { in: uniqueFuelCodes as string[] },
-          },
-        });
-        fuelTypes.forEach(ft => fuelTypesMap.set(ft.code, ft.id));
-      }
-
-      // Create all walk-in transactions
-      await prisma.backdatedTransaction.createMany({
-        data: txnsWithoutNozzle.map((txn) => ({
-          backdatedEntryId: walkInEntryId,
-          customerId: txn.customerId,
-          vehicleNumber: txn.vehicleNumber,
-          slipNumber: txn.slipNumber,
-          productName: txn.productName,
-          quantity: new Prisma.Decimal(txn.quantity),
-          unitPrice: new Prisma.Decimal(txn.unitPrice),
-          lineTotal: new Prisma.Decimal(txn.lineTotal),
-          paymentMethod: txn.paymentMethod,
-          bankId: txn.bankId || null, // ✅ ADD: Save bankId for card transactions
-          fuelTypeId: txn.fuelCode ? (fuelTypesMap.get(txn.fuelCode) || null) : null,
-          transactionDateTime: businessDateObj,
-          createdBy: userId || null, // Audit: who created this transaction
-          updatedBy: userId || null, // Audit: who last updated this transaction
-        })),
-      });
-
-      console.log('[BackdatedEntries] Saved walk-in transactions:', txnsWithoutNozzle.length);
     }
 
     // Return updated summary

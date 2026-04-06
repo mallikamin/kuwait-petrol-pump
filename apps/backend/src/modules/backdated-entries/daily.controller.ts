@@ -21,6 +21,7 @@ const saveDailyDraftSchema = z.object({
   shiftId: z.string().uuid().optional(),
   transactions: z.array(
     z.object({
+      id: z.string().uuid().optional(), // ✅ NEW: Client-side stable ID for upsert (prevents data loss)
       customerId: z.string().uuid().optional(),
       nozzleId: z.string().uuid().optional(), // Optional - backlog slips may lack nozzle detail
       fuelCode: z.string().optional(), // HSD, PMG, etc. - used when nozzleId not available
