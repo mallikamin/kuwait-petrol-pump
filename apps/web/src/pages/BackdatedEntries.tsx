@@ -696,11 +696,18 @@ export function BackdatedEntries() {
         const { transactions: sessionTxns, timestamp } = JSON.parse(sessionData);
         const ageMinutes = (Date.now() - timestamp) / 1000 / 60;
 
-        // Use session data if less than 30 minutes old
-        if (ageMinutes < 30 && sessionTxns.length > 0) {
-          console.log('[Transactions] Loading from sessionStorage:', sessionTxns.length, '(age:', Math.round(ageMinutes), 'min)');
+        // ✅ FIX: NEVER auto-discard unsaved work - always restore regardless of age
+        // User can manually discard if they want fresh start
+        if (sessionTxns.length > 0) {
+          const ageHours = Math.floor(ageMinutes / 60);
+          const ageDisplay = ageHours > 0
+            ? `${ageHours}h ${Math.round(ageMinutes % 60)}min`
+            : `${Math.round(ageMinutes)} min`;
+
+          console.log('[Transactions] Loading from sessionStorage:', sessionTxns.length, '(age:', ageDisplay, ')');
           setTransactions(sessionTxns);
-          setSyncMessage(`Restored ${sessionTxns.length} unsaved transactions from session.`);
+          setSyncMessage(`⚠️ Restored ${sessionTxns.length} UNSAVED transactions from ${ageDisplay} ago. Click "Save Draft" to persist to server.`);
+          setIsDirty(true); // Mark as dirty to trigger save reminder
           setLoadedKey(currentKey);
           return;
         }
@@ -1119,6 +1126,33 @@ export function BackdatedEntries() {
           </Badge>
         </div>
       </div>
+
+      {/* Active Filters Display */}
+      {(selectedBranchId || businessDate || selectedShiftId) && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 border border-blue-200 rounded-lg">
+          <span className="text-sm font-medium text-blue-900">Active Filters:</span>
+          {businessDate && (
+            <Badge variant="secondary" className="bg-blue-100 text-blue-900">
+              Date: {format(new Date(businessDate), 'MMM dd, yyyy')}
+            </Badge>
+          )}
+          {selectedBranchId && branchesData && (
+            <Badge variant="secondary" className="bg-blue-100 text-blue-900">
+              Branch: {branchesData.find((b: any) => b.id === selectedBranchId)?.name || 'Unknown'}
+            </Badge>
+          )}
+          {selectedShiftId && shiftsData && (
+            <Badge variant="secondary" className="bg-blue-100 text-blue-900">
+              Shift: {shiftsData.find((s: any) => s.id === selectedShiftId)?.name || 'Unknown'}
+            </Badge>
+          )}
+          {!selectedShiftId && (
+            <Badge variant="secondary" className="bg-green-100 text-green-900">
+              All Shifts
+            </Badge>
+          )}
+        </div>
+      )}
 
       {/* Info Alert */}
       <Alert className="border-orange-200 bg-orange-50">
