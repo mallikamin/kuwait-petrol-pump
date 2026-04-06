@@ -445,6 +445,15 @@ export class DailyBackdatedEntriesService {
           const existingTxnIds = new Set(existingTxns.map(t => t.id));
           const incomingTxnIds = new Set(nozzleTxns.filter(t => t.id).map(t => t.id!));
 
+          // ✅ FIX #1: Safety check - only delete if ALL incoming rows have IDs
+          const allIncomingHaveIds = nozzleTxns.every(t => !!t.id);
+          if (!allIncomingHaveIds) {
+            console.warn('[BackdatedEntries] SAFETY: Some incoming transactions lack IDs. Skipping delete pass to prevent data loss.', {
+              total: nozzleTxns.length,
+              withIds: incomingTxnIds.size,
+            });
+          }
+
           // Upsert each transaction individually
           let upsertedCount = 0;
           let createdCount = 0;
@@ -468,11 +477,23 @@ export class DailyBackdatedEntriesService {
             };
 
             if (txn.id && existingTxnIds.has(txn.id)) {
-              // Update existing transaction
-              await prisma.backdatedTransaction.update({
-                where: { id: txn.id },
+              // ✅ FIX #2: Scope update to entry for integrity
+              // Update existing transaction (verify ownership first)
+              const updateResult = await prisma.backdatedTransaction.updateMany({
+                where: {
+                  id: txn.id,
+                  backdatedEntryId: entryId, // Scoped: prevent cross-entry pollution
+                },
                 data: txnData,
               });
+
+              if (updateResult.count === 0) {
+                console.error('[BackdatedEntries] INTEGRITY ERROR: Attempted to update transaction with wrong entry', {
+                  txnId: txn.id,
+                  entryId,
+                });
+                throw new AppError(400, `Transaction ${txn.id} does not belong to this entry`);
+              }
               updatedCount++;
             } else {
               // Create new transaction (with stable ID if provided)
@@ -488,13 +509,19 @@ export class DailyBackdatedEntriesService {
             upsertedCount++;
           }
 
-          // Delete transactions that exist in DB but NOT in incoming payload (user removed them)
-          const txnsToDelete = Array.from(existingTxnIds).filter(id => !incomingTxnIds.has(id));
-          if (txnsToDelete.length > 0) {
-            await prisma.backdatedTransaction.deleteMany({
-              where: { id: { in: txnsToDelete } },
-            });
-            console.log('[BackdatedEntries] Deleted removed transactions:', txnsToDelete.length);
+          // ✅ FIX #1: Only delete if ALL incoming rows are ID-qualified
+          if (allIncomingHaveIds) {
+            // Delete transactions that exist in DB but NOT in incoming payload (user removed them)
+            const txnsToDelete = Array.from(existingTxnIds).filter(id => !incomingTxnIds.has(id));
+            if (txnsToDelete.length > 0) {
+              await prisma.backdatedTransaction.deleteMany({
+                where: {
+                  id: { in: txnsToDelete },
+                  backdatedEntryId: entryId, // Extra safety: scope to entry
+                },
+              });
+              console.log('[BackdatedEntries] Deleted removed transactions:', txnsToDelete.length);
+            }
           }
 
           console.log('[BackdatedEntries] Upserted transactions:', {
@@ -612,6 +639,15 @@ export class DailyBackdatedEntriesService {
         const existingTxnIds = new Set(existingWalkInTxns.map(t => t.id));
         const incomingTxnIds = new Set(txnsWithoutNozzle.filter(t => t.id).map(t => t.id!));
 
+        // ✅ FIX #1: Safety check for walk-in transactions
+        const allWalkInHaveIds = txnsWithoutNozzle.every(t => !!t.id);
+        if (!allWalkInHaveIds) {
+          console.warn('[BackdatedEntries] SAFETY: Some walk-in transactions lack IDs. Skipping delete pass.', {
+            total: txnsWithoutNozzle.length,
+            withIds: incomingTxnIds.size,
+          });
+        }
+
         // Lookup fuelTypeIds for walk-in transactions by fuelCode
         const fuelTypesMap = new Map<string, string>();
         const uniqueFuelCodes = [...new Set(txnsWithoutNozzle.map(t => t.fuelCode).filter(Boolean))];
@@ -648,11 +684,22 @@ export class DailyBackdatedEntriesService {
           };
 
           if (txn.id && existingTxnIds.has(txn.id)) {
-            // Update existing
-            await prisma.backdatedTransaction.update({
-              where: { id: txn.id },
+            // ✅ FIX #2: Scope update to entry
+            const updateResult = await prisma.backdatedTransaction.updateMany({
+              where: {
+                id: txn.id,
+                backdatedEntryId: walkInEntryId, // Scoped: prevent cross-entry pollution
+              },
               data: txnData,
             });
+
+            if (updateResult.count === 0) {
+              console.error('[BackdatedEntries] INTEGRITY ERROR: Walk-in transaction with wrong entry', {
+                txnId: txn.id,
+                walkInEntryId,
+              });
+              throw new AppError(400, `Walk-in transaction ${txn.id} does not belong to this entry`);
+            }
             updatedCount++;
           } else {
             // Create new
@@ -668,12 +715,17 @@ export class DailyBackdatedEntriesService {
           upsertedCount++;
         }
 
-        // Delete removed transactions
-        const txnsToDelete = Array.from(existingTxnIds).filter(id => !incomingTxnIds.has(id));
-        if (txnsToDelete.length > 0) {
-          await prisma.backdatedTransaction.deleteMany({
-            where: { id: { in: txnsToDelete } },
-          });
+        // ✅ FIX #1: Only delete if all walk-in transactions are ID-qualified
+        if (allWalkInHaveIds) {
+          const txnsToDelete = Array.from(existingTxnIds).filter(id => !incomingTxnIds.has(id));
+          if (txnsToDelete.length > 0) {
+            await prisma.backdatedTransaction.deleteMany({
+              where: {
+                id: { in: txnsToDelete },
+                backdatedEntryId: walkInEntryId, // Extra safety: scope to entry
+              },
+            });
+          }
         }
 
         console.log('[BackdatedEntries] Upserted walk-in transactions:', {
