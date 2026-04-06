@@ -101,10 +101,14 @@ export function MeterReadings() {
   const { user } = useAuthStore();
   const branchId = user?.branch_id || (user as any)?.branch?.id;
 
-  // Fetch meter readings
+  // Fetch meter readings (filtered by date - current day operations only)
   const { data, isLoading } = useQuery({
-    queryKey: ['meterReadings', page],
-    queryFn: () => meterReadingsApi.getAll({ page, size: 20 }),
+    queryKey: ['meterReadings', page, filterDate],
+    queryFn: () => meterReadingsApi.getAll({
+      page,
+      size: 20,
+      date: filterDate, // Filter by business date (TODAY for live ops)
+    }),
   });
 
   // Fetch nozzles
@@ -909,7 +913,11 @@ export function MeterReadings() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Meter Readings</h1>
-          <p className="text-muted-foreground">Track fuel meter readings with OCR or manual entry</p>
+          <p className="text-muted-foreground">
+            Live operations - Current day meter readings with OCR or manual entry
+            <br />
+            <span className="text-xs text-orange-600">For backdated entries, use the <strong>Backdated Entries</strong> page</span>
+          </p>
         </div>
         <Button onClick={() => setIsDialogOpen(true)}>
           <Plus className="mr-2 h-4 w-4" />
@@ -975,6 +983,12 @@ export function MeterReadings() {
                     const duration = Math.floor((new Date().getTime() - new Date((currentShift as any).openedAt).getTime()) / 1000 / 60);
                     const hours = Math.floor(duration / 60);
                     const mins = duration % 60;
+
+                    // If shift is more than 24 hours old, it's likely stale and needs closing
+                    if (hours > 24) {
+                      return <span className="text-red-600 text-base">Shift overdue - please close</span>;
+                    }
+
                     return `${hours}h ${mins}m`;
                   })() : 'N/A'}
                 </div>

@@ -535,3 +535,31 @@ Each entry follows:
 - **Rule**: Petrol pump auto-sync must follow shift sequence, not same-shift-next-day. Always check shift type (Day/Night) to determine target shift and date. Within same day: Day→Night. Across days: Night→Day.
 
 ---
+
+## 2026-04-06 — Meter Readings appearing in Backdated Entries (P0)
+
+- **Error**: Data entered in Meter Readings tab populated in Backdated Entries tab - pages were synced when they should be separate
+- **Context**: Client testing - entered current day data in Meter Readings, saw it appear in Backdated Entries page
+- **Root Cause**: Both pages query same API endpoint without proper date filtering:
+  - **MeterReadings.tsx** (line 107): Called `meterReadingsApi.getAll()` with NO date filter → returned ALL readings from all dates
+  - **BackdatedEntries.tsx** (line 210): Called `meterReadingsApi.getAll({ date: businessDate })` → returned specific historical date
+  - Result: Current day readings appeared in BOTH pages when user selected today's date in Backdated Entries
+- **Architectural Intent**:
+  - **Meter Readings page** = Live operations, CURRENT DAY data only (today's shift operations)
+  - **Backdated Entries page** = Historical backlog, PAST DATES only (accountant backfill)
+  - These should be completely separate workflows
+- **Fix**: RESOLVED
+  1. **MeterReadings.tsx** (line 107): Added `date: filterDate` parameter to API call (defaults to today)
+  2. Updated queryKey to include `filterDate` for proper cache invalidation
+  3. Added UI clarification: "Live operations - Current day meter readings" + note to use Backdated Entries for historical data
+  4. **BackdatedEntries.tsx** (line 981): Added UI clarification: "Historical backlog" + note to use Meter Readings for live ops
+- **Additional Fixes** (same commit):
+  - **POS.tsx**: Removed MeterReadingCapture component from Fuel Sale page (user request - meter readings should only be in dedicated page)
+  - **MeterReadings.tsx** (line 971-981): Fixed shift duration display to show "Shift overdue - please close" for shifts > 24 hours old (prevents 849h display bug)
+- **Rule**:
+  1. **ALWAYS filter Meter Readings by date** - never query all historical data on live operations page
+  2. **Page separation**: Meter Readings = TODAY (live), Backdated Entries = HISTORICAL (backfill) - keep these workflows distinct
+  3. **Date filters**: Any page showing transactional data MUST filter by business date to prevent cross-contamination
+  4. **Test both pages**: After changes, verify that data entered in one page does NOT appear in the other (unless same date selected)
+
+---

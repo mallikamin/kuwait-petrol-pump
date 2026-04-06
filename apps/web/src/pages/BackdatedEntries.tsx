@@ -978,7 +978,11 @@ export function BackdatedEntries() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Backdated Entries</h1>
-          <p className="text-muted-foreground">Transaction-level backfill for accountant processing</p>
+          <p className="text-muted-foreground">
+            Historical backlog - Transaction-level backfill for accountant processing
+            <br />
+            <span className="text-xs text-orange-600">For today's live operations, use the <strong>Meter Readings</strong> page</span>
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <Badge variant="outline" className="text-orange-600 border-orange-600">
