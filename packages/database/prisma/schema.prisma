@@ -1059,6 +1059,7 @@ model BackdatedTransaction {
 
   // Payment method
   paymentMethod       String   @map("payment_method") @db.VarChar(50) // 'cash', 'credit_card', 'bank_card', 'pso_card', 'credit_customer'
+  bankId              String?  @map("bank_id") @db.Uuid // Required if paymentMethod='credit_card' or 'bank_card'
 
   // Transaction timestamp (backdated)
   transactionDateTime DateTime @map("transaction_datetime") @db.Timestamptz
@@ -1078,6 +1079,7 @@ model BackdatedTransaction {
 
   // Relations
   backdatedEntry      BackdatedEntry @relation(fields: [backdatedEntryId], references: [id], onDelete: Cascade)
+  bank                Bank?          @relation(fields: [bankId], references: [id])
   createdByUser       User?          @relation("BackdatedTransactionCreatedBy", fields: [createdBy], references: [id])
   updatedByUser       User?          @relation("BackdatedTransactionUpdatedBy", fields: [updatedBy], references: [id])
   customer            Customer?      @relation(fields: [customerId], references: [id])
