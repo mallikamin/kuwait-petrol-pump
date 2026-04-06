@@ -133,12 +133,15 @@ export function BackdatedEntries() {
     },
   });
 
-  // Fetch current fuel prices from API
+  // Fetch fuel prices for the selected business date (historical prices for backdated entries)
   const { data: fuelPricesData } = useQuery({
-    queryKey: ['fuel-prices', 'current'],
+    queryKey: ['fuel-prices', 'for-date', businessDate],
+    enabled: !!businessDate,
     queryFn: async () => {
-      const res = await apiClient.get('/api/fuel-prices/current');
-      // API returns array directly, not wrapped in prices property
+      if (!businessDate) return [];
+      const res = await apiClient.get('/api/fuel-prices/for-date', {
+        params: { date: businessDate },
+      });
       return res.data || [];
     },
   });

@@ -6,6 +6,7 @@ const router = Router();
 const controller = new FuelPricesController();
 
 router.get('/current', controller.getCurrentPrices);
+router.get('/for-date', controller.getPricesForDate); // Get prices for specific date (backdated)
 router.get('/history', authenticate, controller.getPriceHistory);
 router.post('/', authenticate, authorize('admin', 'manager'), controller.updatePrice);
 router.get('/fuel-types', controller.getFuelTypes);

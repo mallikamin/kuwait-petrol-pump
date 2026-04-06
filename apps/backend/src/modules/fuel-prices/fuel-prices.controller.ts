@@ -68,4 +68,28 @@ export class FuelPricesController {
       next(error);
     }
   };
+
+  /**
+   * Get fuel prices for a specific date (for backdated transactions)
+   * Query param: date (YYYY-MM-DD format)
+   */
+  getPricesForDate = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { date } = req.query;
+
+      if (!date || typeof date !== 'string') {
+        return res.status(400).json({ error: 'Date parameter required (YYYY-MM-DD)' });
+      }
+
+      const targetDate = new Date(date);
+      if (isNaN(targetDate.getTime())) {
+        return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD' });
+      }
+
+      const prices = await this.service.getPricesForDate(targetDate);
+      res.json(prices);
+    } catch (error) {
+      next(error);
+    }
+  };
 }

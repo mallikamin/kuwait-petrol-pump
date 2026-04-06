@@ -23,4 +23,12 @@ export const fuelPricesApi = {
     const response = await apiClient.post<FuelPrice>('/api/fuel-prices', data);
     return response.data;
   },
+
+  // Get prices for a specific date (for backdated transactions)
+  getPricesForDate: async (date: string): Promise<any[]> => {
+    const response = await apiClient.get<any[]>('/api/fuel-prices/for-date', {
+      params: { date }, // Format: YYYY-MM-DD
+    });
+    return response.data;
+  },
 };
