@@ -55,7 +55,7 @@ import {
 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
-type PaymentMethod = 'cash' | 'credit' | 'card' | 'pso_card' | 'other';
+type PaymentMethod = 'cash' | 'credit_card' | 'bank_card' | 'pso_card' | 'credit_customer';
 type SaleTab = 'fuel' | 'product';
 
 interface CartItem {
@@ -71,6 +71,9 @@ interface FuelTransaction {
   customerId: string;
   customerName: string;
   vehicleNumber: string;
+  slipNumber: string;
+  paymentMethod: PaymentMethod;
+  bankId: string; // Required for credit_card/bank_card
   fuelTypeId: string;
   fuelTypeName: string;
   quantityLiters: string;
@@ -257,6 +260,9 @@ export function POS() {
       customerId,
       customerName,
       vehicleNumber: '',
+      slipNumber: '',
+      paymentMethod: 'cash',
+      bankId: '',
       fuelTypeId: '',
       fuelTypeName: '',
       quantityLiters: '',
@@ -281,6 +287,7 @@ export function POS() {
       ...lastTxn,
       id: `fuel-${Date.now()}-${Math.random()}`,
       vehicleNumber: '', // Clear vehicle number for new entry
+      slipNumber: '', // Clear slip number for new entry
     };
     setFuelTransactions(prev => [...prev, duplicate]);
   };
@@ -351,24 +358,50 @@ export function POS() {
     // Phase B - Validate individual fuel transactions
     if (activeTab === 'fuel') {
       const invalidTxns = fuelTransactions.filter(
-        txn => !txn.fuelTypeId || !txn.quantityLiters || parseFloat(txn.quantityLiters) <= 0
+        txn => !txn.fuelTypeId || !txn.quantityLiters || parseFloat(txn.quantityLiters) <= 0 || !txn.paymentMethod
       );
       if (invalidTxns.length > 0) {
         toast({
           title: 'Incomplete transactions',
-          description: `${invalidTxns.length} row(s) missing fuel type or quantity. Complete all rows before submitting.`,
+          description: `${invalidTxns.length} row(s) missing fuel type, quantity, or payment method. Complete all rows before submitting.`,
           variant: 'destructive',
         });
         return;
       }
 
-      // Validate vehicle numbers for credit sales
-      if (paymentMethod === 'credit') {
-        const missingVehicle = fuelTransactions.filter(txn => !txn.vehicleNumber);
-        if (missingVehicle.length > 0) {
+      // Validate credit_customer rows have vehicle# + slip#
+      const missingCreditFields = fuelTransactions.filter(
+        txn => txn.paymentMethod === 'credit_customer' && (!txn.vehicleNumber || !txn.slipNumber)
+      );
+      if (missingCreditFields.length > 0) {
+        toast({
+          title: 'Credit customer requirements',
+          description: 'Credit customer sales require vehicle number and slip number for all transactions.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      // Validate card rows have bankId
+      const missingBanks = fuelTransactions.filter(
+        txn => (txn.paymentMethod === 'credit_card' || txn.paymentMethod === 'bank_card') && !txn.bankId
+      );
+      if (missingBanks.length > 0) {
+        toast({
+          title: 'Bank required',
+          description: 'Card payments require bank selection for all transactions.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      // Validate same payment method within each customer group
+      for (const group of fuelCustomerGroups) {
+        const paymentMethods = new Set(group.txns.map(txn => txn.paymentMethod));
+        if (paymentMethods.size > 1) {
           toast({
-            title: 'Vehicle numbers required',
-            description: 'Credit sales require vehicle numbers for all transactions.',
+            title: 'Mixed payment methods not allowed',
+            description: `Customer "${group.customerName}" has transactions with different payment methods. All transactions for the same customer must use the same payment method.`,
             variant: 'destructive',
           });
           return;
@@ -399,14 +432,22 @@ export function POS() {
         for (const group of fuelCustomerGroups) {
           const groupTotal = group.txns.reduce((sum, txn) => sum + parseFloat(txn.lineTotal || '0'), 0);
 
+          // Derive sale-level payment details from first row (all rows have same payment method due to validation)
+          const firstTxn = group.txns[0];
+          const groupPaymentMethod = firstTxn.paymentMethod;
+          const groupBankId = (groupPaymentMethod === 'credit_card' || groupPaymentMethod === 'bank_card')
+            ? firstTxn.bankId
+            : undefined;
+          const groupSlipNumber = firstTxn.slipNumber || undefined;
+
           const saleData: Omit<QueuedSale, 'offlineQueueId' | 'queuedAt' | 'attempts' | 'status'> = {
             branchId,
             saleType: 'fuel',
             saleDate: new Date().toISOString(),
             totalAmount: groupTotal,
-            paymentMethod,
-            bankId: paymentMethod === 'card' ? selectedBankId : undefined,
-            slipNumber: slipNumber || undefined,
+            paymentMethod: groupPaymentMethod,
+            bankId: groupBankId,
+            slipNumber: groupSlipNumber,
             customerId: group.customerId,
             vehicleNumber: undefined, // Each fuel sale has its own vehicle number
             fuelSales: group.txns.map(txn => ({
@@ -707,10 +748,11 @@ export function POS() {
                             <div className="space-y-3 mt-2">
                               {group.indices.map((globalIdx) => {
                                 const txn = fuelTransactions[globalIdx];
+                                const showBank = txn.paymentMethod === 'credit_card' || txn.paymentMethod === 'bank_card';
                                 return (
-                                  <div key={txn.id} className="grid grid-cols-12 gap-2 items-start p-2 rounded border bg-muted/30">
-                                    {/* Vehicle Number */}
-                                    <div className="col-span-3">
+                                  <div key={txn.id} className="flex gap-2 items-start p-2 rounded border bg-muted/30">
+                                    {/* Vehicle # */}
+                                    <div className="w-32">
                                       <Input
                                         placeholder="Vehicle#"
                                         value={txn.vehicleNumber}
@@ -719,8 +761,69 @@ export function POS() {
                                       />
                                     </div>
 
+                                    {/* Slip # */}
+                                    <div className="w-28">
+                                      <Input
+                                        placeholder="Slip#"
+                                        value={txn.slipNumber}
+                                        onChange={(e) => updateFuelTransaction(globalIdx, 'slipNumber', e.target.value)}
+                                        className="h-8 text-xs"
+                                      />
+                                    </div>
+
+                                    {/* Payment Method */}
+                                    <div className="w-36">
+                                      <Select
+                                        value={txn.paymentMethod}
+                                        onValueChange={(v) => {
+                                          updateFuelTransaction(globalIdx, 'paymentMethod', v as PaymentMethod);
+                                          if (v !== 'credit_card' && v !== 'bank_card') {
+                                            updateFuelTransaction(globalIdx, 'bankId', '');
+                                          }
+                                        }}
+                                      >
+                                        <SelectTrigger className="h-8 text-xs">
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="cash">Cash</SelectItem>
+                                          <SelectItem value="credit_card">Credit Card</SelectItem>
+                                          <SelectItem value="bank_card">Bank Card</SelectItem>
+                                          <SelectItem value="pso_card">PSO Card</SelectItem>
+                                          <SelectItem value="credit_customer">Credit Customer</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+
+                                    {/* Bank (conditional) */}
+                                    {showBank && (
+                                      <div className="w-36">
+                                        <Select
+                                          value={txn.bankId}
+                                          onValueChange={(v) => updateFuelTransaction(globalIdx, 'bankId', v)}
+                                        >
+                                          <SelectTrigger className="h-8 text-xs">
+                                            <SelectValue placeholder="Bank *" />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            {banks.length > 0 ? (
+                                              banks.map((bank: any) => (
+                                                <SelectItem key={bank.id} value={bank.id}>
+                                                  {bank.name}
+                                                </SelectItem>
+                                              ))
+                                            ) : (
+                                              <SelectItem value="__no_banks__" disabled>
+                                                No banks available
+                                              </SelectItem>
+                                            )}
+                                          </SelectContent>
+                                        </Select>
+                                      </div>
+                                    )}
+
                                     {/* Fuel Type */}
-                                    <div className="col-span-3">
+                                    <div className="w-28">
                                       <Select
                                         value={txn.fuelTypeId}
                                         onValueChange={(v) => updateFuelTransaction(globalIdx, 'fuelTypeId', v)}
@@ -736,8 +839,8 @@ export function POS() {
                                       </Select>
                                     </div>
 
-                                    {/* Quantity */}
-                                    <div className="col-span-2">
+                                    {/* Liters */}
+                                    <div className="w-24">
                                       <Input
                                         type="number"
                                         step="0.01"
@@ -748,18 +851,18 @@ export function POS() {
                                       />
                                     </div>
 
-                                    {/* Unit Price (read-only, auto-filled) */}
-                                    <div className="col-span-2">
+                                    {/* Price/L (read-only) */}
+                                    <div className="w-20">
                                       <Input
                                         value={txn.pricePerLiter}
                                         readOnly
                                         className="h-8 text-xs bg-muted"
-                                        title="Price per liter (auto-filled)"
+                                        title="Price per liter"
                                       />
                                     </div>
 
-                                    {/* Line Total (read-only) */}
-                                    <div className="col-span-1">
+                                    {/* Total (read-only) */}
+                                    <div className="w-24">
                                       <Input
                                         value={txn.lineTotal}
                                         readOnly
@@ -768,8 +871,8 @@ export function POS() {
                                       />
                                     </div>
 
-                                    {/* Remove Button */}
-                                    <div className="col-span-1 flex justify-end">
+                                    {/* Delete */}
+                                    <div className="flex-shrink-0">
                                       <Button
                                         size="icon"
                                         variant="ghost"
@@ -995,12 +1098,15 @@ export function POS() {
                     <div className="flex justify-between items-start">
                       <div>
                         <p className="text-sm font-medium">{txn.customerName}</p>
-                        <p className="text-xs text-muted-foreground">{txn.fuelTypeName} • {txn.vehicleNumber || 'No vehicle'}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {txn.fuelTypeName} • {txn.vehicleNumber || 'No vehicle'} • {txn.paymentMethod.replace('_', ' ')}
+                        </p>
                       </div>
                       <span className="text-sm font-bold">{formatCurrency(parseFloat(txn.lineTotal || '0'))}</span>
                     </div>
                     <div className="text-xs text-muted-foreground mt-1">
                       {txn.quantityLiters}L × {formatCurrency(parseFloat(txn.pricePerLiter || '0'))}/L
+                      {txn.slipNumber && ` • Slip: ${txn.slipNumber}`}
                     </div>
                   </div>
                 ))}
@@ -1065,130 +1171,149 @@ export function POS() {
           </CardContent>
         </Card>
 
-        {/* Payment Section */}
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Payment Details</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {/* Customer Selection */}
-            <div className="space-y-1.5">
-              <Label className="text-xs">Customer (optional)</Label>
-              <CustomerSelector
-                customers={customers}
-                value={selectedCustomerId}
-                onChange={setSelectedCustomerId}
-                placeholder={customersLoading ? "Loading customers..." : "Walk-in customer"}
-                onCustomerAdded={() => refetchCustomers()}
-              />
-              {customersError && (
-                <Alert variant="destructive" className="py-2">
+        {/* Payment Section - Only for Product tab (Fuel uses row-level payment) */}
+        {activeTab === 'product' && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Payment Details</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {/* Customer Selection */}
+              <div className="space-y-1.5">
+                <Label className="text-xs">Customer (optional)</Label>
+                <CustomerSelector
+                  customers={customers}
+                  value={selectedCustomerId}
+                  onChange={setSelectedCustomerId}
+                  placeholder={customersLoading ? "Loading customers..." : "Walk-in customer"}
+                  onCustomerAdded={() => refetchCustomers()}
+                />
+                {customersError && (
+                  <Alert variant="destructive" className="py-2">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription className="text-xs">
+                      Failed to load customers. <Button variant="link" size="sm" className="h-auto p-0 text-xs underline" onClick={() => refetchCustomers()}>Retry</Button>
+                    </AlertDescription>
+                  </Alert>
+                )}
+                {selectedCustomer && (
+                  <div className="text-xs text-muted-foreground space-y-0.5">
+                    <div className="flex justify-between">
+                      <span>Balance:</span>
+                      <span className="font-medium">{formatCurrency(currentBalance)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Limit:</span>
+                      <span className="font-medium">{formatCurrency(selectedCustomer.creditLimit || 0)}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Credit Limit Warning */}
+              {creditLimitExceeded && paymentMethod === 'credit_customer' && (
+                <Alert variant="destructive">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription className="text-xs">
-                    Failed to load customers. <Button variant="link" size="sm" className="h-auto p-0 text-xs underline" onClick={() => refetchCustomers()}>Retry</Button>
+                    Credit limit exceeded! Current: {formatCurrency(currentBalance)}, Limit: {formatCurrency(selectedCustomer!.creditLimit || 0)}
                   </AlertDescription>
                 </Alert>
               )}
-              {selectedCustomer && (
-                <div className="text-xs text-muted-foreground space-y-0.5">
-                  <div className="flex justify-between">
-                    <span>Balance:</span>
-                    <span className="font-medium">{formatCurrency(currentBalance)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Limit:</span>
-                    <span className="font-medium">{formatCurrency(selectedCustomer.creditLimit || 0)}</span>
-                  </div>
+
+              {/* Vehicle Number (for customer sales) */}
+              {selectedCustomerId && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Vehicle Number (optional)</Label>
+                  <Input
+                    placeholder="e.g. ABC-1234"
+                    value={vehicleNumber}
+                    onChange={(e) => setVehicleNumber(e.target.value)}
+                  />
                 </div>
               )}
-            </div>
 
-            {/* Credit Limit Warning */}
-            {creditLimitExceeded && paymentMethod === 'credit' && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription className="text-xs">
-                  Credit limit exceeded! Current: {formatCurrency(currentBalance)}, Limit: {formatCurrency(selectedCustomer!.creditLimit || 0)}
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {/* Vehicle Number (for fuel sales or customer sales) */}
-            {(activeTab === 'fuel' || selectedCustomerId) && (
               <div className="space-y-1.5">
-                <Label className="text-xs">Vehicle Number {activeTab === 'fuel' && paymentMethod === 'credit' ? '*' : '(optional)'}</Label>
-                <Input
-                  placeholder="e.g. ABC-1234"
-                  value={vehicleNumber}
-                  onChange={(e) => setVehicleNumber(e.target.value)}
-                />
-              </div>
-            )}
-
-            <div className="space-y-1.5">
-              <Label className="text-xs">Payment Method</Label>
-              <Select value={paymentMethod} onValueChange={(v) => {
-                setPaymentMethod(v as PaymentMethod);
-                if (v !== 'card') setSelectedBankId(''); // Clear bank when not card
-              }}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="cash">Cash</SelectItem>
-                  <SelectItem value="card">Card</SelectItem>
-                  <SelectItem value="credit">Credit</SelectItem>
-                  <SelectItem value="pso_card">PSO Card</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Bank selector - only for card payments */}
-            {paymentMethod === 'card' && (
-              <div className="space-y-1.5">
-                <Label className="text-xs">Bank *</Label>
-                <Select value={selectedBankId} onValueChange={setSelectedBankId}>
+                <Label className="text-xs">Payment Method</Label>
+                <Select value={paymentMethod} onValueChange={(v) => {
+                  setPaymentMethod(v as PaymentMethod);
+                  if (v !== 'credit_card' && v !== 'bank_card') setSelectedBankId('');
+                }}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select bank..." />
+                    <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {banks.length > 0 ? (
-                      banks.map((bank: any) => (
-                        <SelectItem key={bank.id} value={bank.id}>
-                          {bank.name}
-                        </SelectItem>
-                      ))
-                    ) : (
-                      <SelectItem value="__no_banks__" disabled>
-                        No banks available
-                      </SelectItem>
-                    )}
+                    <SelectItem value="cash">Cash</SelectItem>
+                    <SelectItem value="credit_card">Credit Card</SelectItem>
+                    <SelectItem value="bank_card">Bank Card</SelectItem>
+                    <SelectItem value="pso_card">PSO Card</SelectItem>
+                    <SelectItem value="credit_customer">Credit Customer</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-            )}
 
-            <div className="space-y-1.5">
-              <Label className="text-xs">Slip Number (optional)</Label>
-              <Input
-                placeholder="e.g. SL-0001"
-                value={slipNumber}
-                onChange={(e) => setSlipNumber(e.target.value)}
-              />
-            </div>
+              {/* Bank selector - only for card payments */}
+              {(paymentMethod === 'credit_card' || paymentMethod === 'bank_card') && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Bank *</Label>
+                  <Select value={selectedBankId} onValueChange={setSelectedBankId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select bank..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {banks.length > 0 ? (
+                        banks.map((bank: any) => (
+                          <SelectItem key={bank.id} value={bank.id}>
+                            {bank.name}
+                          </SelectItem>
+                        ))
+                      ) : (
+                        <SelectItem value="__no_banks__" disabled>
+                          No banks available
+                        </SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
-            <Button
-              className="w-full"
-              size="lg"
-              disabled={submitting || !hasItems || (activeTab === 'fuel' && paymentMethod === 'credit' && !vehicleNumber) || (paymentMethod === 'card' && !selectedBankId)}
-              onClick={handleSubmit}
-            >
-              <Send className="mr-2 h-4 w-4" />
-              {submitting ? 'Processing...' : `Complete Sale - ${formatCurrency(totalAmount)}`}
-            </Button>
-          </CardContent>
-        </Card>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Slip Number (optional)</Label>
+                <Input
+                  placeholder="e.g. SL-0001"
+                  value={slipNumber}
+                  onChange={(e) => setSlipNumber(e.target.value)}
+                />
+              </div>
+
+              <Button
+                className="w-full"
+                size="lg"
+                disabled={submitting || !hasItems || ((paymentMethod === 'credit_card' || paymentMethod === 'bank_card') && !selectedBankId)}
+                onClick={handleSubmit}
+              >
+                <Send className="mr-2 h-4 w-4" />
+                {submitting ? 'Processing...' : `Complete Sale - ${formatCurrency(totalAmount)}`}
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Fuel Tab: Submit Button Only */}
+        {activeTab === 'fuel' && (
+          <Card>
+            <CardContent className="pt-6">
+              <Button
+                className="w-full"
+                size="lg"
+                disabled={submitting || !hasItems}
+                onClick={handleSubmit}
+              >
+                <Send className="mr-2 h-4 w-4" />
+                {submitting ? 'Processing...' : `Complete Sale - ${formatCurrency(totalAmount)}`}
+              </Button>
+            </CardContent>
+          </Card>
+        )}
       </div>
     );
   }
