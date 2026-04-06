@@ -640,6 +640,18 @@ export function BackdatedEntries() {
     if (transactions.length > 0) setIsDirty(true);
   }, [transactions]);
 
+  // Save transactions to sessionStorage on every change (prevents data loss on navigation)
+  useEffect(() => {
+    if (selectedBranchId && businessDate && transactions.length > 0) {
+      const key = `backdated_transactions_${selectedBranchId}_${businessDate}_${selectedShiftId || 'all'}`;
+      sessionStorage.setItem(key, JSON.stringify({
+        transactions,
+        timestamp: Date.now(),
+      }));
+      console.log('[SessionStorage] Saved', transactions.length, 'transactions');
+    }
+  }, [transactions, selectedBranchId, businessDate, selectedShiftId]);
+
 
   // Load transactions from API on branch/date/shift change
   useEffect(() => {
@@ -672,6 +684,28 @@ export function BackdatedEntries() {
       apiCount: dailySummaryData?.transactions?.length || 0,
     });
 
+    // Try loading from sessionStorage first (preserves unsaved work)
+    const sessionKey = `backdated_transactions_${currentKey}`;
+    const sessionData = sessionStorage.getItem(sessionKey);
+    if (sessionData) {
+      try {
+        const { transactions: sessionTxns, timestamp } = JSON.parse(sessionData);
+        const ageMinutes = (Date.now() - timestamp) / 1000 / 60;
+
+        // Use session data if less than 30 minutes old
+        if (ageMinutes < 30 && sessionTxns.length > 0) {
+          console.log('[Transactions] Loading from sessionStorage:', sessionTxns.length, '(age:', Math.round(ageMinutes), 'min)');
+          setTransactions(sessionTxns);
+          setSyncMessage(`Restored ${sessionTxns.length} unsaved transactions from session.`);
+          setLoadedKey(currentKey);
+          return;
+        }
+      } catch (e) {
+        console.error('[SessionStorage] Parse error:', e);
+      }
+    }
+
+    // Load from API (server-saved data)
     if (dailySummaryData?.transactions && dailySummaryData.transactions.length > 0) {
       console.log('[Transactions] Loading from API:', dailySummaryData.transactions.length);
       setTransactions(
@@ -687,6 +721,7 @@ export function BackdatedEntries() {
           unitPrice: toNumber(txn.unitPrice).toFixed(2),
           lineTotal: toNumber(txn.lineTotal).toFixed(2),
           paymentMethod: txn.paymentMethod,
+          bankId: txn.bankId || '',
           // Audit fields
           createdBy: txn.createdBy,
           createdByUser: txn.createdByUser,
@@ -698,6 +733,8 @@ export function BackdatedEntries() {
       );
       setSyncMessage(`Loaded ${dailySummaryData.transactions.length} existing transactions.`);
       setLoadedKey(currentKey);
+      // Clear sessionStorage since we loaded from server
+      sessionStorage.removeItem(sessionKey);
     } else {
       console.log('[Transactions] No API data, clearing');
       setTransactions([]);
@@ -840,6 +877,12 @@ export function BackdatedEntries() {
       setIsDirty(false);
       justSavedRef.current = true; // Prevent useEffect from overwriting local state
       setLoadedKey(''); // Allow reload on next navigation (fresh data from server)
+
+      // Clear sessionStorage since data is now on server
+      const sessionKey = `backdated_transactions_${selectedBranchId}_${businessDate}_${selectedShiftId || 'all'}`;
+      sessionStorage.removeItem(sessionKey);
+      console.log('[SessionStorage] Cleared after successful save');
+
       refetchDailySummary();
     },
     onError: (error: any) => {
