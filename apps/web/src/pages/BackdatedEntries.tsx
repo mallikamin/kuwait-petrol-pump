@@ -16,7 +16,7 @@ import {
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle, Users, Copy, Search, Gauge, Camera, Edit } from 'lucide-react';
+import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle, Users, Copy, Search, Gauge, Camera, Edit, Loader2 } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { branchesApi, customersApi, meterReadingsApi } from '@/api';
 import { banksApi } from '@/api/banks';
@@ -670,6 +670,52 @@ export function BackdatedEntries() {
     dailySummaryData,
   ]);
 
+  // Auto-backup to localStorage (prevent data loss)
+  useEffect(() => {
+    if (transactions.length > 0 && selectedBranchId && businessDate) {
+      const backupKey = `backdated_backup_${selectedBranchId}_${businessDate}`;
+      localStorage.setItem(backupKey, JSON.stringify({
+        transactions,
+        timestamp: new Date().toISOString(),
+        branchId: selectedBranchId,
+        businessDate,
+      }));
+      console.log('[Auto-Backup] Saved to localStorage:', backupKey, transactions.length, 'transactions');
+    }
+  }, [transactions, selectedBranchId, businessDate]);
+
+  // Recovery: Check for localStorage backup on mount
+  useEffect(() => {
+    if (!selectedBranchId || !businessDate) return;
+
+    const backupKey = `backdated_backup_${selectedBranchId}_${businessDate}`;
+    const backup = localStorage.getItem(backupKey);
+
+    if (backup && transactions.length === 0) {
+      try {
+        const parsed = JSON.parse(backup);
+        const backupAge = Date.now() - new Date(parsed.timestamp).getTime();
+
+        // If backup is less than 24 hours old, offer recovery
+        if (backupAge < 24 * 60 * 60 * 1000) {
+          const recover = window.confirm(
+            `Found unsaved data from ${new Date(parsed.timestamp).toLocaleString()}.\n\n` +
+            `${parsed.transactions.length} transactions.\n\n` +
+            `Recover this data?`
+          );
+
+          if (recover) {
+            setTransactions(parsed.transactions);
+            toast.success(`Recovered ${parsed.transactions.length} transactions from backup`);
+            console.log('[Recovery] Restored from localStorage:', backupKey);
+          }
+        }
+      } catch (err) {
+        console.error('[Recovery] Failed to parse backup:', err);
+      }
+    }
+  }, [selectedBranchId, businessDate]);
+
   // Auto-save timer (2 minutes)
   useEffect(() => {
     if (!isDirty || transactions.length === 0 || !selectedBranchId) return;
@@ -730,22 +776,44 @@ export function BackdatedEntries() {
   // Save daily draft mutation (new consolidated API)
   const saveDailyDraftMutation = useMutation({
     mutationFn: async () => {
+      console.log('[Save Draft] Starting...', {
+        branchId: selectedBranchId,
+        businessDate,
+        transactionCount: transactions.length,
+      });
+
       if (!selectedBranchId) {
-        throw new Error('Please select a branch');
+        const error = 'Please select a branch';
+        console.error('[Save Draft] Validation failed:', error);
+        throw new Error(error);
       }
 
       if (transactions.length === 0) {
-        throw new Error('No transactions to save');
+        const error = 'No transactions to save';
+        console.error('[Save Draft] Validation failed:', error);
+        throw new Error(error);
       }
 
       // Validate credit customer requirements
       for (const txn of transactions) {
         if (txn.paymentMethod === 'credit_customer') {
           if (!txn.customerId || !txn.vehicleNumber || !txn.slipNumber) {
-            throw new Error(`Credit customer transaction requires customer, vehicle#, and slip# (row with ${txn.quantity}L)`);
+            const error = `Credit customer transaction requires customer, vehicle#, and slip# (row with ${txn.quantity}L)`;
+            console.error('[Save Draft] Validation failed:', error);
+            throw new Error(error);
           }
         }
       }
+
+      console.log('[Save Draft] Sending to API:', {
+        endpoint: '/api/backdated-entries/daily',
+        payload: {
+          branchId: selectedBranchId,
+          businessDate,
+          shiftId: selectedShiftId || undefined,
+          transactionCount: transactions.length,
+        },
+      });
 
       const res = await apiClient.post('/api/backdated-entries/daily', {
         branchId: selectedBranchId,
@@ -761,12 +829,18 @@ export function BackdatedEntries() {
           unitPrice: toNumber(txn.unitPrice),
           lineTotal: toNumber(txn.lineTotal),
           paymentMethod: txn.paymentMethod,
+          bankId: txn.bankId || undefined,
         })),
       });
 
+      console.log('[Save Draft] API response:', res.data);
       return res.data.data;
     },
     onSuccess: () => {
+      console.log('[Save Draft] Success! Clearing localStorage backup...');
+      const backupKey = `backdated_backup_${selectedBranchId}_${businessDate}`;
+      localStorage.removeItem(backupKey);
+
       toast.success('Draft saved successfully');
       setLastSaved(new Date());
       setIsDirty(false);
@@ -775,8 +849,17 @@ export function BackdatedEntries() {
       refetchDailySummary();
     },
     onError: (error: any) => {
+      console.error('[Save Draft] Error:', {
+        message: error.message,
+        response: error?.response?.data,
+        status: error?.response?.status,
+      });
+
       const errorMsg = error?.response?.data?.error || error.message || 'Failed to save draft';
       toast.error(errorMsg);
+
+      // Keep localStorage backup on error
+      console.log('[Save Draft] Keeping localStorage backup due to error');
     },
   });
 
@@ -811,6 +894,11 @@ export function BackdatedEntries() {
   });
 
   const handleSaveDraft = async () => {
+    console.log('[Save Draft] Button clicked', {
+      transactionCount: transactions.length,
+      branchId: selectedBranchId,
+      businessDate,
+    });
     await saveDailyDraftMutation.mutateAsync();
   };
 
@@ -1648,25 +1736,43 @@ export function BackdatedEntries() {
               )}
 
               {transactions.length > 0 && (
-                <div className="flex justify-end gap-2 mt-6 pt-4 border-t">
-                  <Button variant="outline" onClick={resetForm}>Cancel</Button>
-                  <Button
-                    variant="outline"
-                    onClick={handleSaveDraft}
-                    disabled={saveDailyDraftMutation.isPending}
-                  >
-                    <Save className="h-4 w-4 mr-2" />
-                    Save Draft
-                    {lastSaved && <span className="text-xs ml-2">({format(lastSaved, 'HH:mm')})</span>}
-                  </Button>
-                  <Button
-                    onClick={handleFinalizeDay}
-                    disabled={finalizeDayMutation.isPending || isDirty}
-                    className="bg-green-600 hover:bg-green-700"
-                  >
-                    <CheckCircle className="h-4 w-4 mr-2" />
-                    Finalize Day
-                  </Button>
+                <div className="flex justify-between items-center gap-4 mt-6 pt-4 border-t">
+                  {/* Transaction count indicator */}
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <span className="font-semibold">{transactions.length}</span>
+                    <span>transaction{transactions.length !== 1 ? 's' : ''} ready to save</span>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={resetForm}>Cancel</Button>
+                    <Button
+                      variant="outline"
+                      onClick={handleSaveDraft}
+                      disabled={saveDailyDraftMutation.isPending || transactions.length === 0}
+                      title={transactions.length === 0 ? 'Add transactions first' : 'Save all transactions'}
+                    >
+                      {saveDailyDraftMutation.isPending ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <Save className="h-4 w-4 mr-2" />
+                          Save Draft
+                          {lastSaved && <span className="text-xs ml-2">({format(lastSaved, 'HH:mm')})</span>}
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      onClick={handleFinalizeDay}
+                      disabled={finalizeDayMutation.isPending || isDirty}
+                      className="bg-green-600 hover:bg-green-700"
+                    >
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      Finalize Day
+                    </Button>
+                  </div>
                 </div>
               )}
             </CardContent>
