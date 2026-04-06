@@ -15,13 +15,14 @@ export interface QueuedSale {
   taxAmount?: number;
   discountAmount?: number;
   paymentMethod: 'cash' | 'credit' | 'card' | 'pso_card' | 'other';
+  bankId?: string; // Required for card payments
   customerId?: string;
   vehicleNumber?: string;
   slipNumber?: string;
   cashierId?: string;
   // Line items
   fuelSales?: Array<{
-    nozzleId: string;
+    nozzleId?: string; // Optional - POS doesn't track nozzles
     fuelTypeId: string;
     quantityLiters: number;
     pricePerLiter: number;
