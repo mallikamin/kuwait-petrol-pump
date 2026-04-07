@@ -509,9 +509,9 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                         <div className="mt-2">
                           <Label className="text-xs">All candidates ({item.candidates.length}):</Label>
                           <Select
-                            value={item.decisionAccountId ?? ''}
+                            value={String(item.decisionAccountId ?? '')}
                             onValueChange={(value) => {
-                              const candidate = item.candidates.find((c) => c.qbAccountId === value);
+                              const candidate = item.candidates.find((c) => String(c.qbAccountId) === String(value));
                               if (candidate) {
                                 handleDecisionChange(item.needKey, 'use_existing', value, candidate.qbAccountName);
                               }
@@ -520,13 +520,13 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                             <SelectTrigger className="mt-1 h-8 text-xs">
                               <SelectValue placeholder="Select candidate...">
                                 {item.decisionAccountId
-                                  ? item.candidates.find(c => c.qbAccountId === item.decisionAccountId)?.qbAccountName || 'Selected'
+                                  ? item.candidates.find(c => String(c.qbAccountId) === String(item.decisionAccountId))?.qbAccountName || 'Selected'
                                   : 'Select candidate...'}
                               </SelectValue>
                             </SelectTrigger>
                             <SelectContent>
                               {item.candidates.map((candidate, idx) => (
-                                <SelectItem key={candidate.qbAccountId || candidate.qbEntityId} value={candidate.qbAccountId || candidate.qbEntityId}>
+                                <SelectItem key={String(candidate.qbAccountId || candidate.qbEntityId)} value={String(candidate.qbAccountId || candidate.qbEntityId)}>
                                   {idx === 0 && '⭐ '}{candidate.qbAccountName || candidate.qbEntityName} ({(candidate.score * 100).toFixed(0)}%)
                                 </SelectItem>
                               ))}
@@ -612,13 +612,10 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                           <div className="mt-2">
                             <Label className="text-xs">All candidates ({item.candidates.length}):</Label>
                             <Select
-                              value={item.decisionEntityId ?? ''}
+                              value={String(item.decisionEntityId ?? '')}
                               onValueChange={(value) => {
-                                console.log('[Dropdown] Selected value:', value);
-                                const candidate = item.candidates.find((c) => c.qbEntityId === value);
-                                console.log('[Dropdown] Found candidate:', candidate);
+                                const candidate = item.candidates.find((c) => String(c.qbEntityId) === String(value));
                                 if (candidate) {
-                                  console.log('[Dropdown] Updating decision for', item.localId, 'to', value);
                                   handleEntityDecisionChange(
                                     item.localId,
                                     item.entityType,
@@ -632,13 +629,13 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                               <SelectTrigger className="mt-1 h-8 text-xs">
                                 <SelectValue placeholder="Select candidate...">
                                   {item.decisionEntityId
-                                    ? item.candidates.find(c => c.qbEntityId === item.decisionEntityId)?.qbEntityName || 'Selected'
+                                    ? item.candidates.find(c => String(c.qbEntityId) === String(item.decisionEntityId))?.qbEntityName || 'Selected'
                                     : 'Select candidate...'}
                                 </SelectValue>
                               </SelectTrigger>
                               <SelectContent>
                                 {item.candidates.map((candidate, idx) => (
-                                  <SelectItem key={candidate.qbEntityId} value={candidate.qbEntityId}>
+                                  <SelectItem key={String(candidate.qbEntityId)} value={String(candidate.qbEntityId)}>
                                     {idx === 0 && '⭐ '}{candidate.qbEntityName} ({(candidate.score * 100).toFixed(0)}%)
                                   </SelectItem>
                                 ))}

@@ -75,7 +75,7 @@ export class EntityMappingService {
     const normalizedEntityType = entityType.toLowerCase().trim() as EntityType;
 
     // Validate entityType enum
-    const validTypes: EntityType[] = ['customer', 'payment_method', 'item', 'vendor', 'expense_account', 'bank_account'];
+    const validTypes: EntityType[] = ['customer', 'payment_method', 'item', 'vendor', 'expense_account', 'bank_account', 'bank', 'account'];
     if (!validTypes.includes(normalizedEntityType)) {
       throw new EntityMappingError(
         `Invalid entityType: ${entityType}. Must be one of: ${validTypes.join(', ')}`
@@ -149,7 +149,7 @@ export class EntityMappingService {
 
     // Normalize and validate entityType
     const normalizedEntityType = entityType.toLowerCase().trim() as EntityType;
-    const validTypes: EntityType[] = ['customer', 'payment_method', 'item'];
+    const validTypes: EntityType[] = ['customer', 'payment_method', 'item', 'bank', 'account'];
     if (!validTypes.includes(normalizedEntityType)) {
       throw new EntityMappingError(
         `Invalid entityType: ${entityType}. Must be one of: ${validTypes.join(', ')}`
@@ -207,7 +207,7 @@ export class EntityMappingService {
 
     // Normalize and validate entityType
     const normalizedEntityType = entityType.toLowerCase().trim() as EntityType;
-    const validTypes: EntityType[] = ['customer', 'payment_method', 'item'];
+    const validTypes: EntityType[] = ['customer', 'payment_method', 'item', 'bank', 'account'];
     if (!validTypes.includes(normalizedEntityType)) {
       throw new EntityMappingError(
         `Invalid entityType: ${entityType}. Must be one of: ${validTypes.join(', ')}`

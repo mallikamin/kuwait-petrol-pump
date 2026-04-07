@@ -1030,7 +1030,7 @@ router.get('/mappings', authenticate, async (req: Request, res: Response) => {
 
     // Validate entityType if provided
     if (entityType) {
-      const validTypes: EntityType[] = ['customer', 'payment_method', 'item'];
+      const validTypes: EntityType[] = ['customer', 'payment_method', 'item', 'bank', 'account'];
       if (!validTypes.includes(entityType as EntityType)) {
         return res.status(400).json({
           error: `Invalid entityType: ${entityType}. Must be one of: ${validTypes.join(', ')}`
@@ -1081,7 +1081,7 @@ router.post('/mappings', authenticate, authorize('admin', 'manager'), async (req
     }
 
     // Validate entityType
-    const validTypes: EntityType[] = ['customer', 'payment_method', 'item'];
+    const validTypes: EntityType[] = ['customer', 'payment_method', 'item', 'bank', 'account'];
     if (!validTypes.includes(entityType)) {
       return res.status(400).json({
         error: `Invalid entityType: ${entityType}. Must be one of: ${validTypes.join(', ')}`
@@ -1145,7 +1145,7 @@ router.post('/mappings/bulk', authenticate, authorize('admin', 'manager'), async
     }
 
     // Validate each mapping row
-    const validTypes: EntityType[] = ['customer', 'payment_method', 'item'];
+    const validTypes: EntityType[] = ['customer', 'payment_method', 'item', 'bank', 'account'];
     for (let i = 0; i < mappings.length; i++) {
       const row = mappings[i];
       if (!row.entityType || !row.localId || !row.qbId) {

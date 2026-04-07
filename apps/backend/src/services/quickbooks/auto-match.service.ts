@@ -234,6 +234,9 @@ export class AutoMatchService {
         mappedQBIds.get(mapping.entityType)!.add(mapping.qbId);
       }
 
+      // Get already-mapped account need keys
+      const mappedAccountNeedKeys = mappedLocalIds.get('account') || new Set();
+
       const unmappedCustomers = customers.filter(c => !mappedLocalIds.get('customer')?.has(c.id));
       const unmappedFuelTypes = fuelTypes.filter(f => !mappedLocalIds.get('item')?.has(f.id));
       const unmappedProducts = products.filter(p => !mappedLocalIds.get('item')?.has(p.id));
@@ -251,9 +254,9 @@ export class AutoMatchService {
         },
       });
 
-      // 3. Match Accounts (exclude already-mapped QB accounts)
+      // 3. Match Accounts (exclude already-mapped QB accounts AND account needs)
       const { items: accountItems, matched: accountsMatched, candidates: accountsCandidates, unmatched: accountsUnmatched, unmappedQB } =
-        await this.matchAccounts(snapshot.accounts, mappedQBIds.get('account') || new Set());
+        await this.matchAccounts(snapshot.accounts, mappedQBIds.get('account') || new Set(), mappedAccountNeedKeys);
 
       // 4. Match Customers (only unmapped, exclude already-mapped QB customers)
       const { items: customerItems, matched: customersMatched, candidates: customersCandidates, unmatched: customersUnmatched } =
@@ -377,7 +380,7 @@ export class AutoMatchService {
   /**
    * Match POS account needs against QB Chart of Accounts
    */
-  private static async matchAccounts(qbAccounts: any[], excludeQBIds: Set<string> = new Set()) {
+  private static async matchAccounts(qbAccounts: any[], excludeQBIds: Set<string> = new Set(), excludeNeedKeys: Set<string> = new Set()) {
     const items: MatchItem[] = [];
     const matchedAccountIds: Set<string> = new Set();
     let matchedCount = 0;
@@ -389,11 +392,20 @@ export class AutoMatchService {
 
     console.log('[matchAccounts] Filtering QB accounts:', {
       total: qbAccounts.length,
-      excluded: excludeQBIds.size,
+      excludedQBIds: excludeQBIds.size,
+      excludedNeedKeys: excludeNeedKeys.size,
       available: availableQBAccounts.length,
     });
 
-    for (const need of FUEL_STATION_NEEDS) {
+    // Filter out already-mapped account needs
+    const unmappedNeeds = FUEL_STATION_NEEDS.filter(need => !excludeNeedKeys.has(need.key));
+
+    console.log('[matchAccounts] Account needs:', {
+      total: FUEL_STATION_NEEDS.length,
+      unmapped: unmappedNeeds.length,
+    });
+
+    for (const need of unmappedNeeds) {
       let candidates = findBestMatches(
         need.label,
         need.expectedQBTypes[0] || 'Income',
@@ -698,13 +710,13 @@ export class AutoMatchService {
   ): Promise<{
     success: boolean;
     mappingsCreated: number;
-    errors: string[];
+    errors: Array<{ needKey: string; error: string }>;
   }> {
     const result = matchStore.get(resultId);
     if (!result) throw new Error(`Match result ${resultId} not found`);
 
     let mappingsCreated = 0;
-    const errors: string[] = [];
+    const errors: Array<{ needKey: string; error: string }> = [];
 
     for (const item of result.accountItems) {
       if (!item.decision) continue;
@@ -733,10 +745,67 @@ export class AutoMatchService {
           });
           mappingsCreated++;
         } else if (item.decision === 'create_new') {
-          errors.push(`Auto-create for ${item.needLabel} not yet implemented`);
+          // Create new QB Account
+          const { accessToken, realmId } = await getValidAccessToken(organizationId, prisma);
+          const apiUrl = getQBApiUrl();
+
+          // Determine QB account type and subtype from expected types
+          const qbAccountType = item.expectedQBTypes[0] || 'Income';
+          const qbAccountSubType = item.expectedQBSubType;
+
+          const accountPayload: any = {
+            Name: item.needLabel,
+            AccountType: qbAccountType,
+            Active: true,
+          };
+
+          if (qbAccountSubType) {
+            accountPayload.AccountSubType = qbAccountSubType;
+          }
+
+          const response = await fetch(`${apiUrl}/v3/company/${realmId}/account`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'Accept': 'application/json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(accountPayload),
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`QB API error: ${response.status} - ${errorText}`);
+          }
+
+          const data = await response.json();
+          const newAccount = data.Account;
+
+          // Create mapping
+          await prisma.qBEntityMapping.upsert({
+            where: {
+              uq_qb_mapping_org_type_local: {
+                organizationId,
+                entityType: 'account',
+                localId: item.needKey,
+              },
+            },
+            create: {
+              organizationId,
+              entityType: 'account',
+              localId: item.needKey,
+              qbId: newAccount.Id,
+              qbName: newAccount.Name,
+            },
+            update: {
+              qbId: newAccount.Id,
+              qbName: newAccount.Name,
+            },
+          });
+          mappingsCreated++;
         }
       } catch (err) {
-        errors.push(`Failed to map ${item.needLabel}: ${(err as Error).message}`);
+        errors.push({ needKey: item.needKey, error: `Failed to map ${item.needLabel}: ${(err as Error).message}` });
       }
     }
 
@@ -753,7 +822,7 @@ export class AutoMatchService {
   ): Promise<{
     success: boolean;
     mappingsCreated: number;
-    errors: string[];
+    errors: Array<{ localId: string; error: string }>;
   }> {
     const result = matchStore.get(resultId);
     if (!result) throw new Error(`Match result ${resultId} not found`);
@@ -764,7 +833,7 @@ export class AutoMatchService {
       result.bankItems;
 
     let mappingsCreated = 0;
-    const errors: string[] = [];
+    const errors: Array<{ localId: string; error: string }> = [];
 
     for (const item of itemsArray) {
       if (!item.decision) continue;
@@ -793,10 +862,88 @@ export class AutoMatchService {
           });
           mappingsCreated++;
         } else if (item.decision === 'create_new') {
-          errors.push(`Auto-create for ${item.localName} not yet implemented`);
+          // Create new QB entity
+          const { accessToken, realmId } = await getValidAccessToken(organizationId, prisma);
+          const apiUrl = getQBApiUrl();
+
+          let endpoint = '';
+          let entityPayload: any = {};
+          let createdEntity: any = null;
+
+          if (entityType === 'customer') {
+            endpoint = 'customer';
+            entityPayload = {
+              DisplayName: item.localName,
+              Active: true,
+            };
+          } else if (entityType === 'item') {
+            endpoint = 'item';
+            // Determine item type (default to Service for fuel types/products)
+            entityPayload = {
+              Name: item.localName,
+              Type: 'Service',
+              Active: true,
+            };
+          } else if (entityType === 'bank') {
+            endpoint = 'account';
+            entityPayload = {
+              Name: item.localName,
+              AccountType: 'Bank',
+              Active: true,
+            };
+          }
+
+          const response = await fetch(`${apiUrl}/v3/company/${realmId}/${endpoint}`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'Accept': 'application/json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(entityPayload),
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`QB API error: ${response.status} - ${errorText}`);
+          }
+
+          const data = await response.json();
+
+          // Extract created entity based on type
+          if (entityType === 'customer') {
+            createdEntity = data.Customer;
+          } else if (entityType === 'item') {
+            createdEntity = data.Item;
+          } else if (entityType === 'bank') {
+            createdEntity = data.Account;
+          }
+
+          // Create mapping
+          await prisma.qBEntityMapping.upsert({
+            where: {
+              uq_qb_mapping_org_type_local: {
+                organizationId,
+                entityType,
+                localId: item.localId,
+              },
+            },
+            create: {
+              organizationId,
+              entityType,
+              localId: item.localId,
+              qbId: createdEntity.Id,
+              qbName: createdEntity.DisplayName || createdEntity.Name,
+            },
+            update: {
+              qbId: createdEntity.Id,
+              qbName: createdEntity.DisplayName || createdEntity.Name,
+            },
+          });
+          mappingsCreated++;
         }
       } catch (err) {
-        errors.push(`Failed to map ${item.localName}: ${(err as Error).message}`);
+        errors.push({ localId: item.localId, error: `Failed to map ${item.localName}: ${(err as Error).message}` });
       }
     }
 
