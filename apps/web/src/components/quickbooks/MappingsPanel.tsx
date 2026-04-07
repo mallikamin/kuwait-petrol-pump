@@ -34,7 +34,6 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
   const [activeTab, setActiveTab] = useState<'accounts' | 'customers' | 'items' | 'banks' | 'mapped'>('accounts');
   const [editingMapping, setEditingMapping] = useState<EditingMapping | null>(null);
   const [deactivatingId, setDeactivatingId] = useState<string | null>(null);
-  const [showMappedEntities, setShowMappedEntities] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState<CreateMappingRequest>({
