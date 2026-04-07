@@ -922,6 +922,9 @@ model QBEntityMapping {
   // Local entity ID (from Kuwait POS system)
   localId String @map("local_id") @db.VarChar(100)
 
+  // Local entity name (for display/reference)
+  localName String? @map("local_name") @db.VarChar(255)
+
   // QuickBooks entity ID
   qbId String @map("qb_id") @db.VarChar(100)
 

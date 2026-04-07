@@ -1630,7 +1630,7 @@ router.post('/mappings/batches/:batchId/revert', authenticate, authorize('admin'
       entity_type: 'mapping_batch',
       entity_id: batchId,
       direction: 'APP_TO_QB',
-      status: result.success ? 'SUCCESS' : 'PARTIAL',
+      status: result.success ? 'SUCCESS' : 'FAILURE',
       metadata: {
         userId,
         organizationId,
