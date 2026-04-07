@@ -4,7 +4,7 @@
  * Handles POS + QB entity search with conflict detection
  */
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';

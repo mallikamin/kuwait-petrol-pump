@@ -52,7 +52,6 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
     currentPosId?: string;
     currentQbId?: string;
   } | null>(null);
-  const [editingMappingMode, setEditingMappingMode] = useState<string | null>(null);
 
   // Form state
   const [formData, setFormData] = useState<CreateMappingRequest>({
