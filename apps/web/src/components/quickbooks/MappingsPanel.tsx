@@ -41,7 +41,6 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
-  const [searchEntityType, setSearchEntityType] = useState<string>('');
   const [searchNeedKey, setSearchNeedKey] = useState<string>('');
 
   // Form state
@@ -652,9 +651,9 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                           <div className="flex items-center justify-between">
                             <Label className="text-xs">All candidates ({item.candidates.length}):</Label>
                             <Button
-                              size="xs"
+                              size="sm"
                               variant="ghost"
-                              className="h-5 text-xs"
+                              className="h-6 text-xs px-2"
                               onClick={() => handleOpenSearch('account', item.needKey)}
                             >
                               Search QB CoA
