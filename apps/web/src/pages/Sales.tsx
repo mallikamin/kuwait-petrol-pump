@@ -36,6 +36,9 @@ export function Sales() {
   const [appliedFilters, setAppliedFilters] = useState(filters);
   const page = 1; // TODO: Add pagination
 
+  // Canonical branch resolution (handle multiple possible response shapes)
+  const branchId = user?.branch_id || (user as any)?.branch?.id || (user as any)?.branchId;
+
   const { data, isLoading, isError } = useQuery({
     queryKey: ['sales', page, appliedFilters],
     queryFn: () => salesApi.getAll({
@@ -47,9 +50,9 @@ export function Sales() {
 
   // Get sales summary for payment tracking
   const { data: summaryData, isLoading: summaryLoading } = useQuery({
-    queryKey: ['sales-summary', user?.branch_id, appliedFilters],
+    queryKey: ['sales-summary', branchId, appliedFilters],
     queryFn: () => {
-      if (!user?.branch_id) return Promise.resolve({ summary: {
+      if (!branchId) return Promise.resolve({ summary: {
         totalSales: 0,
         totalAmount: 0,
         fuelSales: { totalLiters: 0, totalAmount: 0 },
@@ -57,12 +60,12 @@ export function Sales() {
         paymentBreakdown: [],
       }});
 
-      return salesApi.getSummary(user.branch_id, {
+      return salesApi.getSummary(branchId, {
         startDate: appliedFilters.startDate || undefined,
         endDate: appliedFilters.endDate || undefined,
       });
     },
-    enabled: !!user?.branch_id,
+    enabled: !!branchId,
     refetchInterval: 30000, // Refetch every 30 seconds for real-time tracking
   });
 

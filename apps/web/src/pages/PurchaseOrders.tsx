@@ -34,6 +34,8 @@ import {
   RecordPaymentInput,
 } from '@/api/purchase-orders';
 import { suppliersApi } from '@/api/suppliers';
+import { branchesApi } from '@/api/branches';
+import { fuelPricesApi } from '@/api/fuel-prices';
 import { apiClient } from '@/api/client';
 import { formatCurrency, formatDate } from '@/utils/format';
 
@@ -107,10 +109,7 @@ export function PurchaseOrders() {
 
   const { data: fuelTypesData } = useQuery({
     queryKey: ['fuel-types'],
-    queryFn: async () => {
-      const res = await apiClient.get<{ fuelTypes: Array<{ id: string; code: string; name: string }> }>('/api/fuel-prices');
-      return res.data;
-    },
+    queryFn: () => fuelPricesApi.getFuelTypes(),
   });
 
   const { data: productsData } = useQuery({
@@ -123,17 +122,14 @@ export function PurchaseOrders() {
 
   const { data: branchesData } = useQuery({
     queryKey: ['branches'],
-    queryFn: async () => {
-      const res = await apiClient.get<Array<{ id: string; name: string }>>('/api/branches');
-      return res.data;
-    },
+    queryFn: () => branchesApi.getAll(),
   });
 
   const purchaseOrders = poData?.purchaseOrders ?? [];
   const suppliers = suppliersData?.suppliers ?? [];
-  const fuelTypes = fuelTypesData?.fuelTypes ?? [];
+  const fuelTypes = Array.isArray(fuelTypesData) ? fuelTypesData : [];
   const products = productsData?.products ?? [];
-  const branches = Array.isArray(branchesData) ? branchesData : [];
+  const branches = branchesData?.items ?? [];
 
   const createMutation = useMutation({
     mutationFn: (data: CreatePOInput) => purchaseOrdersApi.create(data),
