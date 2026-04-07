@@ -16,6 +16,7 @@ import {
   THRESHOLD_HIGH,
   THRESHOLD_MEDIUM,
 } from './fuzzy-match';
+import { getValidAccessToken, getQBApiUrl } from './token-refresh';
 
 const prisma = new PrismaClient();
 
@@ -778,7 +779,7 @@ export class AutoMatchService {
             throw new Error(`QB API error: ${response.status} - ${errorText}`);
           }
 
-          const data = await response.json();
+          const data = await response.json() as any;
           const newAccount = data.Account;
 
           // Create mapping
@@ -908,7 +909,7 @@ export class AutoMatchService {
             throw new Error(`QB API error: ${response.status} - ${errorText}`);
           }
 
-          const data = await response.json();
+          const data = await response.json() as any;
 
           // Extract created entity based on type
           if (entityType === 'customer') {
