@@ -207,4 +207,100 @@ export const quickbooksApi = {
     });
     return response.data;
   },
+
+  // Two-way remap
+  async remapTwoWay(
+    mappingId: string,
+    newLocalId: string,
+    newQbId: string,
+    newQbName: string,
+    overrideConflicts: boolean = false
+  ): Promise<{
+    success: boolean;
+    mapping: {
+      id: string;
+      localId: string;
+      qbId: string;
+      qbName: string;
+    };
+    conflicts?: {
+      posConflict: any;
+      qbConflict: any;
+    };
+  }> {
+    const response = await apiClient.post('/api/quickbooks/mappings/remap', {
+      mappingId,
+      newLocalId,
+      newQbId,
+      newQbName,
+      overrideConflicts,
+    });
+    return response.data;
+  },
+
+  // Search POS entities
+  async searchPosEntities(
+    entityType: string,
+    query: string
+  ): Promise<{
+    success: boolean;
+    results: Array<{
+      localId: string;
+      localName: string;
+      alreadyMapped?: boolean;
+      mappedTo?: { qbId: string; qbName: string };
+    }>;
+  }> {
+    const response = await apiClient.get('/api/quickbooks/search/pos', {
+      params: { entityType, q: query },
+    });
+    return response.data;
+  },
+
+  // Search QB entities with mapping metadata
+  async searchQbEntities(
+    entityType: string,
+    query: string
+  ): Promise<{
+    success: boolean;
+    results: Array<{
+      qbId: string;
+      qbName: string;
+      entityType: string;
+      alreadyMapped: boolean;
+      mappedTo?: {
+        localId: string;
+        localName: string;
+      };
+    }>;
+  }> {
+    const response = await apiClient.get('/api/quickbooks/search/qb', {
+      params: { entityType, q: query },
+    });
+    return response.data;
+  },
+
+  // Export mappings
+  async exportMappings(format: 'csv' | 'excel' | 'json'): Promise<{
+    success: boolean;
+    data: Array<{
+      'Mapping Type': string;
+      'POS Entity ID': string;
+      'POS Entity Name': string;
+      'QB Entity ID': string;
+      'QB Entity Name': string;
+      'Account Source': string;
+      'Status': string;
+      'Ask from Client': boolean;
+      'Last Updated At': string;
+      'Updated By': string;
+      'Batch ID': string;
+      'Notes': string;
+    }>;
+  }> {
+    const response = await apiClient.get('/api/quickbooks/mappings/export', {
+      params: { format },
+    });
+    return response.data;
+  },
 };

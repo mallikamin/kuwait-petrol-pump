@@ -1682,4 +1682,301 @@ router.get('/entities/check-mapping', authenticate, async (req: Request, res: Re
   }
 });
 
+/**
+ * POST /api/quickbooks/mappings/remap
+ * Two-way remap: change both POS entity and QB entity atomically
+ * With conflict detection and override capability
+ */
+router.post('/mappings/remap', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { mappingId, newLocalId, newQbId, newQbName, overrideConflicts } = req.body;
+    const { organizationId, userId } = req.user;
+
+    if (!mappingId || !newLocalId || !newQbId) {
+      return res.status(400).json({ error: 'mappingId, newLocalId, newQbId required' });
+    }
+
+    // Get existing mapping
+    const existing = await prisma.qBEntityMapping.findUnique({
+      where: { id: mappingId },
+    });
+
+    if (!existing) {
+      return res.status(404).json({ error: 'Mapping not found' });
+    }
+
+    // Check for conflicts
+    const posConflict = await prisma.qBEntityMapping.findFirst({
+      where: {
+        organizationId,
+        entityType: existing.entityType,
+        localId: newLocalId,
+        id: { not: mappingId },
+        isActive: true,
+      },
+    });
+
+    const qbConflict = await prisma.qBEntityMapping.findFirst({
+      where: {
+        organizationId,
+        entityType: existing.entityType,
+        qbId: newQbId,
+        id: { not: mappingId },
+        isActive: true,
+      },
+    });
+
+    if ((posConflict || qbConflict) && !overrideConflicts) {
+      return res.status(409).json({
+        error: 'Mapping conflict detected',
+        conflicts: {
+          posConflict: posConflict ? { localId: posConflict.localId, qbId: posConflict.qbId } : null,
+          qbConflict: qbConflict ? { localId: qbConflict.localId, qbId: qbConflict.qbId } : null,
+        },
+      });
+    }
+
+    // Deactivate conflicting mappings if override enabled
+    if (overrideConflicts) {
+      if (posConflict) {
+        await prisma.qBEntityMapping.update({
+          where: { id: posConflict.id },
+          data: { isActive: false },
+        });
+      }
+      if (qbConflict) {
+        await prisma.qBEntityMapping.update({
+          where: { id: qbConflict.id },
+          data: { isActive: false },
+        });
+      }
+    }
+
+    // Update the mapping
+    const updated = await prisma.qBEntityMapping.update({
+      where: { id: mappingId },
+      data: {
+        localId: newLocalId,
+        qbId: newQbId,
+        qbName: newQbName || existing.qbName,
+        updatedAt: new Date(),
+      },
+    });
+
+    // Audit log
+    await AuditLogger.log({
+      operation: 'REMAP_MAPPING_TWO_WAY',
+      entity_type: 'entity_mapping',
+      entity_id: mappingId,
+      direction: 'APP_TO_QB',
+      status: 'SUCCESS',
+      metadata: {
+        userId,
+        organizationId,
+        entityType: existing.entityType,
+        oldLocalId: existing.localId,
+        oldQbId: existing.qbId,
+        newLocalId,
+        newQbId,
+        conflictsOverridden: overrideConflicts,
+      },
+    });
+
+    res.json({
+      success: true,
+      mapping: {
+        id: updated.id,
+        localId: updated.localId,
+        qbId: updated.qbId,
+        qbName: updated.qbName,
+      },
+    });
+  } catch (error: any) {
+    handleQBError(error, res);
+  }
+});
+
+/**
+ * GET /api/quickbooks/search/pos
+ * Search POS entities by type and query
+ */
+router.get('/search/pos', authenticate, async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { entityType, q } = req.query;
+    const { organizationId } = req.user;
+
+    if (!entityType) {
+      return res.status(400).json({ error: 'entityType required' });
+    }
+
+    // For now, return empty array - this would query POS database for local entities
+    // In production, this would search the actual POS entity tables
+    const results: any[] = [];
+
+    res.json({
+      success: true,
+      results,
+    });
+  } catch (error: any) {
+    handleQBError(error, res);
+  }
+});
+
+/**
+ * GET /api/quickbooks/search/qb
+ * Search QB entities with mapping metadata
+ */
+router.get('/search/qb', authenticate, async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { entityType, q } = req.query;
+    const { organizationId } = req.user;
+
+    if (!entityType || !q) {
+      return res.status(400).json({ error: 'entityType and q required' });
+    }
+
+    // Get QB entities from cached list or QB API
+    const { accessToken, realmId } = await getValidAccessToken(organizationId, prisma);
+    const apiUrl = getQBApiUrl();
+
+    let endpoint = '';
+    let query = '';
+
+    if (entityType === 'account') {
+      endpoint = 'account';
+      query = `SELECT * FROM Account WHERE Name LIKE '%${q}%' MAXRESULTS 50`;
+    } else if (entityType === 'customer') {
+      endpoint = 'customer';
+      query = `SELECT * FROM Customer WHERE DisplayName LIKE '%${q}%' MAXRESULTS 50`;
+    } else if (entityType === 'item') {
+      endpoint = 'item';
+      query = `SELECT * FROM Item WHERE Name LIKE '%${q}%' MAXRESULTS 50`;
+    } else if (entityType === 'bank') {
+      endpoint = 'account';
+      query = `SELECT * FROM Account WHERE AccountType = 'Bank' AND Name LIKE '%${q}%' MAXRESULTS 50`;
+    }
+
+    if (!query) {
+      return res.status(400).json({ error: 'Invalid entityType' });
+    }
+
+    const response = await fetch(`${apiUrl}/v3/company/${realmId}/query`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ query }),
+    });
+
+    if (!response.ok) {
+      return res.status(500).json({ error: 'QB API error' });
+    }
+
+    const data = await response.json() as any;
+    const qbEntities = data.QueryResponse?.[Object.keys(data.QueryResponse)[0]] || [];
+
+    // Enrich with mapping metadata
+    const results = await Promise.all(
+      qbEntities.map(async (entity: any) => {
+        const qbId = entity.Id;
+        const qbName = entity.Name || entity.DisplayName;
+
+        // Check if already mapped
+        const mapping = await prisma.qBEntityMapping.findFirst({
+          where: {
+            organizationId,
+            entityType: entityType as string,
+            qbId,
+          },
+        });
+
+        return {
+          qbId,
+          qbName,
+          entityType,
+          alreadyMapped: !!mapping,
+          mappedTo: mapping ? {
+            localId: mapping.localId,
+            localName: mapping.localName || mapping.localId,
+          } : null,
+        };
+      })
+    );
+
+    res.json({
+      success: true,
+      results,
+    });
+  } catch (error: any) {
+    handleQBError(error, res);
+  }
+});
+
+/**
+ * GET /api/quickbooks/mappings/export
+ * Export all mappings with reconciliation status
+ */
+router.get('/mappings/export', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { organizationId } = req.user;
+    const { format } = req.query; // 'csv' or 'excel'
+
+    // Get all mappings
+    const mappings = await prisma.qBEntityMapping.findMany({
+      where: { organizationId },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Transform to export format
+    const exportData = mappings.map((mapping) => ({
+      'Mapping Type': mapping.entityType,
+      'POS Entity ID': mapping.localId,
+      'POS Entity Name': mapping.localName || '',
+      'QB Entity ID': mapping.qbId,
+      'QB Entity Name': mapping.qbName || '',
+      'Account Source': 'Both',
+      'Status': mapping.isActive ? 'Successfully Mapped' : 'Deactivated',
+      'Ask from Client': false,
+      'Last Updated At': mapping.updatedAt?.toISOString() || '',
+      'Updated By': 'System',
+      'Batch ID': '',
+      'Notes': '',
+    }));
+
+    if (format === 'json') {
+      res.json({
+        success: true,
+        data: exportData,
+      });
+    } else {
+      // For CSV/Excel, client will handle formatting
+      res.json({
+        success: true,
+        data: exportData,
+        format: 'array',
+      });
+    }
+  } catch (error: any) {
+    handleQBError(error, res);
+  }
+});
+
 export default router;

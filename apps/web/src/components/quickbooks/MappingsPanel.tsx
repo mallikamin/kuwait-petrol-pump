@@ -5,9 +5,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Upload, RefreshCw, Wand2, CheckCircle, AlertCircle, XCircle, RotateCcw } from 'lucide-react';
+import { Plus, Upload, RefreshCw, Wand2, CheckCircle, AlertCircle, XCircle, RotateCcw, Download } from 'lucide-react';
 import { quickbooksApi } from '@/api/quickbooks';
 import { toast } from 'sonner';
+import { MappingSelector } from './MappingSelector';
 import type { QBEntityMapping, CreateMappingRequest, MatchResult } from '@/types/quickbooks';
 
 interface MappingsPanelProps {
@@ -42,6 +43,16 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchNeedKey, setSearchNeedKey] = useState<string>('');
+  const [showMappingSelector, setShowMappingSelector] = useState(false);
+  const [selectorContext, setSelectorContext] = useState<{
+    type: 'auto-match' | 'edit';
+    entityType: string;
+    needKey?: string;
+    mappingId?: string;
+    currentPosId?: string;
+    currentQbId?: string;
+  } | null>(null);
+  const [editingMappingMode, setEditingMappingMode] = useState<string | null>(null);
 
   // Form state
   const [formData, setFormData] = useState<CreateMappingRequest>({
@@ -286,6 +297,122 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
     }
   };
 
+  const handleOpenSelector = (
+    type: 'auto-match' | 'edit',
+    entityType: string,
+    needKey?: string,
+    mappingId?: string,
+    currentPosId?: string,
+    currentQbId?: string
+  ) => {
+    setSelectorContext({
+      type,
+      entityType,
+      needKey,
+      mappingId,
+      currentPosId,
+      currentQbId,
+    });
+    setShowMappingSelector(true);
+  };
+
+  const handleSelectorClose = () => {
+    setShowMappingSelector(false);
+    setSelectorContext(null);
+  };
+
+  const handleSelectorConfirm = async (posId: string, qbId: string, qbName: string) => {
+    try {
+      if (selectorContext?.type === 'auto-match' && selectorContext.needKey) {
+        // Auto-match flow
+        handleDecisionChange(selectorContext.needKey, 'use_existing', qbId, qbName);
+      } else if (selectorContext?.type === 'edit' && selectorContext.mappingId) {
+        // Two-way edit flow
+        const result = await quickbooksApi.remapTwoWay(
+          selectorContext.mappingId,
+          posId,
+          qbId,
+          qbName,
+          false // No override for now
+        );
+
+        if (result.success) {
+          toast.success('Mapping updated');
+          await fetchMappings();
+        }
+      }
+      handleSelectorClose();
+    } catch (err: any) {
+      if (err.response?.status === 409) {
+        // Handle conflict - ask user to confirm override
+        toast.error('Conflict detected - use override to remap');
+      } else {
+        toast.error(err.response?.data?.error || 'Update failed');
+      }
+    }
+  };
+
+  const handleExportCSV = async () => {
+    try {
+      const result = await quickbooksApi.exportMappings('csv');
+      if (result.success) {
+        const csv = convertToCSV(result.data);
+        downloadCSV(csv, 'mappings.csv');
+        toast.success('CSV exported');
+      }
+    } catch (err: any) {
+      toast.error('Export failed');
+    }
+  };
+
+  const handleExportExcel = async () => {
+    try {
+      const result = await quickbooksApi.exportMappings('excel');
+      if (result.success) {
+        // For now, just export as CSV - can enhance with xlsx library later
+        const csv = convertToCSV(result.data);
+        downloadCSV(csv, 'mappings.xlsx');
+        toast.success('Excel exported');
+      }
+    } catch (err: any) {
+      toast.error('Export failed');
+    }
+  };
+
+  const convertToCSV = (data: any[]): string => {
+    if (!data || data.length === 0) return '';
+
+    const headers = Object.keys(data[0]);
+    const csv = [
+      headers.join(','),
+      ...data.map((row) =>
+        headers
+          .map((header) => {
+            const value = row[header];
+            const escaped = String(value || '').replace(/"/g, '""');
+            return escaped.includes(',') || escaped.includes('\n')
+              ? `"${escaped}"`
+              : escaped;
+          })
+          .join(',')
+      ),
+    ].join('\n');
+
+    return csv;
+  };
+
+  const downloadCSV = (csv: string, filename: string) => {
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', filename);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const handleDecisionChange = (needKey: string, decision: 'use_existing' | 'create_new', accountId?: string, accountName?: string) => {
     if (!matchResult) return;
 
@@ -474,6 +601,26 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                 >
                   <RotateCcw className={`h-4 w-4 ${undoLoading ? 'animate-spin' : ''}`} />
                   Undo Last Apply
+                </Button>
+                <Button
+                  onClick={handleExportCSV}
+                  size="sm"
+                  variant="outline"
+                  className="gap-2"
+                  title="Export mappings as CSV"
+                >
+                  <Download className="h-4 w-4" />
+                  Export CSV
+                </Button>
+                <Button
+                  onClick={handleExportExcel}
+                  size="sm"
+                  variant="outline"
+                  className="gap-2"
+                  title="Export mappings as Excel"
+                >
+                  <Download className="h-4 w-4" />
+                  Export Excel
                 </Button>
                 <Button
                   onClick={() => setShowBulk(!showBulk)}
@@ -892,6 +1039,23 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                           </div>
                           {editingMapping?.id !== mapping.id && (
                             <div className="flex gap-1">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs"
+                                onClick={() =>
+                                  handleOpenSelector(
+                                    'edit',
+                                    mapping.entityType,
+                                    undefined,
+                                    mapping.id,
+                                    mapping.localId,
+                                    mapping.qbId
+                                  )
+                                }
+                              >
+                                Two-Way Edit
+                              </Button>
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -1443,6 +1607,18 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
               </CardContent>
             </Card>
           </div>
+        )}
+
+        {/* Universal Mapping Selector Modal */}
+        {showMappingSelector && selectorContext && (
+          <MappingSelector
+            entityType={selectorContext.entityType}
+            currentPosId={selectorContext.currentPosId}
+            currentQbId={selectorContext.currentQbId}
+            twoWayEdit={selectorContext.type === 'edit'}
+            onSelect={handleSelectorConfirm}
+            onClose={handleSelectorClose}
+          />
         )}
       </CardContent>
     </Card>
