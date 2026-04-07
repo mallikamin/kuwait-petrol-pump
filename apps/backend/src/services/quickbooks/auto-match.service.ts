@@ -715,8 +715,8 @@ export class AutoMatchService {
     if (!result) throw new Error(`Match result ${resultId} not found`);
 
     // Create batch to track this apply operation
-    const batch = await MappingBatchService.createBatch(organizationId, 'account', userId);
-    const batchId = batch.id;
+    const batchId = await MappingBatchService.createBatch(organizationId, userId || 'system', 'auto_match');
+
 
     let mappingsCreated = 0;
     const errors: Array<{ needKey: string; error: string }> = [];
@@ -814,8 +814,8 @@ export class AutoMatchService {
       result.bankItems;
 
     // Create batch to track this apply operation
-    const batch = await MappingBatchService.createBatch(organizationId, entityType, userId);
-    const batchId = batch.id;
+    const batchId = await MappingBatchService.createBatch(organizationId, userId || 'system', 'auto_match');
+
 
     let mappingsCreated = 0;
     const errors: Array<{ localId: string; error: string }> = [];
