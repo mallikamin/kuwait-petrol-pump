@@ -68,7 +68,7 @@ export function PurchaseOrders() {
     supplierId: '',
     branchId: '',
     poNumber: '',
-    orderDate: new Date().toISOString(),
+    orderDate: new Date().toISOString().split('T')[0],
     notes: '',
   });
   const [lineItems, setLineItems] = useState<LineItem[]>([
@@ -201,7 +201,7 @@ export function PurchaseOrders() {
       supplierId: '',
       branchId: '',
       poNumber: '',
-      orderDate: new Date().toISOString(),
+      orderDate: new Date().toISOString().split('T')[0],
       notes: '',
     });
     setLineItems([{ id: generateTempId(), itemType: 'fuel', quantityOrdered: 0, costPerUnit: 0 }]);
@@ -339,7 +339,7 @@ export function PurchaseOrders() {
       supplierId: poForm.supplierId,
       branchId: poForm.branchId,
       poNumber: poForm.poNumber,
-      orderDate: poForm.orderDate,
+      orderDate: new Date(poForm.orderDate).toISOString(),
       items,
       notes: poForm.notes || undefined,
     });
@@ -360,7 +360,7 @@ export function PurchaseOrders() {
       id: selectedPO.id,
       data: {
         receiptNumber: receiveForm.receiptNumber,
-        receiptDate: receiveForm.receiptDate,
+        receiptDate: new Date(receiveForm.receiptDate).toISOString(),
         items: validItems,
         notes: receiveForm.notes || undefined,
       },
@@ -375,7 +375,10 @@ export function PurchaseOrders() {
     }
     paymentMutation.mutate({
       id: selectedPO.id,
-      data: paymentForm,
+      data: {
+        ...paymentForm,
+        paymentDate: new Date(paymentForm.paymentDate).toISOString(),
+      },
     });
   }
 
