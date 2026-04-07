@@ -68,7 +68,7 @@ services:
 
   backend:
     build:
-      context: ./apps/backend
+      context: .
       dockerfile: Dockerfile.prod
     image: ${DOCKER_IMAGE:-kuwaitpos-backend:latest}
     container_name: kuwaitpos-backend
