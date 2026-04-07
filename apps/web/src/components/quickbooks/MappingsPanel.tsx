@@ -14,6 +14,12 @@ interface MappingsPanelProps {
   userRole: string;
 }
 
+interface EditingMapping {
+  id: string;
+  qbId: string;
+  qbName: string;
+}
+
 export function MappingsPanel({ userRole }: MappingsPanelProps) {
   const [mappings, setMappings] = useState<QBEntityMapping[]>([]);
   const [loading, setLoading] = useState(false);
@@ -25,7 +31,10 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
   const [matchLoading, setMatchLoading] = useState(false);
   const [applyingMatch, setApplyingMatch] = useState(false);
   const [qbTokenExpired, setQbTokenExpired] = useState(false);
-  const [activeTab, setActiveTab] = useState<'accounts' | 'customers' | 'items' | 'banks'>('accounts');
+  const [activeTab, setActiveTab] = useState<'accounts' | 'customers' | 'items' | 'banks' | 'mapped'>('accounts');
+  const [editingMapping, setEditingMapping] = useState<EditingMapping | null>(null);
+  const [deactivatingId, setDeactivatingId] = useState<string | null>(null);
+  const [showMappedEntities, setShowMappedEntities] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState<CreateMappingRequest>({
@@ -60,6 +69,38 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
   useEffect(() => {
     fetchMappings();
   }, []);
+
+  const handleEditMapping = async (mapping: QBEntityMapping, newQbId: string, newQbName: string) => {
+    try {
+      setEditingMapping(null);
+      await quickbooksApi.createMapping({
+        entityType: mapping.entityType as any,
+        localId: mapping.localId,
+        localName: mapping.localName,
+        qbId: newQbId,
+        qbName: newQbName,
+      });
+      toast.success('Mapping updated successfully');
+      await fetchMappings();
+    } catch (err: any) {
+      const message = err.response?.data?.error || 'Failed to update mapping';
+      toast.error(message);
+    }
+  };
+
+  const handleDeactivateMapping = async (id: string) => {
+    try {
+      setDeactivatingId(id);
+      await quickbooksApi.deleteMapping(id);
+      toast.success('Mapping deactivated');
+      await fetchMappings();
+    } catch (err: any) {
+      const message = err.response?.data?.error || 'Failed to deactivate mapping';
+      toast.error(message);
+    } finally {
+      setDeactivatingId(null);
+    }
+  };
 
   const validateForm = (): boolean => {
     const errors: Record<string, string> = {};
@@ -422,9 +463,9 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
             </div>
 
             {/* Tabs */}
-            <div className="flex gap-2 border-b">
+            <div className="flex gap-2 border-b overflow-x-auto">
               <button
-                className={`px-4 py-2 border-b-2 transition-colors ${
+                className={`px-4 py-2 border-b-2 transition-colors whitespace-nowrap ${
                   activeTab === 'accounts' ? 'border-primary font-medium' : 'border-transparent text-muted-foreground'
                 }`}
                 onClick={() => setActiveTab('accounts')}
@@ -432,7 +473,7 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                 Accounts ({matchResult.accountsMatched}/{matchResult.accountsTotal})
               </button>
               <button
-                className={`px-4 py-2 border-b-2 transition-colors ${
+                className={`px-4 py-2 border-b-2 transition-colors whitespace-nowrap ${
                   activeTab === 'customers' ? 'border-primary font-medium' : 'border-transparent text-muted-foreground'
                 }`}
                 onClick={() => setActiveTab('customers')}
@@ -440,7 +481,7 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                 Customers ({matchResult.customersMatched}/{matchResult.customersTotal})
               </button>
               <button
-                className={`px-4 py-2 border-b-2 transition-colors ${
+                className={`px-4 py-2 border-b-2 transition-colors whitespace-nowrap ${
                   activeTab === 'items' ? 'border-primary font-medium' : 'border-transparent text-muted-foreground'
                 }`}
                 onClick={() => setActiveTab('items')}
@@ -448,12 +489,20 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                 Items ({matchResult.itemsMatched}/{matchResult.itemsTotal})
               </button>
               <button
-                className={`px-4 py-2 border-b-2 transition-colors ${
+                className={`px-4 py-2 border-b-2 transition-colors whitespace-nowrap ${
                   activeTab === 'banks' ? 'border-primary font-medium' : 'border-transparent text-muted-foreground'
                 }`}
                 onClick={() => setActiveTab('banks')}
               >
                 Banks ({matchResult.banksMatched}/{matchResult.banksTotal})
+              </button>
+              <button
+                className={`px-4 py-2 border-b-2 transition-colors whitespace-nowrap ${
+                  activeTab === 'mapped' ? 'border-primary font-medium' : 'border-transparent text-muted-foreground'
+                }`}
+                onClick={() => setActiveTab('mapped')}
+              >
+                📌 Mapped Entities (Edit)
               </button>
             </div>
 
@@ -522,25 +571,23 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                         <div className="mt-2">
                           <Label className="text-xs">All candidates ({item.candidates.length}):</Label>
                           <Select
-                            value={String(item.decisionAccountId ?? '')}
+                            value={item.decisionAccountId ? String(item.decisionAccountId) : ''}
                             onValueChange={(value) => {
-                              const candidate = item.candidates.find((c) => String(c.qbAccountId) === String(value));
-                              if (candidate) {
-                                handleDecisionChange(item.needKey, 'use_existing', value, candidate.qbAccountName);
+                              if (value && value.trim()) {
+                                const candidate = item.candidates.find((c) => String(c.qbAccountId) === value);
+                                if (candidate) {
+                                  handleDecisionChange(item.needKey, 'use_existing', candidate.qbAccountId, candidate.qbAccountName);
+                                }
                               }
                             }}
                           >
                             <SelectTrigger className="mt-1 h-8 text-xs">
-                              <SelectValue placeholder="Select candidate...">
-                                {item.decisionAccountId
-                                  ? item.candidates.find(c => String(c.qbAccountId) === String(item.decisionAccountId))?.qbAccountName || 'Selected'
-                                  : 'Select candidate...'}
-                              </SelectValue>
+                              <SelectValue placeholder="Select candidate..." />
                             </SelectTrigger>
                             <SelectContent>
                               {item.candidates.map((candidate, idx) => (
-                                <SelectItem key={String(candidate.qbAccountId || candidate.qbEntityId)} value={String(candidate.qbAccountId || candidate.qbEntityId)}>
-                                  {idx === 0 && '⭐ '}{candidate.qbAccountName || candidate.qbEntityName} ({(candidate.score * 100).toFixed(0)}%)
+                                <SelectItem key={`${item.needKey}-${String(candidate.qbAccountId)}`} value={String(candidate.qbAccountId)}>
+                                  {idx === 0 && '⭐ '}{candidate.qbAccountName} ({(candidate.score * 100).toFixed(0)}%)
                                 </SelectItem>
                               ))}
                             </SelectContent>
@@ -625,30 +672,28 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                           <div className="mt-2">
                             <Label className="text-xs">All candidates ({item.candidates.length}):</Label>
                             <Select
-                              value={String(item.decisionEntityId ?? '')}
+                              value={item.decisionEntityId ? String(item.decisionEntityId) : ''}
                               onValueChange={(value) => {
-                                const candidate = item.candidates.find((c) => String(c.qbEntityId) === String(value));
-                                if (candidate) {
-                                  handleEntityDecisionChange(
-                                    item.localId,
-                                    item.entityType,
-                                    'use_existing',
-                                    value,
-                                    candidate.qbEntityName
-                                  );
+                                if (value && value.trim()) {
+                                  const candidate = item.candidates.find((c) => String(c.qbEntityId) === value);
+                                  if (candidate) {
+                                    handleEntityDecisionChange(
+                                      item.localId,
+                                      item.entityType,
+                                      'use_existing',
+                                      candidate.qbEntityId,
+                                      candidate.qbEntityName
+                                    );
+                                  }
                                 }
                               }}
                             >
                               <SelectTrigger className="mt-1 h-8 text-xs">
-                                <SelectValue placeholder="Select candidate...">
-                                  {item.decisionEntityId
-                                    ? item.candidates.find(c => String(c.qbEntityId) === String(item.decisionEntityId))?.qbEntityName || 'Selected'
-                                    : 'Select candidate...'}
-                                </SelectValue>
+                                <SelectValue placeholder="Select candidate..." />
                               </SelectTrigger>
                               <SelectContent>
                                 {item.candidates.map((candidate, idx) => (
-                                  <SelectItem key={String(candidate.qbEntityId)} value={String(candidate.qbEntityId)}>
+                                  <SelectItem key={`${item.localId}-${String(candidate.qbEntityId)}`} value={String(candidate.qbEntityId)}>
                                     {idx === 0 && '⭐ '}{candidate.qbEntityName} ({(candidate.score * 100).toFixed(0)}%)
                                   </SelectItem>
                                 ))}
@@ -660,6 +705,127 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Mapped Entities Tab - Edit existing mappings */}
+            {activeTab === 'mapped' && (
+              <div className="space-y-3">
+                <div className="text-sm text-muted-foreground mb-3">
+                  Edit existing mappings below. Changes will be saved to the main mappings table.
+                </div>
+                {mappings.length === 0 ? (
+                  <p className="text-sm text-muted-foreground p-3">
+                    No mapped entities yet. Use Auto-Match or Add Mapping to create mappings.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {mappings.map((mapping) => (
+                      <div key={mapping.id} className="p-3 border rounded-md">
+                        <div className="flex items-start gap-3 justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
+                              <Badge variant="outline" className="text-xs">
+                                {mapping.entityType}
+                              </Badge>
+                              <span className="font-medium text-sm">{mapping.localName}</span>
+                            </div>
+                            <div className="text-xs text-muted-foreground mb-2">
+                              Local ID: {mapping.localId}
+                            </div>
+                            {editingMapping?.id === mapping.id ? (
+                              <div className="space-y-2 mt-2">
+                                <div>
+                                  <Label className="text-xs">QB ID</Label>
+                                  <Input
+                                    value={editingMapping.qbId}
+                                    onChange={(e) =>
+                                      setEditingMapping({
+                                        ...editingMapping,
+                                        qbId: e.target.value,
+                                      })
+                                    }
+                                    className="h-8 text-xs mt-1"
+                                  />
+                                </div>
+                                <div>
+                                  <Label className="text-xs">QB Name</Label>
+                                  <Input
+                                    value={editingMapping.qbName}
+                                    onChange={(e) =>
+                                      setEditingMapping({
+                                        ...editingMapping,
+                                        qbName: e.target.value,
+                                      })
+                                    }
+                                    className="h-8 text-xs mt-1"
+                                  />
+                                </div>
+                                <div className="flex gap-1">
+                                  <Button
+                                    size="sm"
+                                    className="h-7 text-xs"
+                                    onClick={() =>
+                                      handleEditMapping(
+                                        mapping,
+                                        editingMapping.qbId,
+                                        editingMapping.qbName
+                                      )
+                                    }
+                                  >
+                                    Save
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 text-xs"
+                                    onClick={() => setEditingMapping(null)}
+                                  >
+                                    Cancel
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="text-sm">
+                                <div className="font-medium">{mapping.qbName}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  QB ID: {mapping.qbId}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          {editingMapping?.id !== mapping.id && (
+                            <div className="flex gap-1">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs"
+                                onClick={() =>
+                                  setEditingMapping({
+                                    id: mapping.id,
+                                    qbId: mapping.qbId,
+                                    qbName: mapping.qbName || '',
+                                  })
+                                }
+                              >
+                                Edit
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs text-red-600 hover:bg-red-50"
+                                disabled={deactivatingId === mapping.id}
+                                onClick={() => handleDeactivateMapping(mapping.id)}
+                              >
+                                {deactivatingId === mapping.id ? 'Deactivating...' : 'Deactivate'}
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -934,6 +1100,7 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                   <th className="text-left p-2">Local Entity</th>
                   <th className="text-left p-2">QuickBooks Entity</th>
                   <th className="text-left p-2">Created</th>
+                  {canEdit && <th className="text-left p-2">Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -951,16 +1118,91 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                       </div>
                     </td>
                     <td className="p-2">
-                      <div>
-                        <div className="font-medium">{mapping.qbName}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {mapping.qbId}
+                      {editingMapping?.id === mapping.id ? (
+                        <div className="space-y-2">
+                          <Input
+                            value={editingMapping.qbId}
+                            onChange={(e) =>
+                              setEditingMapping({ ...editingMapping, qbId: e.target.value })
+                            }
+                            placeholder="QB Entity ID"
+                            className="h-8 text-xs"
+                          />
+                          <Input
+                            value={editingMapping.qbName}
+                            onChange={(e) =>
+                              setEditingMapping({ ...editingMapping, qbName: e.target.value })
+                            }
+                            placeholder="QB Entity Name"
+                            className="h-8 text-xs"
+                          />
+                          <div className="flex gap-1">
+                            <Button
+                              size="sm"
+                              className="h-7 text-xs"
+                              onClick={() =>
+                                handleEditMapping(
+                                  mapping,
+                                  editingMapping.qbId,
+                                  editingMapping.qbName
+                                )
+                              }
+                            >
+                              Save
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs"
+                              onClick={() => setEditingMapping(null)}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
                         </div>
-                      </div>
+                      ) : (
+                        <div>
+                          <div className="font-medium">{mapping.qbName}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {mapping.qbId}
+                          </div>
+                        </div>
+                      )}
                     </td>
                     <td className="p-2 text-muted-foreground">
                       {new Date(mapping.createdAt).toLocaleDateString()}
                     </td>
+                    {canEdit && (
+                      <td className="p-2">
+                        {editingMapping?.id === mapping.id ? null : (
+                          <div className="flex gap-1">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs"
+                              onClick={() =>
+                                setEditingMapping({
+                                  id: mapping.id,
+                                  qbId: mapping.qbId,
+                                  qbName: mapping.qbName || '',
+                                })
+                              }
+                            >
+                              Edit
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs text-red-600 hover:bg-red-50"
+                              disabled={deactivatingId === mapping.id}
+                              onClick={() => handleDeactivateMapping(mapping.id)}
+                            >
+                              {deactivatingId === mapping.id ? 'Deactivating...' : 'Deactivate'}
+                            </Button>
+                          </div>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

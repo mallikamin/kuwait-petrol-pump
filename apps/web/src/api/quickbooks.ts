@@ -66,6 +66,11 @@ export const quickbooksApi = {
     return response.data;
   },
 
+  async deleteMapping(id: string): Promise<{ success: boolean; mapping: any }> {
+    const response = await apiClient.delete(`/api/quickbooks/mappings/${id}`);
+    return response.data;
+  },
+
   // Auto-Matching Workflow
   async getNeeds(): Promise<{ success: boolean; needs: any[] }> {
     const response = await apiClient.get('/api/quickbooks/needs');

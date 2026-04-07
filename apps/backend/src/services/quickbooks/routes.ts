@@ -1214,6 +1214,50 @@ router.post('/mappings/bulk', authenticate, authorize('admin', 'manager'), async
   }
 });
 
+/**
+ * DELETE /api/quickbooks/mappings/:id
+ * Deactivate entity mapping (soft delete)
+ */
+router.delete('/mappings/:id', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { organizationId, userId } = req.user;
+    const { id } = req.params;
+
+    if (!id || !id.trim()) {
+      return res.status(400).json({ error: 'Missing required field: id' });
+    }
+
+    // Deactivate mapping
+    const result = await EntityMappingService.deactivateMapping(organizationId, id);
+
+    // Log audit trail
+    await AuditLogger.log({
+      operation: 'DEACTIVATE_ENTITY_MAPPING',
+      entity_type: 'mapping',
+      entity_id: id,
+      direction: 'APP_TO_QB',
+      status: 'SUCCESS',
+      metadata: {
+        userId,
+        organizationId
+      }
+    });
+
+    res.json({
+      success: true,
+      mapping: result
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
 // ============================================================
 // AUTO-MATCHING ENDPOINTS (Wizard-based mapping setup)
 // ============================================================

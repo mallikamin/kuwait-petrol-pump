@@ -314,6 +314,50 @@ export class EntityMappingService {
   }
 
   /**
+   * Deactivate a mapping (soft delete, does not remove data)
+   * @param organizationId - Organization ID (enforces isolation)
+   * @param mappingId - Mapping ID to deactivate
+   * @returns Updated mapping
+   */
+  static async deactivateMapping(
+    organizationId: string,
+    mappingId: string
+  ): Promise<{ id: string; isActive: boolean }> {
+    // Validation
+    if (!organizationId || !organizationId.trim()) {
+      throw new EntityMappingError('Missing required field: organizationId');
+    }
+    if (!mappingId || !mappingId.trim()) {
+      throw new EntityMappingError('Missing required field: mappingId');
+    }
+
+    // Verify mapping belongs to organization
+    const mapping = await prisma.qBEntityMapping.findUnique({
+      where: { id: mappingId },
+      select: { organizationId: true }
+    });
+
+    if (!mapping) {
+      throw new EntityMappingError('Mapping not found');
+    }
+
+    if (mapping.organizationId !== organizationId) {
+      throw new EntityMappingError('Unauthorized: mapping does not belong to this organization');
+    }
+
+    // Deactivate mapping
+    const updated = await prisma.qBEntityMapping.update({
+      where: { id: mappingId },
+      data: { isActive: false, updatedAt: new Date() },
+      select: { id: true, isActive: true }
+    });
+
+    console.log(`[Entity Mapping] ✓ Deactivated mapping: id=${mappingId}`);
+
+    return updated;
+  }
+
+  /**
    * Bulk upsert mappings (best-effort per-row upsert with partial-failure handling)
    *
    * NOTE: This is NOT a true database transaction. Each row is processed sequentially
