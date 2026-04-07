@@ -68,7 +68,7 @@ export function PurchaseOrders() {
     supplierId: '',
     branchId: '',
     poNumber: '',
-    orderDate: new Date().toISOString().split('T')[0],
+    orderDate: new Date().toISOString(),
     notes: '',
   });
   const [lineItems, setLineItems] = useState<LineItem[]>([
@@ -201,7 +201,7 @@ export function PurchaseOrders() {
       supplierId: '',
       branchId: '',
       poNumber: '',
-      orderDate: new Date().toISOString().split('T')[0],
+      orderDate: new Date().toISOString(),
       notes: '',
     });
     setLineItems([{ id: generateTempId(), itemType: 'fuel', quantityOrdered: 0, costPerUnit: 0 }]);
