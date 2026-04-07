@@ -5,6 +5,8 @@
 
 import { PrismaClient } from '@prisma/client';
 import { QuickBooksEntityFetcher } from './fetch-entities.service';
+import { EntityMappingService } from './entity-mapping.service';
+import { MappingBatchService } from './mapping-batch.service';
 import {
   FUEL_STATION_NEEDS,
   AccountingNeed,
@@ -701,14 +703,20 @@ export class AutoMatchService {
    */
   static async applyAccountDecisions(
     resultId: string,
-    organizationId: string
+    organizationId: string,
+    userId?: string
   ): Promise<{
     success: boolean;
+    batchId: string;
     mappingsCreated: number;
     errors: Array<{ needKey: string; error: string }>;
   }> {
     const result = matchStore.get(resultId);
     if (!result) throw new Error(`Match result ${resultId} not found`);
+
+    // Create batch to track this apply operation
+    const batch = await MappingBatchService.createBatch(organizationId, 'account', userId);
+    const batchId = batch.id;
 
     let mappingsCreated = 0;
     const errors: Array<{ needKey: string; error: string }> = [];
@@ -718,26 +726,14 @@ export class AutoMatchService {
 
       try {
         if (item.decision === 'use_existing' && item.decisionAccountId) {
-          await prisma.qBEntityMapping.upsert({
-            where: {
-              uq_qb_mapping_org_type_local: {
-                organizationId,
-                entityType: 'account',
-                localId: item.needKey,
-              },
-            },
-            create: {
-              organizationId,
-              entityType: 'account',
-              localId: item.needKey,
-              qbId: item.decisionAccountId,
-              qbName: item.decisionAccountName || '',
-            },
-            update: {
-              qbId: item.decisionAccountId,
-              qbName: item.decisionAccountName || '',
-            },
-          });
+          await EntityMappingService.upsertMapping(
+            organizationId,
+            'account',
+            item.needKey,
+            item.decisionAccountId,
+            item.decisionAccountName,
+            { batchId, userId }
+          );
           mappingsCreated++;
         } else if (item.decision === 'create_new') {
           // Create new QB Account
@@ -776,27 +772,15 @@ export class AutoMatchService {
           const data = await response.json() as any;
           const newAccount = data.Account;
 
-          // Create mapping
-          await prisma.qBEntityMapping.upsert({
-            where: {
-              uq_qb_mapping_org_type_local: {
-                organizationId,
-                entityType: 'account',
-                localId: item.needKey,
-              },
-            },
-            create: {
-              organizationId,
-              entityType: 'account',
-              localId: item.needKey,
-              qbId: newAccount.Id,
-              qbName: newAccount.Name,
-            },
-            update: {
-              qbId: newAccount.Id,
-              qbName: newAccount.Name,
-            },
-          });
+          // Create mapping with batch tracking
+          await EntityMappingService.upsertMapping(
+            organizationId,
+            'account',
+            item.needKey,
+            newAccount.Id,
+            newAccount.Name,
+            { batchId, userId }
+          );
           mappingsCreated++;
         }
       } catch (err) {
@@ -804,7 +788,7 @@ export class AutoMatchService {
       }
     }
 
-    return { success: errors.length === 0, mappingsCreated, errors };
+    return { success: errors.length === 0, batchId, mappingsCreated, errors };
   }
 
   /**
@@ -813,9 +797,11 @@ export class AutoMatchService {
   static async applyEntityDecisions(
     resultId: string,
     organizationId: string,
-    entityType: 'customer' | 'item' | 'bank'
+    entityType: 'customer' | 'item' | 'bank',
+    userId?: string
   ): Promise<{
     success: boolean;
+    batchId: string;
     mappingsCreated: number;
     errors: Array<{ localId: string; error: string }>;
   }> {
@@ -827,6 +813,10 @@ export class AutoMatchService {
       entityType === 'item' ? result.itemItems :
       result.bankItems;
 
+    // Create batch to track this apply operation
+    const batch = await MappingBatchService.createBatch(organizationId, entityType, userId);
+    const batchId = batch.id;
+
     let mappingsCreated = 0;
     const errors: Array<{ localId: string; error: string }> = [];
 
@@ -835,26 +825,14 @@ export class AutoMatchService {
 
       try {
         if (item.decision === 'use_existing' && item.decisionEntityId) {
-          await prisma.qBEntityMapping.upsert({
-            where: {
-              uq_qb_mapping_org_type_local: {
-                organizationId,
-                entityType,
-                localId: item.localId,
-              },
-            },
-            create: {
-              organizationId,
-              entityType,
-              localId: item.localId,
-              qbId: item.decisionEntityId,
-              qbName: item.decisionEntityName || '',
-            },
-            update: {
-              qbId: item.decisionEntityId,
-              qbName: item.decisionEntityName || '',
-            },
-          });
+          await EntityMappingService.upsertMapping(
+            organizationId,
+            entityType,
+            item.localId,
+            item.decisionEntityId,
+            item.decisionEntityName,
+            { batchId, userId }
+          );
           mappingsCreated++;
         } else if (item.decision === 'create_new') {
           // Create new QB entity
@@ -914,27 +892,15 @@ export class AutoMatchService {
             createdEntity = data.Account;
           }
 
-          // Create mapping
-          await prisma.qBEntityMapping.upsert({
-            where: {
-              uq_qb_mapping_org_type_local: {
-                organizationId,
-                entityType,
-                localId: item.localId,
-              },
-            },
-            create: {
-              organizationId,
-              entityType,
-              localId: item.localId,
-              qbId: createdEntity.Id,
-              qbName: createdEntity.DisplayName || createdEntity.Name,
-            },
-            update: {
-              qbId: createdEntity.Id,
-              qbName: createdEntity.DisplayName || createdEntity.Name,
-            },
-          });
+          // Create mapping with batch tracking
+          await EntityMappingService.upsertMapping(
+            organizationId,
+            entityType,
+            item.localId,
+            createdEntity.Id,
+            createdEntity.DisplayName || createdEntity.Name,
+            { batchId, userId }
+          );
           mappingsCreated++;
         }
       } catch (err) {
@@ -942,6 +908,6 @@ export class AutoMatchService {
       }
     }
 
-    return { success: errors.length === 0, mappingsCreated, errors };
+    return { success: errors.length === 0, batchId, mappingsCreated, errors };
   }
 }

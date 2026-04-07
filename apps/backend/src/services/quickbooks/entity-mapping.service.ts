@@ -55,7 +55,8 @@ export class EntityMappingService {
     entityType: EntityType,
     localId: string,
     qbId: string,
-    qbName?: string
+    qbName?: string,
+    options?: { batchId?: string; userId?: string }
   ): Promise<{ id: string; qbId: string; qbName: string | null }> {
     // Validation
     if (!organizationId || !organizationId.trim()) {
@@ -87,6 +88,17 @@ export class EntityMappingService {
     const trimmedQbId = qbId.trim();
     const trimmedQbName = qbName?.trim() || null;
 
+    // Check if mapping exists (for history tracking)
+    const existing = await prisma.qBEntityMapping.findUnique({
+      where: {
+        uq_qb_mapping_org_type_local: {
+          organizationId,
+          entityType: normalizedEntityType,
+          localId: trimmedLocalId
+        }
+      }
+    });
+
     // Upsert mapping (on conflict update)
     const mapping = await prisma.qBEntityMapping.upsert({
       where: {
@@ -116,6 +128,27 @@ export class EntityMappingService {
         qbName: true
       }
     });
+
+    // Capture history (if batchId provided)
+    if (options?.batchId && options?.userId) {
+      await prisma.qBMappingHistory.create({
+        data: {
+          batchId: options.batchId,
+          mappingId: mapping.id,
+          organizationId,
+          operation: existing ? 'UPDATE' : 'CREATE',
+          entityType: normalizedEntityType,
+          localId: trimmedLocalId,
+          beforeQbId: existing?.qbId || null,
+          beforeQbName: existing?.qbName || null,
+          beforeIsActive: existing?.isActive || null,
+          afterQbId: trimmedQbId,
+          afterQbName: trimmedQbName,
+          afterIsActive: true,
+          userId: options.userId,
+        },
+      });
+    }
 
     console.log(
       `[Entity Mapping] ✓ Upserted mapping: org=${organizationId}, type=${normalizedEntityType}, local=${trimmedLocalId}, qb=${trimmedQbId}`
@@ -418,5 +451,50 @@ export class EntityMappingService {
     );
 
     return results;
+  }
+
+  /**
+   * Check if a QB entity is already mapped to any local entity
+   * @param organizationId - Organization ID (enforces isolation)
+   * @param entityType - Entity type
+   * @param qbId - QuickBooks entity ID
+   * @returns Mapping status and mapped-to details (if applicable)
+   */
+  static async checkIfMapped(
+    organizationId: string,
+    entityType: EntityType,
+    qbId: string
+  ): Promise<{
+    alreadyMapped: boolean;
+    mappedTo?: { entityType: string; localId: string; localName: string };
+  }> {
+    const mapping = await prisma.qBEntityMapping.findUnique({
+      where: {
+        uq_qb_mapping_org_type_qb: {
+          organizationId,
+          entityType,
+          qbId,
+        },
+      },
+      select: {
+        entityType: true,
+        localId: true,
+        localName: true,
+        isActive: true,
+      },
+    });
+
+    if (!mapping || !mapping.isActive) {
+      return { alreadyMapped: false };
+    }
+
+    return {
+      alreadyMapped: true,
+      mappedTo: {
+        entityType: mapping.entityType,
+        localId: mapping.localId,
+        localName: mapping.localName || '',
+      },
+    };
   }
 }

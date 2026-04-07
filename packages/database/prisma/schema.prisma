@@ -36,6 +36,7 @@ model Organization {
   qbSyncLogs      QBSyncLog[]
   qbSnapshots     QBEntitySnapshot[]
   qbEntityMappings QBEntityMapping[]
+  qbMappingBatches QBMappingBatch[]
 
   @@map("organizations")
 }
@@ -971,6 +972,75 @@ model QBEntitySnapshot {
   @@index([qbId], name: "idx_qb_snapshot_qbid")
   @@index([qbName], name: "idx_qb_snapshot_name")
   @@map("qb_entities_snapshot")
+}
+
+/// QB Mapping Batch (Groups related mapping operations for undo/revert)
+model QBMappingBatch {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Batch metadata
+  batchType      String   @map("batch_type") @db.VarChar(50)  // 'auto_match', 'manual_edit', 'bulk_import'
+  description    String?  @db.Text
+
+  // User tracking
+  createdBy      String   @map("created_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // Revert tracking
+  isReverted     Boolean  @default(false) @map("is_reverted")
+  revertedAt     DateTime? @map("reverted_at") @db.Timestamptz
+  revertedBy     String?  @map("reverted_by") @db.Uuid
+
+  // Relations
+  historyEntries QBMappingHistory[]
+
+  @@index([organizationId, createdAt], name: "idx_qb_batch_org_created")
+  @@index([organizationId, isReverted], name: "idx_qb_batch_org_reverted")
+  @@map("qb_mapping_batches")
+}
+
+/// QB Mapping History (Row-level before/after snapshots for each mapping change)
+model QBMappingHistory {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+
+  // Link to batch
+  batchId        String?  @map("batch_id") @db.Uuid
+  batch          QBMappingBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
+
+  // Link to current mapping (nullable - mapping may be deleted)
+  mappingId      String?  @map("mapping_id") @db.Uuid
+
+  // Organization
+  organizationId String   @map("organization_id") @db.Uuid
+
+  // Operation type
+  operation      String   @db.VarChar(20)  // 'CREATE', 'UPDATE', 'DEACTIVATE'
+
+  // Entity identifiers (denormalized for fast queries even if mapping deleted)
+  entityType     String   @map("entity_type") @db.VarChar(50)
+  localId        String   @map("local_id") @db.VarChar(100)
+
+  // Before state (NULL for CREATE operations)
+  beforeQbId     String?  @map("before_qb_id") @db.VarChar(100)
+  beforeQbName   String?  @map("before_qb_name") @db.VarChar(255)
+  beforeIsActive Boolean? @map("before_is_active")
+
+  // After state (NULL for hard deletes, if we ever add them)
+  afterQbId      String?  @map("after_qb_id") @db.VarChar(100)
+  afterQbName    String?  @map("after_qb_name") @db.VarChar(255)
+  afterIsActive  Boolean? @map("after_is_active")
+
+  // Metadata
+  userId         String   @map("user_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([batchId], name: "idx_qb_history_batch")
+  @@index([mappingId], name: "idx_qb_history_mapping")
+  @@index([organizationId, entityType, localId], name: "idx_qb_history_entity")
+  @@index([organizationId, createdAt], name: "idx_qb_history_org_created")
+  @@map("qb_mapping_history")
 }
 
 // ============================================================

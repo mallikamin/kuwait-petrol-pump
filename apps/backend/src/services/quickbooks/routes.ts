@@ -1472,7 +1472,7 @@ router.post('/match/:matchId/apply', authenticate, authorize('admin', 'manager')
 
     console.log(`[QB Auto-Match] Applying account decisions for match ${matchId}`);
 
-    const result = await AutoMatchService.applyAccountDecisions(matchId, organizationId);
+    const result = await AutoMatchService.applyAccountDecisions(matchId, organizationId, userId);
 
     await AuditLogger.log({
       operation: 'QB_MATCH_APPLY_COMPLETE',
@@ -1484,6 +1484,7 @@ router.post('/match/:matchId/apply', authenticate, authorize('admin', 'manager')
         userId,
         organizationId,
         entityType: 'account',
+        batchId: result.batchId,
         mappingsCreated: result.mappingsCreated,
         errors: result.errors,
       },
@@ -1525,7 +1526,7 @@ router.post('/match/:matchId/apply-entities', authenticate, authorize('admin', '
 
     console.log(`[QB Auto-Match] Applying ${entityType} decisions for match ${matchId}`);
 
-    const result = await AutoMatchService.applyEntityDecisions(matchId, organizationId, entityType);
+    const result = await AutoMatchService.applyEntityDecisions(matchId, organizationId, entityType, userId);
 
     await AuditLogger.log({
       operation: 'QB_MATCH_APPLY_ENTITIES_COMPLETE',
@@ -1537,6 +1538,7 @@ router.post('/match/:matchId/apply-entities', authenticate, authorize('admin', '
         userId,
         organizationId,
         entityType,
+        batchId: result.batchId,
         mappingsCreated: result.mappingsCreated,
         errors: result.errors,
       },
@@ -1554,6 +1556,128 @@ router.post('/match/:matchId/apply-entities', authenticate, authorize('admin', '
       metadata: { error: errorMsg, entityType: req.body.entityType },
     });
 
+    handleQBError(error, res);
+  }
+});
+
+// ============================================================
+// BATCH UNDO/REVERT ENDPOINTS
+// ============================================================
+
+/**
+ * GET /api/quickbooks/mappings/batches/recent
+ * List recent revertible batches (authenticated admin/manager)
+ */
+router.get('/mappings/batches/recent', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { organizationId } = req.user;
+    const limit = parseInt(req.query.limit as string) || 10;
+
+    const { MappingBatchService } = await import('./mapping-batch.service');
+    const batches = await MappingBatchService.getRecentBatches(organizationId, limit);
+
+    res.json({ success: true, batches });
+  } catch (error: any) {
+    handleQBError(error, res);
+  }
+});
+
+/**
+ * GET /api/quickbooks/mappings/batches/:batchId/preview
+ * Preview what would be reverted
+ */
+router.get('/mappings/batches/:batchId/preview', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { batchId } = req.params;
+    const { organizationId } = req.user;
+
+    const { MappingBatchService } = await import('./mapping-batch.service');
+    const preview = await MappingBatchService.getBatchPreview(batchId, organizationId);
+
+    res.json({ success: true, preview });
+  } catch (error: any) {
+    handleQBError(error, res);
+  }
+});
+
+/**
+ * POST /api/quickbooks/mappings/batches/:batchId/revert
+ * Revert a batch of mapping changes
+ */
+router.post('/mappings/batches/:batchId/revert', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { batchId } = req.params;
+    const { organizationId, userId } = req.user;
+
+    const { MappingBatchService } = await import('./mapping-batch.service');
+    const result = await MappingBatchService.revertBatch(batchId, organizationId, userId);
+
+    // Log audit trail
+    await AuditLogger.log({
+      operation: 'REVERT_MAPPING_BATCH',
+      entity_type: 'mapping_batch',
+      entity_id: batchId,
+      direction: 'APP_TO_QB',
+      status: result.success ? 'SUCCESS' : 'PARTIAL',
+      metadata: {
+        userId,
+        organizationId,
+        revertedCount: result.revertedCount,
+        errorCount: result.errors.length,
+      },
+    });
+
+    res.json({
+      success: result.success,
+      revertedCount: result.revertedCount,
+      errors: result.errors,
+    });
+  } catch (error: any) {
+    handleQBError(error, res);
+  }
+});
+
+// ============================================================
+// ENTITY MAPPING ENDPOINTS
+// ============================================================
+
+/**
+ * GET /api/quickbooks/entities/check-mapping
+ * Check if a QB entity is already mapped
+ */
+router.get('/entities/check-mapping', authenticate, async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { organizationId } = req.user;
+    const { entityType, qbId } = req.query;
+
+    if (!entityType || !qbId) {
+      return res.status(400).json({ error: 'Missing entityType or qbId' });
+    }
+
+    const result = await EntityMappingService.checkIfMapped(
+      organizationId,
+      entityType as any,
+      qbId as string
+    );
+
+    res.json(result);
+  } catch (error: any) {
     handleQBError(error, res);
   }
 });
