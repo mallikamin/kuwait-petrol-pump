@@ -542,26 +542,26 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                       {item.bestMatch && (
                         <div className="mt-2 p-2 bg-muted rounded text-sm flex items-center justify-between gap-2">
                           <div className="flex-1">
-                            <div className="font-medium">{item.bestMatch.qbAccountName}</div>
+                            <div className="font-medium">{item.bestMatch.qbEntityName || item.bestMatch.qbAccountName}</div>
                             <div className="text-xs text-muted-foreground">
-                              {item.bestMatch.qbAccountType} • Score: {(item.bestMatch.score * 100).toFixed(0)}%
+                              {item.bestMatch.qbEntityType || item.bestMatch.qbAccountType} • Score: {(item.bestMatch.score * 100).toFixed(0)}%
                             </div>
                           </div>
                           <Button
                             size="sm"
-                            variant={item.decisionAccountId === item.bestMatch?.qbAccountId ? "default" : "outline"}
+                            variant={item.decisionAccountId === (item.bestMatch?.qbEntityId || item.bestMatch?.qbAccountId) ? "default" : "outline"}
                             className="h-7 text-xs"
                             onClick={() => {
                               if (!item.bestMatch) return;
                               handleDecisionChange(
                                 item.needKey,
                                 'use_existing',
-                                item.bestMatch.qbAccountId,
-                                item.bestMatch.qbAccountName
+                                item.bestMatch.qbEntityId || item.bestMatch.qbAccountId,
+                                item.bestMatch.qbEntityName || item.bestMatch.qbAccountName
                               );
                             }}
                           >
-                            {item.decisionAccountId === item.bestMatch?.qbAccountId ? 'Selected' : 'Accept'}
+                            {item.decisionAccountId === (item.bestMatch?.qbEntityId || item.bestMatch?.qbAccountId) ? 'Selected' : 'Accept'}
                           </Button>
                         </div>
                       )}
@@ -573,9 +573,9 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                             value={item.decisionAccountId ? String(item.decisionAccountId) : ''}
                             onValueChange={(value) => {
                               if (value && value.trim()) {
-                                const candidate = item.candidates.find((c) => String(c.qbAccountId) === value);
+                                const candidate = item.candidates.find((c) => String(c.qbAccountId ?? c.qbEntityId) === String(value));
                                 if (candidate) {
-                                  handleDecisionChange(item.needKey, 'use_existing', candidate.qbAccountId, candidate.qbAccountName);
+                                  handleDecisionChange(item.needKey, 'use_existing', candidate.qbAccountId ?? candidate.qbEntityId, candidate.qbAccountName ?? candidate.qbEntityName ?? candidate.accountName ?? candidate.name ?? '(Unnamed)');
                                 }
                               }
                             }}
@@ -584,11 +584,15 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                               <SelectValue placeholder="Select candidate..." />
                             </SelectTrigger>
                             <SelectContent>
-                              {item.candidates.map((candidate, idx) => (
-                                <SelectItem key={`${item.needKey}-${String(candidate.qbAccountId)}`} value={String(candidate.qbAccountId)}>
-                                  {idx === 0 && '⭐ '}{candidate.qbAccountName} ({(candidate.score * 100).toFixed(0)}%)
-                                </SelectItem>
-                              ))}
+                              {item.candidates.map((candidate, idx) => {
+                                const displayName = candidate.qbAccountName ?? candidate.qbEntityName ?? candidate.accountName ?? candidate.name ?? '(Unnamed QB entity)';
+                                const candidateId = String(candidate.qbAccountId ?? candidate.qbEntityId);
+                                return (
+                                  <SelectItem key={`${item.needKey}-${candidateId}`} value={candidateId}>
+                                    {idx === 0 && '⭐ '}{displayName} ({(candidate.score * 100).toFixed(0)}%)
+                                  </SelectItem>
+                                );
+                              })}
                             </SelectContent>
                           </Select>
                         </div>
@@ -674,14 +678,15 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                               value={item.decisionEntityId ? String(item.decisionEntityId) : ''}
                               onValueChange={(value) => {
                                 if (value && value.trim()) {
-                                  const candidate = item.candidates.find((c) => String(c.qbEntityId) === value);
+                                  const candidate = item.candidates.find((c) => String(c.qbEntityId ?? c.qbAccountId) === String(value));
                                   if (candidate) {
+                                    const displayName = candidate.qbEntityName ?? candidate.qbAccountName ?? candidate.name ?? '(Unnamed)';
                                     handleEntityDecisionChange(
                                       item.localId,
                                       item.entityType,
                                       'use_existing',
-                                      candidate.qbEntityId,
-                                      candidate.qbEntityName
+                                      candidate.qbEntityId ?? candidate.qbAccountId,
+                                      displayName
                                     );
                                   }
                                 }
@@ -691,11 +696,15 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                                 <SelectValue placeholder="Select candidate..." />
                               </SelectTrigger>
                               <SelectContent>
-                                {item.candidates.map((candidate, idx) => (
-                                  <SelectItem key={`${item.localId}-${String(candidate.qbEntityId)}`} value={String(candidate.qbEntityId)}>
-                                    {idx === 0 && '⭐ '}{candidate.qbEntityName} ({(candidate.score * 100).toFixed(0)}%)
-                                  </SelectItem>
-                                ))}
+                                {item.candidates.map((candidate, idx) => {
+                                  const displayName = candidate.qbEntityName ?? candidate.qbAccountName ?? candidate.name ?? '(Unnamed QB entity)';
+                                  const candidateId = String(candidate.qbEntityId ?? candidate.qbAccountId);
+                                  return (
+                                    <SelectItem key={`${item.localId}-${candidateId}`} value={candidateId}>
+                                      {idx === 0 && '⭐ '}{displayName} ({(candidate.score * 100).toFixed(0)}%)
+                                    </SelectItem>
+                                  );
+                                })}
                               </SelectContent>
                             </Select>
                           </div>
