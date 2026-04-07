@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Upload, RefreshCw, Wand2, CheckCircle, AlertCircle, XCircle } from 'lucide-react';
+import { Plus, Upload, RefreshCw, Wand2, CheckCircle, AlertCircle, XCircle, RotateCcw } from 'lucide-react';
 import { quickbooksApi } from '@/api/quickbooks';
 import { toast } from 'sonner';
 import type { QBEntityMapping, CreateMappingRequest, MatchResult } from '@/types/quickbooks';
@@ -34,6 +34,15 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
   const [activeTab, setActiveTab] = useState<'accounts' | 'customers' | 'items' | 'banks' | 'mapped'>('accounts');
   const [editingMapping, setEditingMapping] = useState<EditingMapping | null>(null);
   const [deactivatingId, setDeactivatingId] = useState<string | null>(null);
+  const [showUndoModal, setShowUndoModal] = useState(false);
+  const [recentBatches, setRecentBatches] = useState<any[]>([]);
+  const [undoLoading, setUndoLoading] = useState(false);
+  const [showSearchModal, setShowSearchModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchEntityType, setSearchEntityType] = useState<string>('');
+  const [searchNeedKey, setSearchNeedKey] = useState<string>('');
 
   // Form state
   const [formData, setFormData] = useState<CreateMappingRequest>({
@@ -218,6 +227,67 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
     }
   };
 
+  const handleOpenUndoModal = async () => {
+    try {
+      setUndoLoading(true);
+      const result = await quickbooksApi.getRecentBatches();
+      if (result.success && result.batches.length > 0) {
+        setRecentBatches(result.batches);
+        setShowUndoModal(true);
+      } else {
+        toast.info('No recent mapping batches to undo');
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Failed to fetch recent batches');
+    } finally {
+      setUndoLoading(false);
+    }
+  };
+
+  const handleRevertBatch = async (batchId: string) => {
+    try {
+      setUndoLoading(true);
+      const result = await quickbooksApi.revertBatch(batchId);
+      if (result.success) {
+        toast.success(`Reverted ${result.revertedCount} mappings`);
+        setShowUndoModal(false);
+        await fetchMappings();
+      } else {
+        toast.error('Failed to revert batch');
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Failed to revert batch');
+    } finally {
+      setUndoLoading(false);
+    }
+  };
+
+  const handleOpenSearch = (entityType: string, needKey: string) => {
+    setSearchEntityType(entityType);
+    setSearchNeedKey(needKey);
+    setSearchQuery('');
+    setSearchResults([]);
+    setShowSearchModal(true);
+  };
+
+  const handleSearchQB = async (query: string) => {
+    if (!query.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    try {
+      setSearchLoading(true);
+      // For now, we'll show a placeholder - in production this would call the QB API
+      // to search the chart of accounts or entity list
+      toast.info('Manual QB search coming soon - using candidates for now');
+      setSearchLoading(false);
+    } catch (err: any) {
+      toast.error('Failed to search QB entities');
+      setSearchLoading(false);
+    }
+  };
+
   const handleDecisionChange = (needKey: string, decision: 'use_existing' | 'create_new', accountId?: string, accountName?: string) => {
     if (!matchResult) return;
 
@@ -397,6 +467,17 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                   Auto-Match
                 </Button>
                 <Button
+                  onClick={handleOpenUndoModal}
+                  disabled={undoLoading}
+                  size="sm"
+                  variant="outline"
+                  className="gap-2"
+                  title="Undo the last mapping batch applied"
+                >
+                  <RotateCcw className={`h-4 w-4 ${undoLoading ? 'animate-spin' : ''}`} />
+                  Undo Last Apply
+                </Button>
+                <Button
                   onClick={() => setShowBulk(!showBulk)}
                   size="sm"
                   variant="outline"
@@ -567,8 +648,18 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                       )}
 
                       {item.candidates.length > 0 && (
-                        <div className="mt-2">
-                          <Label className="text-xs">All candidates ({item.candidates.length}):</Label>
+                        <div className="mt-2 space-y-1">
+                          <div className="flex items-center justify-between">
+                            <Label className="text-xs">All candidates ({item.candidates.length}):</Label>
+                            <Button
+                              size="xs"
+                              variant="ghost"
+                              className="h-5 text-xs"
+                              onClick={() => handleOpenSearch('account', item.needKey)}
+                            >
+                              Search QB CoA
+                            </Button>
+                          </div>
                           <Select
                             value={item.decisionAccountId ? String(item.decisionAccountId) : ''}
                             onValueChange={(value) => {
@@ -1214,6 +1305,145 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* Undo Modal */}
+        {showUndoModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <Card className="w-full max-w-md">
+              <CardHeader>
+                <CardTitle>Undo Last Apply</CardTitle>
+                <CardDescription>
+                  Select a mapping batch to undo and restore previous mappings
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {undoLoading ? (
+                  <div className="text-center py-4">
+                    <div className="inline-block">
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                    </div>
+                    <p className="text-sm text-muted-foreground mt-2">Loading batches...</p>
+                  </div>
+                ) : recentBatches.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No recent batches found</p>
+                ) : (
+                  <div className="space-y-2">
+                    {recentBatches.map((batch) => (
+                      <div
+                        key={batch.id}
+                        className="p-3 border rounded-md flex items-center justify-between hover:bg-gray-50"
+                      >
+                        <div>
+                          <p className="text-sm font-medium">
+                            {batch.entityType.charAt(0).toUpperCase() + batch.entityType.slice(1)} Mappings
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {batch.mappingsCount} mappings • {new Date(batch.createdAt).toLocaleString()}
+                          </p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={undoLoading}
+                          onClick={() => handleRevertBatch(batch.id)}
+                        >
+                          Undo
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex gap-2 pt-4">
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => setShowUndoModal(false)}
+                    disabled={undoLoading}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Search QB CoA Modal */}
+        {showSearchModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <Card className="w-full max-w-lg">
+              <CardHeader>
+                <CardTitle>Search QuickBooks Chart of Accounts</CardTitle>
+                <CardDescription>
+                  Find and select the QuickBooks entity you want to map
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Search by name or ID..."
+                    value={searchQuery}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                      handleSearchQB(e.target.value);
+                    }}
+                    className="text-sm"
+                  />
+                </div>
+
+                {searchLoading ? (
+                  <div className="text-center py-4">
+                    <RefreshCw className="h-4 w-4 animate-spin inline" />
+                    <p className="text-sm text-muted-foreground mt-2">Searching QB...</p>
+                  </div>
+                ) : searchResults.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    {searchQuery ? 'No results found' : 'Type to search QB entities'}
+                  </p>
+                ) : (
+                  <div className="space-y-1 max-h-96 overflow-y-auto">
+                    {searchResults.map((result) => (
+                      <div
+                        key={result.qbId}
+                        className="p-2 border rounded-md cursor-pointer hover:bg-gray-50 flex items-center justify-between"
+                        onClick={() => {
+                          handleDecisionChange(searchNeedKey, 'use_existing', result.qbId, result.qbName);
+                          setShowSearchModal(false);
+                          toast.success(`Mapped to ${result.qbName}`);
+                        }}
+                      >
+                        <div>
+                          <p className="text-sm font-medium">{result.qbName}</p>
+                          <p className="text-xs text-muted-foreground">{result.qbId}</p>
+                          {result.alreadyMapped && (
+                            <Badge variant="secondary" className="mt-1 text-xs">
+                              Mapped to: {result.mappedTo?.localName || 'Unknown'}
+                            </Badge>
+                          )}
+                        </div>
+                        <Button size="sm" variant="outline">
+                          Select
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex gap-2 pt-4">
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => setShowSearchModal(false)}
+                    disabled={searchLoading}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         )}
       </CardContent>

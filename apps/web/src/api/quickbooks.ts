@@ -135,4 +135,76 @@ export const quickbooksApi = {
     const response = await apiClient.get('/api/quickbooks/preflight/unmapped');
     return response.data;
   },
+
+  // Batch Undo/Revert
+  async getRecentBatches(): Promise<{
+    success: boolean;
+    batches: Array<{
+      id: string;
+      entityType: string;
+      createdAt: string;
+      mappingsCount: number;
+      isReverted: boolean;
+    }>;
+  }> {
+    const response = await apiClient.get('/api/quickbooks/mappings/batches/recent');
+    return response.data;
+  },
+
+  async previewBatch(batchId: string): Promise<{
+    success: boolean;
+    batch: {
+      id: string;
+      entityType: string;
+      createdAt: string;
+      mappingsCount: number;
+    };
+    preview: Array<{
+      mappingId: string;
+      entityType: string;
+      localId: string;
+      operation: 'CREATE' | 'UPDATE' | 'DEACTIVATE';
+      beforeQbId: string | null;
+      beforeQbName: string | null;
+      afterQbId: string;
+      afterQbName: string;
+    }>;
+  }> {
+    const response = await apiClient.get(
+      `/api/quickbooks/mappings/batches/${batchId}/preview`
+    );
+    return response.data;
+  },
+
+  async revertBatch(batchId: string): Promise<{
+    success: boolean;
+    revertedCount: number;
+    failedCount: number;
+    details: Array<{
+      mappingId: string;
+      success: boolean;
+      error?: string;
+    }>;
+  }> {
+    const response = await apiClient.post(
+      `/api/quickbooks/mappings/batches/${batchId}/revert`
+    );
+    return response.data;
+  },
+
+  // Manual QB Search
+  async checkIfMapped(qbId: string, entityType: string): Promise<{
+    success: boolean;
+    isMapped: boolean;
+    mappedTo?: {
+      entityType: string;
+      localId: string;
+      localName: string;
+    };
+  }> {
+    const response = await apiClient.get('/api/quickbooks/entities/check-mapping', {
+      params: { qbId, entityType },
+    });
+    return response.data;
+  },
 };
