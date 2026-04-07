@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "prebuild": "bash ../../scripts/require-clean-git.sh",
     "build": "tsc",
     "start": "node dist/server.js",
     "test": "jest --passWithNoTests",
