@@ -4,9 +4,12 @@ import { connectRedis } from './config/redis';
 import { prisma } from './config/database';
 import { logger } from './utils/logger';
 import { queueProcessor } from './services/quickbooks/queue-processor.service';
+import { startKeepaliveService, stopKeepaliveService } from './services/quickbooks/token-keepalive.service';
 import { initializeUploadDirectory } from './utils/image-storage';
 
 async function startServer() {
+  let keepaliveIntervalId: NodeJS.Timeout | null = null;
+
   try {
     // Initialize upload directory for audit trail images
     initializeUploadDirectory();
@@ -39,9 +42,29 @@ async function startServer() {
       }
     }
 
+    // Start QuickBooks token keepalive service (unless disabled)
+    if (process.env.ENABLE_QB_KEEPALIVE !== 'false') {
+      try {
+        keepaliveIntervalId = startKeepaliveService();
+        logger.info('✅ QuickBooks token keepalive service started');
+      } catch (error) {
+        logger.error('⚠️ Failed to start QB keepalive service:', error);
+        // Don't crash app if keepalive fails to start
+      }
+    }
+
     // Graceful shutdown
     process.on('SIGTERM', async () => {
       logger.info('SIGTERM received, shutting down gracefully...');
+
+      // Stop keepalive service
+      if (keepaliveIntervalId) {
+        try {
+          stopKeepaliveService(keepaliveIntervalId);
+        } catch (error) {
+          logger.error('Error stopping keepalive service:', error);
+        }
+      }
 
       // Stop queue processor
       try {

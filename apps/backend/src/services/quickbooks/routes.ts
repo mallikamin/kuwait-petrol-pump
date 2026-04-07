@@ -33,7 +33,8 @@ import { authenticate, authorize } from '../../middleware/auth.middleware';
 import { runPreflightChecks } from './preflight.service';
 import { OpLog } from './error-classifier';
 import OAuthClient from 'intuit-oauth';
-import { AutoMatchService, QBTokenExpiredError } from './auto-match.service';
+import { AutoMatchService } from './auto-match.service';
+import { QBTokenExpiredError, QBTransientError } from './errors';
 import { getAllNeedsAsDicts } from './kuwait-needs';
 
 const prisma = new PrismaClient();
@@ -48,6 +49,29 @@ function getOAuthClient() {
     environment: (process.env.QUICKBOOKS_ENVIRONMENT || 'sandbox') as 'sandbox' | 'production',
     redirectUri: process.env.QUICKBOOKS_REDIRECT_URI || '',
   });
+}
+
+/**
+ * Standardized QB error response handler
+ * Returns 401 for token expiration, 503 for transient errors, 500 for unknown
+ */
+function handleQBError(error: any, res: Response): void {
+  if (error instanceof QBTokenExpiredError) {
+    res.status(401).json({
+      code: 'QB_TOKEN_EXPIRED',
+      message: 'QuickBooks token expired. Please reconnect.',
+    });
+  } else if (error instanceof QBTransientError) {
+    res.status(503).json({
+      code: 'QB_TRANSIENT_ERROR',
+      message: error.message,
+      retryable: true,
+    });
+  } else {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 /**
@@ -345,9 +369,7 @@ router.get('/banks', authenticate, authorize('admin', 'manager'), async (req: Re
       })),
     });
   } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : String(error),
-    });
+    handleQBError(error, res);
   }
 });
 
@@ -1256,15 +1278,7 @@ router.post('/match/run', authenticate, authorize('admin', 'manager'), async (re
       metadata: { error: errorMsg },
     });
 
-    if (error instanceof QBTokenExpiredError) {
-      return res.status(401).json({
-        error: errorMsg,
-        code: 'QB_TOKEN_EXPIRED',
-        message: 'QuickBooks token expired. Please reconnect.',
-      });
-    }
-
-    res.status(500).json({ error: errorMsg });
+    handleQBError(error, res);
   }
 });
 
@@ -1426,15 +1440,7 @@ router.post('/match/:matchId/apply', authenticate, authorize('admin', 'manager')
       metadata: { error: errorMsg },
     });
 
-    if (error instanceof QBTokenExpiredError) {
-      return res.status(401).json({
-        error: errorMsg,
-        code: 'QB_TOKEN_EXPIRED',
-        message: 'QuickBooks token expired. Please reconnect.',
-      });
-    }
-
-    res.status(500).json({ error: errorMsg });
+    handleQBError(error, res);
   }
 });
 
@@ -1487,15 +1493,7 @@ router.post('/match/:matchId/apply-entities', authenticate, authorize('admin', '
       metadata: { error: errorMsg, entityType: req.body.entityType },
     });
 
-    if (error instanceof QBTokenExpiredError) {
-      return res.status(401).json({
-        error: errorMsg,
-        code: 'QB_TOKEN_EXPIRED',
-        message: 'QuickBooks token expired. Please reconnect.',
-      });
-    }
-
-    res.status(500).json({ error: errorMsg });
+    handleQBError(error, res);
   }
 });
 

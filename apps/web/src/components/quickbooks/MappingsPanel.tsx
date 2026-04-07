@@ -158,9 +158,18 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
       setShowAutoMatch(true);
       toast.success(`Auto-match complete: ${result.result.healthGrade} grade`);
     } catch (err: any) {
-      if (err.response?.status === 401 || err.response?.data?.error?.includes('token')) {
+      // Only show reconnect banner for true token expiration
+      if (err.response?.data?.code === 'QB_TOKEN_EXPIRED') {
         setQbTokenExpired(true);
         toast.error('QuickBooks token expired. Please reconnect.');
+      } else if (err.response?.data?.code === 'QB_TRANSIENT_ERROR') {
+        // Transient error - show retry toast, keep connection state
+        toast.error(err.response.data.message || 'Temporary error. Please retry.', {
+          action: {
+            label: 'Retry',
+            onClick: () => handleRunAutoMatch(),
+          },
+        });
       } else {
         toast.error(err.response?.data?.error || 'Failed to run auto-match');
       }
@@ -273,9 +282,13 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
       setMatchResult(null);
       await fetchMappings();
     } catch (err: any) {
-      if (err.response?.status === 401 || err.response?.data?.error?.includes('token')) {
+      // Only show reconnect banner for true token expiration
+      if (err.response?.data?.code === 'QB_TOKEN_EXPIRED') {
         setQbTokenExpired(true);
         toast.error('QuickBooks token expired. Please reconnect.');
+      } else if (err.response?.data?.code === 'QB_TRANSIENT_ERROR') {
+        // Transient error - show retry toast, keep connection state
+        toast.error(err.response.data.message || 'Temporary error. Please retry.');
       } else {
         toast.error(err.response?.data?.error || 'Failed to apply match');
       }

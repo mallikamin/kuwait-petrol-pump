@@ -17,19 +17,13 @@ import {
   THRESHOLD_MEDIUM,
 } from './fuzzy-match';
 import { getValidAccessToken, getQBApiUrl } from './token-refresh';
+import { QBTokenExpiredError, QBTransientError } from './errors';
 
 const prisma = new PrismaClient();
 
 // ============================================================
 // TYPES & INTERFACES
 // ============================================================
-
-export class QBTokenExpiredError extends Error {
-  constructor(message: string = 'QuickBooks token expired. Please reconnect.') {
-    super(message);
-    this.name = 'QBTokenExpiredError';
-  }
-}
 
 export interface MatchItem {
   needKey: string;

@@ -14,6 +14,7 @@ import type { QBOAuthStatus } from '@/types/quickbooks';
 export default function QuickBooks() {
   const [status, setStatus] = useState<QBOAuthStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [tokenExpired, setTokenExpired] = useState(false);
   const user = useAuthStore((state) => state.user);
 
   useEffect(() => {
@@ -25,6 +26,16 @@ export default function QuickBooks() {
       setLoading(true);
       const response = await quickbooksApi.getOAuthStatus();
       setStatus(response);
+
+      // Check if token is expired or will expire soon (within 10 minutes)
+      if (response.connected && response.connection?.tokenExpiresAt) {
+        const expiresAt = new Date(response.connection.tokenExpiresAt);
+        const now = new Date();
+        const minutesUntilExpiry = (expiresAt.getTime() - now.getTime()) / (1000 * 60);
+        setTokenExpired(minutesUntilExpiry < 10);
+      } else {
+        setTokenExpired(false);
+      }
     } catch (error) {
       console.error('Failed to fetch QB status:', error);
     } finally {
@@ -88,6 +99,18 @@ export default function QuickBooks() {
             <p className="text-sm text-muted-foreground">Loading...</p>
           ) : status?.connected ? (
             <>
+              {tokenExpired && (
+                <div className="p-4 mb-4 bg-yellow-50 border border-yellow-200 rounded-md">
+                  <p className="text-sm font-medium text-yellow-900 mb-2">⚠️ Reconnect Required</p>
+                  <p className="text-sm text-yellow-700 mb-3">
+                    Your QuickBooks token has expired or will expire soon. Please reconnect to continue syncing.
+                  </p>
+                  <Button size="sm" onClick={handleConnect} className="gap-2">
+                    <Link2 className="h-3 w-3" />
+                    Reconnect Now
+                  </Button>
+                </div>
+              )}
               <div className="space-y-2">
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <span className="font-medium">Company:</span>
