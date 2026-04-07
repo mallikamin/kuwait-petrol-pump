@@ -318,6 +318,7 @@ export class EntityMappingService {
    * @param organizationId - Organization ID (enforces isolation)
    * @param mappingId - Mapping ID to deactivate
    * @returns Updated mapping
+   * @throws EntityMappingError with message "Mapping not found" or "Unauthorized: ..."
    */
   static async deactivateMapping(
     organizationId: string,
@@ -331,10 +332,10 @@ export class EntityMappingService {
       throw new EntityMappingError('Missing required field: mappingId');
     }
 
-    // Verify mapping belongs to organization
+    // Verify mapping exists and belongs to organization
     const mapping = await prisma.qBEntityMapping.findUnique({
       where: { id: mappingId },
-      select: { organizationId: true }
+      select: { organizationId: true, id: true }
     });
 
     if (!mapping) {

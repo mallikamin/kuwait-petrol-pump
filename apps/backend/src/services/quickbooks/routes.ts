@@ -1231,6 +1231,12 @@ router.delete('/mappings/:id', authenticate, authorize('admin', 'manager'), asyn
       return res.status(400).json({ error: 'Missing required field: id' });
     }
 
+    // Validate UUID format (v4: 8-4-4-4-12 hex digits with hyphens)
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(id)) {
+      return res.status(400).json({ error: 'Invalid UUID format for mapping ID' });
+    }
+
     // Deactivate mapping
     const result = await EntityMappingService.deactivateMapping(organizationId, id);
 
@@ -1252,6 +1258,17 @@ router.delete('/mappings/:id', authenticate, authorize('admin', 'manager'), asyn
       mapping: result
     });
   } catch (error) {
+    // Handle "not found" errors
+    if (error instanceof Error && error.message.includes('Mapping not found')) {
+      return res.status(404).json({ error: 'Mapping not found' });
+    }
+
+    // Handle "unauthorized" errors
+    if (error instanceof Error && error.message.includes('Unauthorized')) {
+      return res.status(403).json({ error: error.message });
+    }
+
+    // Default to 500 for unexpected errors
     res.status(500).json({
       error: error instanceof Error ? error.message : String(error)
     });
