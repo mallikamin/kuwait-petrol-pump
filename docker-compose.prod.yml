@@ -67,6 +67,9 @@ services:
         max-file: "3"
 
   backend:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile.prod
     image: ${DOCKER_IMAGE:-kuwaitpos-backend:latest}
     container_name: kuwaitpos-backend
     restart: always
