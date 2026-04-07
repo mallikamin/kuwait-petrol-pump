@@ -261,8 +261,7 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
     }
   };
 
-  const handleOpenSearch = (entityType: string, needKey: string) => {
-    setSearchEntityType(entityType);
+  const handleOpenSearch = (_entityType: string, needKey: string) => {
     setSearchNeedKey(needKey);
     setSearchQuery('');
     setSearchResults([]);
