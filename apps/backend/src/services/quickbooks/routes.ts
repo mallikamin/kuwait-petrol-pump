@@ -36,6 +36,7 @@ import OAuthClient from 'intuit-oauth';
 import { AutoMatchService } from './auto-match.service';
 import { QBTokenExpiredError, QBTransientError } from './errors';
 import { getAllNeedsAsDicts } from './kuwait-needs';
+import { QuickBooksEntityFetcher } from './fetch-entities.service';
 
 const prisma = new PrismaClient();
 
@@ -1982,6 +1983,111 @@ router.get('/mappings/export', authenticate, authorize('admin', 'manager'), asyn
   } catch (error: any) {
     console.error('[QB Export] Error:', error);
     handleQBError(error, res);
+  }
+});
+
+/**
+ * GET /api/quickbooks/entities/all
+ * Fetch all QB entities (Customers, Items, Accounts, Payment Methods)
+ * Uses live QB API - fails if QB not connected, no fallbacks
+ */
+router.get('/entities/all', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { organizationId } = req.user;
+
+    // Fetch live QB entities
+    const entities = await QuickBooksEntityFetcher.fetchAllEntities(organizationId);
+
+    // Get QB connection info for diagnostics
+    const { realmId } = await getValidAccessToken(organizationId, prisma);
+
+    res.json({
+      success: true,
+      realmId,
+      counts: {
+        customers: entities.customers.length,
+        items: entities.items.length,
+        accounts: entities.accounts.length,
+        paymentMethods: entities.paymentMethods.length,
+      },
+      entities,
+      fetchedAt: entities.fetchedAt,
+    });
+  } catch (error: any) {
+    console.error('[QB Entities] Error fetching from QB:', error);
+    // NO FALLBACK - fail explicitly
+    res.status(503).json({
+      error: 'QB_FETCH_FAILED',
+      message: error instanceof Error ? error.message : String(error),
+      details: 'Could not fetch entities from QuickBooks. Check QB connection and credentials.',
+    });
+  }
+});
+
+/**
+ * GET /api/quickbooks/accounts/full
+ * Fetch full Chart of Accounts from QB
+ * Source: Live QB API via QuickBooksEntityFetcher
+ * No fallbacks - fails explicitly if QB unavailable
+ */
+router.get('/accounts/full', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { organizationId } = req.user;
+
+    console.log(`[QB Accounts Full] Fetching for org ${organizationId}`);
+
+    // Fetch live QB entities (includes accounts)
+    const entities = await QuickBooksEntityFetcher.fetchAllEntities(organizationId);
+    const { realmId } = await getValidAccessToken(organizationId, prisma);
+
+    // Build account type breakdown
+    const accountTypeBreakdown: Record<string, number> = {};
+    entities.accounts.forEach(acc => {
+      accountTypeBreakdown[acc.AccountType] = (accountTypeBreakdown[acc.AccountType] || 0) + 1;
+    });
+
+    // Get company name from QB (if available)
+    const connection = await prisma.qBConnection.findFirst({
+      where: { organizationId, isActive: true },
+    });
+
+    res.json({
+      success: true,
+      companyName: connection?.companyName || 'Unknown',
+      realmId,
+      total: entities.accounts.length,
+      accountTypesBreakdown: accountTypeBreakdown,
+      accounts: entities.accounts,
+      fetchedAt: entities.fetchedAt,
+      source: 'QuickBooksEntityFetcher.fetchAllEntities (live QB)',
+    });
+  } catch (error: any) {
+    console.error('[QB Accounts Full] Error:', error);
+
+    // Explicit error handling - no fallbacks
+    if (error.message?.includes('token') || error.message?.includes('Token')) {
+      return res.status(401).json({
+        code: 'QB_TOKEN_EXPIRED',
+        message: 'QuickBooks token expired or invalid',
+        details: error.message,
+      });
+    }
+
+    // Default to transient error
+    res.status(503).json({
+      error: 'QB_FETCH_FAILED',
+      message: 'Could not fetch Chart of Accounts from QuickBooks',
+      details: error instanceof Error ? error.message : String(error),
+      retryable: true,
+    });
   }
 });
 
