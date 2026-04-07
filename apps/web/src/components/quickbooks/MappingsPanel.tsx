@@ -542,26 +542,26 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                       {item.bestMatch && (
                         <div className="mt-2 p-2 bg-muted rounded text-sm flex items-center justify-between gap-2">
                           <div className="flex-1">
-                            <div className="font-medium">{item.bestMatch.qbEntityName || item.bestMatch.qbAccountName}</div>
+                            <div className="font-medium">{item.bestMatch.qbEntityName}</div>
                             <div className="text-xs text-muted-foreground">
-                              {item.bestMatch.qbEntityType || item.bestMatch.qbAccountType} • Score: {(item.bestMatch.score * 100).toFixed(0)}%
+                              {item.bestMatch.qbEntityType} • Score: {(item.bestMatch.score * 100).toFixed(0)}%
                             </div>
                           </div>
                           <Button
                             size="sm"
-                            variant={item.decisionAccountId === (item.bestMatch?.qbEntityId || item.bestMatch?.qbAccountId) ? "default" : "outline"}
+                            variant={item.decisionAccountId === item.bestMatch?.qbEntityId ? "default" : "outline"}
                             className="h-7 text-xs"
                             onClick={() => {
                               if (!item.bestMatch) return;
                               handleDecisionChange(
                                 item.needKey,
                                 'use_existing',
-                                item.bestMatch.qbEntityId || item.bestMatch.qbAccountId,
-                                item.bestMatch.qbEntityName || item.bestMatch.qbAccountName
+                                item.bestMatch.qbEntityId,
+                                item.bestMatch.qbEntityName
                               );
                             }}
                           >
-                            {item.decisionAccountId === (item.bestMatch?.qbEntityId || item.bestMatch?.qbAccountId) ? 'Selected' : 'Accept'}
+                            {item.decisionAccountId === item.bestMatch?.qbEntityId ? 'Selected' : 'Accept'}
                           </Button>
                         </div>
                       )}
@@ -573,9 +573,9 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                             value={item.decisionAccountId ? String(item.decisionAccountId) : ''}
                             onValueChange={(value) => {
                               if (value && value.trim()) {
-                                const candidate = item.candidates.find((c) => String(c.qbAccountId ?? c.qbEntityId) === String(value));
+                                const candidate = item.candidates.find((c) => String(c.qbEntityId) === String(value));
                                 if (candidate) {
-                                  handleDecisionChange(item.needKey, 'use_existing', candidate.qbAccountId ?? candidate.qbEntityId, candidate.qbAccountName ?? candidate.qbEntityName ?? candidate.accountName ?? candidate.name ?? '(Unnamed)');
+                                  handleDecisionChange(item.needKey, 'use_existing', candidate.qbEntityId, candidate.qbEntityName || '(Unnamed)');
                                 }
                               }
                             }}
@@ -585,8 +585,8 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                             </SelectTrigger>
                             <SelectContent>
                               {item.candidates.map((candidate, idx) => {
-                                const displayName = candidate.qbAccountName ?? candidate.qbEntityName ?? candidate.accountName ?? candidate.name ?? '(Unnamed QB entity)';
-                                const candidateId = String(candidate.qbAccountId ?? candidate.qbEntityId);
+                                const displayName = candidate.qbEntityName || '(Unnamed QB entity)';
+                                const candidateId = String(candidate.qbEntityId);
                                 return (
                                   <SelectItem key={`${item.needKey}-${candidateId}`} value={candidateId}>
                                     {idx === 0 && '⭐ '}{displayName} ({(candidate.score * 100).toFixed(0)}%)
@@ -678,15 +678,14 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                               value={item.decisionEntityId ? String(item.decisionEntityId) : ''}
                               onValueChange={(value) => {
                                 if (value && value.trim()) {
-                                  const candidate = item.candidates.find((c) => String(c.qbEntityId ?? c.qbAccountId) === String(value));
+                                  const candidate = item.candidates.find((c) => String(c.qbEntityId) === String(value));
                                   if (candidate) {
-                                    const displayName = candidate.qbEntityName ?? candidate.qbAccountName ?? candidate.name ?? '(Unnamed)';
                                     handleEntityDecisionChange(
                                       item.localId,
                                       item.entityType,
                                       'use_existing',
-                                      candidate.qbEntityId ?? candidate.qbAccountId,
-                                      displayName
+                                      candidate.qbEntityId,
+                                      candidate.qbEntityName || '(Unnamed)'
                                     );
                                   }
                                 }
@@ -697,8 +696,8 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
                               </SelectTrigger>
                               <SelectContent>
                                 {item.candidates.map((candidate, idx) => {
-                                  const displayName = candidate.qbEntityName ?? candidate.qbAccountName ?? candidate.name ?? '(Unnamed QB entity)';
-                                  const candidateId = String(candidate.qbEntityId ?? candidate.qbAccountId);
+                                  const displayName = candidate.qbEntityName || '(Unnamed QB entity)';
+                                  const candidateId = String(candidate.qbEntityId);
                                   return (
                                     <SelectItem key={`${item.localId}-${candidateId}`} value={candidateId}>
                                       {idx === 0 && '⭐ '}{displayName} ({(candidate.score * 100).toFixed(0)}%)
