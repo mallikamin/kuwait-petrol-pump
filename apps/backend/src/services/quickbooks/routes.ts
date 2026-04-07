@@ -1928,7 +1928,8 @@ router.get('/search/qb', authenticate, async (req: Request, res: Response) => {
 
 /**
  * GET /api/quickbooks/mappings/export
- * Export all mappings with reconciliation status
+ * Export all mappings with reconciliation status (CSV or Excel)
+ * Query params: format=csv|xlsx (default: csv)
  */
 router.get('/mappings/export', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
   try {
@@ -1937,44 +1938,49 @@ router.get('/mappings/export', authenticate, authorize('admin', 'manager'), asyn
     }
 
     const { organizationId } = req.user;
-    const { format } = req.query; // 'csv' or 'excel'
+    const format = (req.query.format as string || 'csv').toLowerCase();
 
-    // Get all mappings
-    const mappings = await prisma.qBEntityMapping.findMany({
-      where: { organizationId },
-      orderBy: { createdAt: 'desc' },
-    });
+    if (!['csv', 'xlsx', 'excel', 'json'].includes(format)) {
+      return res.status(400).json({ error: 'Invalid format. Use csv, xlsx, or json' });
+    }
 
-    // Transform to export format
-    const exportData = mappings.map((mapping) => ({
-      'Mapping Type': mapping.entityType,
-      'POS Entity ID': mapping.localId,
-      'POS Entity Name': mapping.localName || '',
-      'QB Entity ID': mapping.qbId,
-      'QB Entity Name': mapping.qbName || '',
-      'Account Source': 'Both',
-      'Status': mapping.isActive ? 'Successfully Mapped' : 'Deactivated',
-      'Ask from Client': false,
-      'Last Updated At': mapping.updatedAt?.toISOString() || '',
-      'Updated By': 'System',
-      'Batch ID': '',
-      'Notes': '',
-    }));
+    // Import ExportService dynamically to avoid circular dependencies
+    const { ExportService } = await import('./export.service');
 
-    if (format === 'json') {
+    // Get export data
+    const exportData = await ExportService.getExportData(organizationId);
+
+    // Generate timestamp for filename
+    const timestamp = new Date().toISOString().split('T')[0];
+
+    if (format === 'csv') {
+      // Generate CSV
+      const csv = ExportService.generateCSV(exportData);
+
+      // Set proper headers for CSV
+      res.setHeader('Content-Type', 'text/csv;charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="qb-mappings-${timestamp}.csv"`);
+      res.send(csv);
+    } else if (format === 'xlsx' || format === 'excel') {
+      // Generate Excel workbook
+      const buffer = ExportService.generateExcel(exportData);
+
+      // Set proper headers for Excel
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
+      res.setHeader('Content-Disposition', `attachment; filename="qb-mappings-${timestamp}.xlsx"`);
+      res.send(buffer);
+    } else if (format === 'json') {
+      // JSON response for API consumers
       res.json({
         success: true,
         data: exportData,
-      });
-    } else {
-      // For CSV/Excel, client will handle formatting
-      res.json({
-        success: true,
-        data: exportData,
-        format: 'array',
       });
     }
   } catch (error: any) {
+    console.error('[QB Export] Error:', error);
     handleQBError(error, res);
   }
 });

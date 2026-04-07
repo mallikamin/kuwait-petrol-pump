@@ -353,12 +353,9 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
 
   const handleExportCSV = async () => {
     try {
-      const result = await quickbooksApi.exportMappings('csv');
-      if (result.success) {
-        const csv = convertToCSV(result.data);
-        downloadCSV(csv, 'mappings.csv');
-        toast.success('CSV exported');
-      }
+      const timestamp = new Date().toISOString().split('T')[0];
+      await downloadFile('/api/quickbooks/mappings/export?format=csv', `qb-mappings-${timestamp}.csv`);
+      toast.success('CSV exported');
     } catch (err: any) {
       toast.error('Export failed');
     }
@@ -366,50 +363,39 @@ export function MappingsPanel({ userRole }: MappingsPanelProps) {
 
   const handleExportExcel = async () => {
     try {
-      const result = await quickbooksApi.exportMappings('excel');
-      if (result.success) {
-        // For now, just export as CSV - can enhance with xlsx library later
-        const csv = convertToCSV(result.data);
-        downloadCSV(csv, 'mappings.xlsx');
-        toast.success('Excel exported');
-      }
+      const timestamp = new Date().toISOString().split('T')[0];
+      await downloadFile('/api/quickbooks/mappings/export?format=xlsx', `qb-mappings-${timestamp}.xlsx`);
+      toast.success('Excel exported');
     } catch (err: any) {
       toast.error('Export failed');
     }
   };
 
-  const convertToCSV = (data: any[]): string => {
-    if (!data || data.length === 0) return '';
+  const downloadFile = async (url: string, filename: string) => {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('accessToken') || ''}`,
+        },
+      });
 
-    const headers = Object.keys(data[0]);
-    const csv = [
-      headers.join(','),
-      ...data.map((row) =>
-        headers
-          .map((header) => {
-            const value = row[header];
-            const escaped = String(value || '').replace(/"/g, '""');
-            return escaped.includes(',') || escaped.includes('\n')
-              ? `"${escaped}"`
-              : escaped;
-          })
-          .join(',')
-      ),
-    ].join('\n');
+      if (!response.ok) {
+        throw new Error(`Download failed: ${response.statusText}`);
+      }
 
-    return csv;
-  };
-
-  const downloadCSV = (csv: string, filename: string) => {
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', filename);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+      const blob = await response.blob();
+      const link = document.createElement('a');
+      const objectUrl = URL.createObjectURL(blob);
+      link.href = objectUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      console.error('Download error:', err);
+      throw err;
+    }
   };
 
   const handleDecisionChange = (needKey: string, decision: 'use_existing' | 'create_new', accountId?: string, accountName?: string) => {
