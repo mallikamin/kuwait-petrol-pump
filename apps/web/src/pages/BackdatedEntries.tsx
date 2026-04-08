@@ -1844,8 +1844,8 @@ export function BackdatedEntries() {
                                           onValueChange={(v) => {
                                             const product = productsData?.find((p: any) => p.name === v);
                                             updateTransaction(globalIdx, 'productName', v);
-                                            if (product && product.price) {
-                                              updateTransaction(globalIdx, 'unitPrice', product.price.toString());
+                                            if (product && product.unitPrice) {
+                                              updateTransaction(globalIdx, 'unitPrice', product.unitPrice.toString());
                                             }
                                           }}
                                         >
@@ -1856,7 +1856,7 @@ export function BackdatedEntries() {
                                             {productsData && productsData.length > 0 ? (
                                               productsData.map((product: any) => (
                                                 <SelectItem key={product.id} value={product.name}>
-                                                  {product.name} {product.price ? `- PKR ${product.price}` : ''}
+                                                  {product.name} {product.unitPrice ? `- PKR ${product.unitPrice}` : ''}
                                                 </SelectItem>
                                               ))
                                             ) : (
