@@ -1,6 +1,7 @@
 import { prisma } from '../../config/database';
 import { Prisma } from '@prisma/client';
 import { AppError } from '../../middleware/error.middleware';
+import { BackdatedMeterReadingsDailyService } from './meter-readings-daily.service';
 
 /**
  * DailyBackdatedEntriesService
@@ -43,6 +44,8 @@ interface FinalizeDayInput {
 }
 
 export class DailyBackdatedEntriesService {
+  private readonly meterReadingsDailyService = new BackdatedMeterReadingsDailyService();
+
   /**
    * GET /api/backdated-entries/daily
    *
@@ -148,39 +151,72 @@ export class DailyBackdatedEntriesService {
       totalTransactions: entries.reduce((sum, e) => sum + e.transactions.length, 0),
     });
 
+    // Meter totals must come from meter_readings (single source of truth), not backdated entries.
+    const dailyMeterReadings = await this.meterReadingsDailyService.getDailyMeterReadings(
+      branchId,
+      businessDate,
+      organizationId
+    );
+    const selectedShifts = shiftId
+      ? dailyMeterReadings.shifts.filter((s) => s.shiftId === shiftId)
+      : dailyMeterReadings.shifts;
+
+    const nozzleMeterLiters = new Map<string, number>();
+    const nozzlesWithValidMeter = new Set<string>();
+    let hsdMeterLiters = 0;
+    let pmgMeterLiters = 0;
+
+    selectedShifts.forEach((shiftData) => {
+      shiftData.nozzles.forEach((nozzle) => {
+        const opening = nozzle.opening?.value;
+        const closing = nozzle.closing?.value;
+        if (opening === null || opening === undefined || closing === null || closing === undefined) {
+          return;
+        }
+
+        const liters = closing - opening;
+        if (liters < 0) {
+          console.warn('[BackdatedEntries] Negative meter delta ignored', {
+            branchId,
+            businessDate,
+            shiftId: shiftData.shiftId,
+            nozzleId: nozzle.nozzleId,
+            opening,
+            closing,
+            liters,
+          });
+          return;
+        }
+
+        nozzlesWithValidMeter.add(nozzle.nozzleId);
+        nozzleMeterLiters.set(nozzle.nozzleId, (nozzleMeterLiters.get(nozzle.nozzleId) || 0) + liters);
+
+        if (nozzle.fuelType === 'HSD') {
+          hsdMeterLiters += liters;
+        } else if (nozzle.fuelType === 'PMG') {
+          pmgMeterLiters += liters;
+        }
+      });
+    });
+
     // Build nozzle status map
     const entryMap = new Map(entries.map((e) => [e.nozzleId, e]));
 
     const nozzleStatuses = allNozzles.map((nozzle) => {
       const entry = entryMap.get(nozzle.id);
+      const hasMeter = nozzlesWithValidMeter.has(nozzle.id);
       return {
         nozzleId: nozzle.id,
         nozzleName: nozzle.name || `D${nozzle.dispensingUnit.unitNumber}N${nozzle.nozzleNumber}`,
         fuelType: nozzle.fuelType.code, // 'HSD' or 'PMG'
         fuelTypeName: nozzle.fuelType.name,
-        openingReadingExists: !!entry,
-        closingReadingExists: !!entry,
+        openingReadingExists: hasMeter,
+        closingReadingExists: hasMeter,
         openingReading: entry ? parseFloat(entry.openingReading.toString()) : null,
         closingReading: entry ? parseFloat(entry.closingReading.toString()) : null,
-        meterLiters: entry
-          ? parseFloat(entry.closingReading.toString()) - parseFloat(entry.openingReading.toString())
-          : null,
+        meterLiters: hasMeter ? (nozzleMeterLiters.get(nozzle.id) || 0) : null,
         isFinalized: (entry as any)?.isFinalized || false,
       };
-    });
-
-    // Calculate HSD and PMG meter totals
-    let hsdMeterLiters = 0;
-    let pmgMeterLiters = 0;
-
-    nozzleStatuses.forEach((n) => {
-      if (n.meterLiters !== null) {
-        if (n.fuelType === 'HSD') {
-          hsdMeterLiters += n.meterLiters;
-        } else if (n.fuelType === 'PMG') {
-          pmgMeterLiters += n.meterLiters;
-        }
-      }
     });
 
     // Collect all transactions
@@ -199,7 +235,7 @@ export class DailyBackdatedEntriesService {
               name: txn.customer.name,
             }
           : null,
-        fuelCode: (txn as any).fuelType?.code || entry.nozzle.fuelType?.code || '', // ✅ ADD: Return fuelCode from transaction's fuelType
+        fuelCode: (txn as any).fuelType?.code || '',
         vehicleNumber: txn.vehicleNumber,
         slipNumber: txn.slipNumber,
         productName: txn.productName,
@@ -407,9 +443,6 @@ export class DailyBackdatedEntriesService {
           throw new AppError(404, `Nozzle ${nozzleId} not found`);
         }
 
-        // Calculate total liters for this nozzle from transactions
-        const totalLiters = nozzleTxns.reduce((sum, t) => sum + t.quantity, 0);
-
         // Check if entry already exists
         const existingEntry = await prisma.backdatedEntry.findFirst({
           where: {
@@ -423,17 +456,6 @@ export class DailyBackdatedEntriesService {
 
         if (existingEntry) {
           console.log('[BackdatedEntries] Updating existing entry:', existingEntry.id);
-
-          // Update closing reading to match total liters (opening + totalLiters)
-          const opening = parseFloat(existingEntry.openingReading.toString());
-          const closing = opening + totalLiters;
-
-          await prisma.backdatedEntry.update({
-            where: { id: existingEntry.id },
-            data: {
-              closingReading: new Prisma.Decimal(closing),
-            },
-          });
 
           entryId = existingEntry.id;
 
@@ -562,9 +584,9 @@ export class DailyBackdatedEntriesService {
           console.log('[BackdatedEntries] Creating new entry for nozzle:', nozzleId);
 
           // Create new entry
-          // Opening reading: assume 0 for new entries (accountant can manually adjust if needed)
+          // Draft entries are transaction containers; meter readings come from meter_readings table.
           const opening = 0;
-          const closing = opening + totalLiters;
+          const closing = 0;
 
           const newEntry = await prisma.backdatedEntry.create({
             data: {
