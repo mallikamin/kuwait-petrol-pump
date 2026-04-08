@@ -3,7 +3,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Camera, X, CheckCircle, AlertCircle, Loader2, Edit2, Upload } from 'lucide-react';
 import { apiClient } from '@/api/client';
@@ -661,7 +660,7 @@ export function MeterReadingCapture({
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>Could not extract reading. Please enter manually below.</AlertDescription>
               </Alert>
-            ) : ocrResult?.extractedValue !== null ? (
+            ) : ocrResult && ocrResult.extractedValue !== null ? (
               // Success state - show extracted value with Accept/Edit
               <div className="space-y-3 p-4 bg-green-50 dark:bg-green-950 rounded-lg border-2 border-green-200 dark:border-green-900">
                 <div>
