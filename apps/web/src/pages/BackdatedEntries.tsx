@@ -18,7 +18,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle, Users, Copy, Search, Gauge, Camera, Edit, Loader2, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { apiClient } from '@/api/client';
-import { branchesApi, customersApi, meterReadingsApi } from '@/api';
+import { branchesApi, customersApi, meterReadingsApi, productsApi } from '@/api';
 import { banksApi } from '@/api/banks';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -119,6 +119,15 @@ export function BackdatedEntries() {
     queryKey: ['customers'],
     queryFn: async () => {
       const res = await customersApi.getAll();
+      return res.items;
+    },
+  });
+
+  // Fetch products for non-fuel sales
+  const { data: productsData } = useQuery({
+    queryKey: ['products'],
+    queryFn: async () => {
+      const res = await productsApi.getAll({ size: 1000 }); // Get all products
       return res.items;
     },
   });
@@ -508,8 +517,8 @@ export function BackdatedEntries() {
   // Accordion state - track which customer groups are open
   const [openAccordionItems, setOpenAccordionItems] = useState<string[]>([]);
 
-  // Reconciliation panel collapse state
-  const [isReconciliationCollapsed, setIsReconciliationCollapsed] = useState(false);
+  // Reconciliation panel collapse state (default collapsed to reduce scrolling)
+  const [isReconciliationCollapsed, setIsReconciliationCollapsed] = useState(true);
 
   // Meter reading dialog state
   const [isMeterReadingOpen, setIsMeterReadingOpen] = useState(false);
@@ -544,7 +553,7 @@ export function BackdatedEntries() {
         quantity: '',
         unitPrice: '',
         lineTotal: '0',
-        paymentMethod: 'credit_customer', // Default to credit customer for accountant workflow
+        paymentMethod: customerId === '__walkin__' ? 'cash' : 'credit_customer', // Walk-in defaults to cash, customers to credit
         _localStatus: 'draft', // Mark as draft until saved
       },
     ]);
@@ -933,6 +942,7 @@ export function BackdatedEntries() {
       const message = data?.message || `Day finalized! ${data?.transactionsCount || 0} transactions queued for QuickBooks sync. ${data?.salesCount || 0} sales created.`;
       toast.success(message);
       console.log('[Finalize] Success:', data);
+      setIsDirty(false); // ✅ Reset dirty state after successful finalize
       refetchDailySummary();
     },
     onError: (error: any) => {
@@ -1113,15 +1123,14 @@ export function BackdatedEntries() {
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div className="space-y-4">
+      {/* Header - Compact */}
+      <div className="flex items-center justify-between py-2">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Backdated Entries</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-2xl font-bold tracking-tight">Backdated Entries</h1>
+          <p className="text-sm text-muted-foreground">
             Historical backlog - Transaction-level backfill for accountant processing
-            <br />
-            <span className="text-xs text-orange-600">For today's live operations, use the <strong>Meter Readings</strong> page</span>
+            <span className="text-xs text-orange-600 ml-2">For today's live operations, use the <strong>Meter Readings</strong> page</span>
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -1169,12 +1178,12 @@ export function BackdatedEntries() {
       <div className="flex flex-col lg:flex-row gap-6">
         {/* Left: Entry Form + Transactions */}
         <div className="flex-1 space-y-6">
-          {/* Entry Details */}
-          <Card>
-            <CardHeader>
+          {/* Entry Details - Sticky Top Bar */}
+          <Card className="sticky top-0 z-10 shadow-md">
+            <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <Calendar className="h-5 w-5" />
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Calendar className="h-4 w-4" />
                   Daily Entry Context
                 </CardTitle>
                 {selectedBranchId && businessDate && (
@@ -1198,8 +1207,8 @@ export function BackdatedEntries() {
                 )}
               </div>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+            <CardContent className="space-y-3 pt-3">
+              <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <Label>Business Date *</Label>
                   <Input
@@ -1227,9 +1236,9 @@ export function BackdatedEntries() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
-                  <Label>Shift (Optional)</Label>
+                  <Label className="text-sm">Shift (Optional)</Label>
                   <Select value={selectedShiftId || '__none__'} onValueChange={(v) => setSelectedShiftId(v === '__none__' ? '' : v)}>
                     <SelectTrigger>
                       <SelectValue placeholder="Any shift" />
@@ -1709,7 +1718,7 @@ export function BackdatedEntries() {
                                         <SelectItem value="__none__">Select...</SelectItem>
                                         <SelectItem value="HSD">HSD (Diesel)</SelectItem>
                                         <SelectItem value="PMG">PMG (Petrol)</SelectItem>
-                                        <SelectItem value="OTHER">Other</SelectItem>
+                                        <SelectItem value="OTHER">Non-Fuel Item</SelectItem>
                                       </SelectContent>
                                     </Select>
                                   </TableCell>
@@ -1824,6 +1833,46 @@ export function BackdatedEntries() {
                                     </Button>
                                   </TableCell>
                                 </TableRow>
+                                {/* Product selector row for non-fuel items */}
+                                {txn.fuelCode === 'OTHER' && (
+                                  <TableRow key={`${globalIdx}-product`} className="bg-amber-50">
+                                    <TableCell colSpan={10} className="p-3">
+                                      <div className="flex items-center gap-3">
+                                        <Label className="text-sm font-semibold min-w-[120px]">Select Product:</Label>
+                                        <Select
+                                          value={txn.productName || ''}
+                                          onValueChange={(v) => {
+                                            const product = productsData?.find((p: any) => p.name === v);
+                                            updateTransaction(globalIdx, 'productName', v);
+                                            if (product && product.price) {
+                                              updateTransaction(globalIdx, 'unitPrice', product.price.toString());
+                                            }
+                                          }}
+                                        >
+                                          <SelectTrigger className="max-w-md">
+                                            <SelectValue placeholder="Choose a product..." />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            {productsData && productsData.length > 0 ? (
+                                              productsData.map((product: any) => (
+                                                <SelectItem key={product.id} value={product.name}>
+                                                  {product.name} {product.price ? `- PKR ${product.price}` : ''}
+                                                </SelectItem>
+                                              ))
+                                            ) : (
+                                              <SelectItem value="__no_products__" disabled>
+                                                No products available
+                                              </SelectItem>
+                                            )}
+                                          </SelectContent>
+                                        </Select>
+                                        <span className="text-xs text-muted-foreground italic">
+                                          Non-fuel items use quantity as units (not liters)
+                                        </span>
+                                      </div>
+                                    </TableCell>
+                                  </TableRow>
+                                )}
                                 {/* Audit stamp row */}
                                 <TableRow key={`${globalIdx}-audit`} className="bg-muted/30 border-b-2">
                                   <TableCell colSpan={10} className="px-4 py-1 text-xs text-muted-foreground">
@@ -1892,11 +1941,26 @@ export function BackdatedEntries() {
                     </Button>
                     <Button
                       onClick={handleFinalizeDay}
-                      disabled={finalizeDayMutation.isPending || isDirty}
+                      disabled={finalizeDayMutation.isPending || isDirty || transactions.length === 0}
                       className="bg-green-600 hover:bg-green-700"
+                      title={
+                        finalizeDayMutation.isPending ? 'Finalizing...' :
+                        isDirty ? 'Save draft first before finalizing' :
+                        transactions.length === 0 ? 'Add transactions first' :
+                        'Finalize day and queue for QuickBooks sync'
+                      }
                     >
-                      <CheckCircle className="h-4 w-4 mr-2" />
-                      Finalize Day
+                      {finalizeDayMutation.isPending ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Finalizing...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle className="h-4 w-4 mr-2" />
+                          Finalize Day
+                        </>
+                      )}
                     </Button>
                   </div>
                 </div>
