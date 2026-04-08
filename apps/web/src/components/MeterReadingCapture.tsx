@@ -50,7 +50,7 @@ export function MeterReadingCapture({
   const [mode, setMode] = useState<'choose' | 'camera' | 'manual' | 'upload-manual'>('choose');
   const [captureMode, setCaptureMode] = useState<'ocr' | 'manual'>('ocr'); // Track whether user selected OCR or manual mode
   const [loading, setLoading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
+  const [_uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [ocrResult, setOcrResult] = useState<OCRResult | null>(null);
