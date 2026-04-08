@@ -58,6 +58,18 @@ interface MeterReadingRow {
   reading_value?: number;
   created_at?: string;
   recorded_at?: string;
+  image_url?: string;
+  imageUrl?: string;
+  attachment_url?: string;
+  attachmentUrl?: string;
+  is_manual?: boolean;
+  isManual?: boolean;
+  ocr_manually_edited?: boolean;
+  ocrManuallyEdited?: boolean;
+  submitted_by_name?: string;
+  submittedByName?: string;
+  submitted_at?: string;
+  submittedAt?: string;
   shift_instance?: {
     shift?: {
       name?: string;
