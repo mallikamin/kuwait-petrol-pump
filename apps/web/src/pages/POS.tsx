@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -96,6 +97,7 @@ interface FuelTransaction {
 export function POS() {
   const { toast } = useToast();
   const { user } = useAuthStore();
+  const navigate = useNavigate();
   const receiptRef = useRef<HTMLDivElement>(null);
 
   // Tab state
@@ -363,13 +365,17 @@ export function POS() {
 
       const customer = response;
       toast({ title: 'Success', description: 'Customer added successfully' });
+
+      // Keep select dialog open, close create dialog
       setShowAddFuelCustomerDialog(false);
+      setIsAddFuelGroupOpen(true);
       setNewFuelCustomer({ name: '', phone: '', email: '' });
+      setFuelCustomerSearchQuery('');
 
       // Refresh customer list and wait for completion
       await refetchCustomers();
 
-      // Auto-add fuel transaction for this customer
+      // Auto-add fuel transaction for this customer (this will close isAddFuelGroupOpen)
       if (customer && customer.id && customer.name) {
         addFuelCustomerGroup(customer.id, customer.name);
       }
@@ -650,12 +656,12 @@ export function POS() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Point of Sale</h1>
-          <p className="text-muted-foreground">Complete fuel and non-fuel sales</p>
+          <h1 className="text-2xl font-bold tracking-tight">Point of Sale</h1>
+          <p className="text-xs text-muted-foreground">Fuel and non-fuel sales</p>
         </div>
         <SyncStatus />
       </div>
@@ -669,66 +675,19 @@ export function POS() {
 
       {/* Liters Counter - PMG & HSD Available */}
       <Card className="bg-gradient-to-r from-blue-50 to-green-50 dark:from-blue-950 dark:to-green-950">
-        <CardContent className="pt-6">
-          <div className="grid grid-cols-2 gap-4">
+        <CardContent className="pt-4 pb-4">
+          <div className="grid grid-cols-2 gap-2">
             <div className="text-center">
-              <p className="text-sm text-muted-foreground">PMG Available</p>
-              <p className="text-3xl font-bold text-blue-600">{litersData?.pmg_sold?.toLocaleString() || 0}</p>
-              <p className="text-xs text-muted-foreground">Liters</p>
+              <p className="text-xs text-muted-foreground">PMG</p>
+              <p className="text-2xl font-bold text-blue-600">{litersData?.pmg_sold?.toLocaleString() || 0}</p>
+              <p className="text-xs text-muted-foreground">L</p>
             </div>
             <div className="text-center border-l">
-              <p className="text-sm text-muted-foreground">HSD Available</p>
-              <p className="text-3xl font-bold text-green-600">{litersData?.hsd_sold?.toLocaleString() || 0}</p>
-              <p className="text-xs text-muted-foreground">Liters</p>
+              <p className="text-xs text-muted-foreground">HSD</p>
+              <p className="text-2xl font-bold text-green-600">{litersData?.hsd_sold?.toLocaleString() || 0}</p>
+              <p className="text-xs text-muted-foreground">L</p>
             </div>
           </div>
-        </CardContent>
-      </Card>
-
-      {/* Today's Posted Entries */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center justify-between">
-            <span>Today's Posted Sales</span>
-            {todaysSalesData && todaysSalesData.count > 0 && (
-              <Badge variant="secondary">{todaysSalesData.count} sale{todaysSalesData.count !== 1 ? 's' : ''}</Badge>
-            )}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {!todaysSalesData || todaysSalesData.count === 0 ? (
-            <p className="text-sm text-muted-foreground">No sales posted today yet.</p>
-          ) : (
-            <div className="space-y-2">
-              {todaysSalesData.sales.slice(0, 3).map((sale: any) => (
-                <div key={sale.id} className="flex items-center justify-between p-2 rounded-md bg-muted/50 text-sm">
-                  <div className="flex-1">
-                    <p className="font-medium">
-                      {sale.saleType === 'fuel'
-                        ? `${sale.items[0]?.fuelType} - ${sale.items[0]?.quantity}L`
-                        : `${sale.items[0]?.product}`
-                      }
-                    </p>
-                    {sale.customer && (
-                      <p className="text-xs text-muted-foreground">{sale.customer.name}</p>
-                    )}
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {sale.createdAt ? new Date(sale.createdAt).toLocaleString('en-PK', { day: '2-digit', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }) : '—'}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-semibold">{formatCurrency(sale.totalAmount)}</p>
-                    <Badge variant="outline" className="text-xs">{sale.paymentMethod}</Badge>
-                  </div>
-                </div>
-              ))}
-              {todaysSalesData.count > 3 && (
-                <p className="text-xs text-muted-foreground text-center py-2">
-                  +{todaysSalesData.count - 3} more sales. View all in Sales page.
-                </p>
-              )}
-            </div>
-          )}
         </CardContent>
       </Card>
 
@@ -1037,6 +996,50 @@ export function POS() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Today's Posted Sales - Compact secondary section */}
+      {todaysSalesData && todaysSalesData.count > 0 && (
+        <Card className="bg-muted/30">
+          <CardHeader className="py-2 px-4">
+            <CardTitle className="text-sm flex items-center justify-between">
+              <span>Today's Posted Sales</span>
+              <Badge variant="secondary" className="text-xs">{todaysSalesData.count}</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="py-2 px-4">
+            <div className="space-y-1">
+              {todaysSalesData.sales.slice(0, 2).map((sale: any) => (
+                <div key={sale.id} className="flex items-center justify-between text-xs p-1 rounded bg-background/50">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium truncate">
+                      {sale.saleType === 'fuel'
+                        ? `${sale.items[0]?.fuelType} ${sale.items[0]?.quantity}L`
+                        : `${sale.items[0]?.product}`
+                      }
+                    </p>
+                    {sale.customer && (
+                      <p className="text-muted-foreground truncate">{sale.customer.name}</p>
+                    )}
+                  </div>
+                  <div className="text-right ml-2 flex-shrink-0">
+                    <p className="font-semibold">{formatCurrency(sale.totalAmount)}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {todaysSalesData.count > 2 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full mt-2 h-8 text-xs"
+                onClick={() => navigate('/sales')}
+              >
+                View all {todaysSalesData.count} sales →
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Add Fuel Customer Group Dialog */}
       <Dialog open={isAddFuelGroupOpen} onOpenChange={(open) => {
