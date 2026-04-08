@@ -74,6 +74,13 @@ export class MeterReadingsService {
             username: true,
           },
         },
+        submittedByUser: {
+          select: {
+            id: true,
+            fullName: true,
+            username: true,
+          },
+        },
       },
       orderBy: {
         recordedAt: 'desc',

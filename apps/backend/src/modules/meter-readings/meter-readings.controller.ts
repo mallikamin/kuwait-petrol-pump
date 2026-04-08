@@ -143,6 +143,12 @@ export class MeterReadingsController {
         created_at: reading.recordedAt.toISOString(),
         recorded_at: reading.recordedAt.toISOString(),
         variance: null, // Not calculated in list view
+        // Audit metadata for backdated submissions
+        submitted_by: (reading as any).submittedBy,
+        submitted_by_name: (reading as any).submittedByUser ? (reading as any).submittedByUser.fullName : null,
+        submitted_at: (reading as any).submittedAt ? (reading as any).submittedAt.toISOString() : null,
+        attachment_url: (reading as any).attachmentUrl,
+        ocr_manually_edited: (reading as any).ocrManuallyEdited || false,
       }));
 
       // Return in expected format with pagination metadata
