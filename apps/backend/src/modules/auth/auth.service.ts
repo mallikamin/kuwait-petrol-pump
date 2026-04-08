@@ -33,8 +33,8 @@ export class AuthService {
     const accessToken = generateAccessToken(payload);
     const refreshToken = generateRefreshToken(payload);
 
-    // Store refresh token in Redis (7 days)
-    await redis.setEx(`refresh_token:${user.id}`, 7 * 24 * 60 * 60, refreshToken);
+    // Store refresh token in Redis (30 days - matching JWT_REFRESH_EXPIRY)
+    await redis.setEx(`refresh_token:${user.id}`, 30 * 24 * 60 * 60, refreshToken);
 
     return {
       user: {

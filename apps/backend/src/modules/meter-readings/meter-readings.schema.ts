@@ -15,7 +15,7 @@ export const createMeterReadingSchema = z.object({
   isManualOverride: z.boolean().default(false),
   customTimestamp: z.string().datetime().optional(), // For back-dated entries
   // Audit metadata for backdated submissions
-  attachmentUrl: z.string().optional(), // Reference file for manual entry
+  attachmentUrl: z.string().max(16777215).optional(), // Reference file (base64 DataURL support, max 16MB after encoding), manually submitted documents
   ocrManuallyEdited: z.boolean().default(false), // Whether OCR was edited by user
 }).refine(
   (data) => data.shiftInstanceId || data.shiftId,

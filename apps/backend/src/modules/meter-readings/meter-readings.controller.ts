@@ -32,7 +32,19 @@ export class MeterReadingsController {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
-      const data: CreateMeterReadingInput = createMeterReadingSchema.parse(req.body);
+      // Validate schema
+      let data: CreateMeterReadingInput;
+      try {
+        data = createMeterReadingSchema.parse(req.body);
+      } catch (validationError: any) {
+        // Return detailed validation error for debugging
+        return res.status(400).json({
+          error: 'Validation failed',
+          details: validationError.errors || validationError.message,
+          received_keys: Object.keys(req.body),
+          attachment_url_length: req.body.attachmentUrl ? req.body.attachmentUrl.length : 0,
+        });
+      }
 
       const meterReading = await this.meterReadingsService.createMeterReading(
         data,
