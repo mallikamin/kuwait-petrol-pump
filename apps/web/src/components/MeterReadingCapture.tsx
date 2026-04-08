@@ -15,6 +15,9 @@ export interface MeterReadingData {
   imageUrl?: string;
   ocrConfidence?: number;
   isManualReading: boolean;
+  referenceAttachmentUrl?: string;
+  referenceAttachmentName?: string;
+  referenceAttachmentTime?: string;
 }
 
 export interface MeterReadingCaptureProps {
@@ -59,11 +62,15 @@ export function MeterReadingCapture({
   const [currentReading, setCurrentReading] = useState<string>('');
   const [manualEdit, setManualEdit] = useState(false);
   const [ocrProcessingState, setOcrProcessingState] = useState<OCRProcessingState>('idle');
+  const [referenceAttachmentUrl, setReferenceAttachmentUrl] = useState<string | null>(null);
+  const [referenceAttachmentName, setReferenceAttachmentName] = useState<string | null>(null);
+  const [referenceAttachmentTime, setReferenceAttachmentTime] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const referenceFileInputRef = useRef<HTMLInputElement>(null);
 
   // Calculate liters
   const calculatedLiters = currentReading
@@ -170,6 +177,7 @@ export function MeterReadingCapture({
     stopCamera();
     setImageDataUrl(dataUrl);
     setOcrProcessingState('image-selected');
+    setMode('upload-manual'); // Switch to confirmation/upload view
 
     // Compress and process OCR
     try {
@@ -241,6 +249,7 @@ export function MeterReadingCapture({
       const dataUrl = e.target?.result as string;
       setImageDataUrl(dataUrl);
       setOcrProcessingState('image-selected'); // Show image selected state
+      setMode('upload-manual'); // Switch to confirmation view to show upload progress
 
       try {
         setLoading(true);
@@ -333,6 +342,9 @@ export function MeterReadingCapture({
       imageUrl: imageDataUrl || undefined,
       ocrConfidence: isManualReading ? undefined : ocrResult?.confidence, // Don't send OCR confidence for manual
       isManualReading,
+      referenceAttachmentUrl: referenceAttachmentUrl || undefined,
+      referenceAttachmentName: referenceAttachmentName || undefined,
+      referenceAttachmentTime: referenceAttachmentTime || undefined,
     });
   };
 
@@ -394,7 +406,15 @@ export function MeterReadingCapture({
               size="lg"
               variant="outline"
               className="h-24 flex flex-col gap-2"
-              onClick={() => setMode('manual')}
+              onClick={() => {
+                setMode('manual');
+                setCurrentReading('');
+                setOcrResult(null);
+                setImageDataUrl(null);
+                setError(null);
+                setManualEdit(false);
+                setOcrProcessingState('idle');
+              }}
             >
               <Edit2 className="h-8 w-8" />
               <span>Manual Entry</span>
@@ -505,18 +525,73 @@ export function MeterReadingCapture({
             </div>
           )}
 
-          {/* Alternative: Upload photo for manual entry */}
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={() => {
-              setCaptureMode('manual');
-              fileInputRef.current?.click();
-            }}
-          >
-            <Upload className="h-4 w-4 mr-2" />
-            Upload Photo (No OCR) - Use as Reference
-          </Button>
+          {/* Reference Attachment (for audit trail) */}
+          <div className="border rounded-lg p-3 space-y-2 bg-slate-50 dark:bg-slate-900">
+            <div className="flex items-center justify-between">
+              <Label className="text-sm font-medium">Reference Attachment (Optional)</Label>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => referenceFileInputRef.current?.click()}
+              >
+                <Upload className="h-4 w-4 mr-1" />
+                Upload File
+              </Button>
+            </div>
+
+            {referenceAttachmentUrl ? (
+              <div className="space-y-2 p-2 bg-white dark:bg-slate-800 rounded border">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm">
+                    <p className="font-medium text-slate-900 dark:text-slate-100">{referenceAttachmentName}</p>
+                    <p className="text-xs text-muted-foreground">{referenceAttachmentTime}</p>
+                  </div>
+                  <div className="flex gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => window.open(referenceAttachmentUrl, '_blank')}
+                    >
+                      View
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setReferenceAttachmentUrl(null);
+                        setReferenceAttachmentName(null);
+                        setReferenceAttachmentTime(null);
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground italic">No file attached</p>
+            )}
+
+            <input
+              ref={referenceFileInputRef}
+              type="file"
+              accept="image/*,.pdf,.doc,.docx"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  const reader = new FileReader();
+                  reader.onload = (event) => {
+                    const url = event.target?.result as string;
+                    setReferenceAttachmentUrl(url);
+                    setReferenceAttachmentName(file.name);
+                    setReferenceAttachmentTime(new Date().toLocaleString());
+                  };
+                  reader.readAsDataURL(file);
+                }
+              }}
+              className="hidden"
+            />
+          </div>
 
           {/* Error */}
           {error && (
@@ -571,63 +646,31 @@ export function MeterReadingCapture({
           <span className="text-lg font-bold">{previousReading.toFixed(2)}L</span>
         </div>
 
-        {/* OCR Processing States (only in OCR mode, not manual) */}
-        {imageDataUrl && ocrProcessingState !== 'idle' && captureMode !== 'manual' && (
-          <div className="space-y-2">
-            {/* Image Selected */}
-            {ocrProcessingState === 'image-selected' && (
-              <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-950 rounded-lg">
-                <CheckCircle className="h-5 w-5 text-blue-600" />
-                <span className="text-sm font-medium text-blue-900 dark:text-blue-200">✓ Image selected</span>
-              </div>
-            )}
-            {/* Uploading */}
-            {ocrProcessingState === 'uploading' && (
-              <div className="flex items-center gap-2 p-3 bg-amber-50 dark:bg-amber-950 rounded-lg">
+        {/* OCR Result Summary (only in OCR mode, not manual) */}
+        {imageDataUrl && captureMode !== 'manual' && (
+          <div className="space-y-3">
+            {ocrProcessingState === 'idle' || ocrProcessingState === 'image-selected' || ocrProcessingState === 'uploading' || ocrProcessingState === 'processing-ocr' ? (
+              // Processing states - show minimal feedback
+              <div className="flex items-center justify-center gap-2 p-4">
                 <Loader2 className="h-5 w-5 text-amber-600 animate-spin" />
-                <span className="text-sm font-medium text-amber-900 dark:text-amber-200">Uploading image...</span>
+                <span className="text-sm text-muted-foreground">Processing image...</span>
               </div>
-            )}
-            {/* Processing OCR */}
-            {ocrProcessingState === 'processing-ocr' && (
-              <div className="flex items-center gap-2 p-3 bg-amber-50 dark:bg-amber-950 rounded-lg">
-                <Loader2 className="h-5 w-5 text-amber-600 animate-spin" />
-                <span className="text-sm font-medium text-amber-900 dark:text-amber-200">Extracting meter reading from image...</span>
-              </div>
-            )}
-            {/* Success with extracted value */}
-            {ocrProcessingState === 'success' && ocrResult?.extractedValue !== null && (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-950 rounded-lg">
-                  <CheckCircle className="h-5 w-5 text-green-600" />
-                  <span className="text-sm font-medium text-green-900 dark:text-green-200">✓ Meter reading extracted</span>
+            ) : ocrProcessingState === 'error' ? (
+              // Error state
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>Could not extract reading. Please enter manually below.</AlertDescription>
+              </Alert>
+            ) : ocrResult?.extractedValue !== null ? (
+              // Success state - show extracted value with Accept/Edit
+              <div className="space-y-3 p-4 bg-green-50 dark:bg-green-950 rounded-lg border-2 border-green-200 dark:border-green-900">
+                <div>
+                  <p className="text-xs text-green-700 dark:text-green-300 font-medium mb-2">EXTRACTED READING</p>
+                  <p className="text-4xl font-bold text-green-900 dark:text-green-200">{ocrResult.extractedValue?.toFixed(3)}</p>
+                  <p className="text-xs text-green-700 dark:text-green-300 mt-2">Confidence: {Math.round(ocrResult.confidence * 100)}%</p>
                 </div>
-                {ocrResult && (
-                  <div className="p-3 bg-muted rounded-lg border">
-                    <p className="text-xs text-muted-foreground mb-1">Extracted Value:</p>
-                    <p className="text-2xl font-bold">{ocrResult.extractedValue?.toFixed(2)}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Confidence: {Math.round(ocrResult.confidence * 100)}%</p>
-                  </div>
-                )}
               </div>
-            )}
-            {/* Error */}
-            {ocrProcessingState === 'error' && (
-              <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-950 rounded-lg">
-                <AlertCircle className="h-5 w-5 text-red-600" />
-                <span className="text-sm font-medium text-red-900 dark:text-red-200">Could not extract reading - please enter manually</span>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* OCR confidence - simplified for success state */}
-        {ocrResult && !manualEdit && ocrProcessingState !== 'success' && (
-          <div className="flex items-center justify-between p-3 border rounded-lg">
-            <span className="text-sm font-medium">OCR Confidence</span>
-            <Badge variant={ocrResult.confidence > 0.8 ? 'default' : 'secondary'}>
-              {Math.round(ocrResult.confidence * 100)}%
-            </Badge>
+            ) : null}
           </div>
         )}
 
