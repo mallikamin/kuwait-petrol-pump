@@ -18,6 +18,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle, Users, Copy, Search, Gauge, Camera, Edit, Loader2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
+import { cn } from '@/utils/cn';
 import { apiClient } from '@/api/client';
 import { branchesApi, customersApi, meterReadingsApi, productsApi } from '@/api';
 import { banksApi } from '@/api/banks';
