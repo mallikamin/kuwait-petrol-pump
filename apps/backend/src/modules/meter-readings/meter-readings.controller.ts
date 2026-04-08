@@ -277,7 +277,7 @@ export class MeterReadingsController {
       }
 
       const { id } = idParamSchema.parse(req.params);
-      const { meterValue } = req.body;
+      const { meterValue, attachmentUrl, ocrManuallyEdited } = req.body;
 
       if (!meterValue || typeof meterValue !== 'number') {
         return res.status(400).json({ error: 'meterValue is required and must be a number' });
@@ -287,7 +287,9 @@ export class MeterReadingsController {
         id,
         meterValue,
         req.user.userId,
-        req.user.organizationId
+        req.user.organizationId,
+        attachmentUrl,
+        ocrManuallyEdited
       );
 
       res.json({

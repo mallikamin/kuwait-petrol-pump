@@ -25,6 +25,11 @@ export interface MeterReadingStatus {
     recordedBy?: string;
     recordedAt?: Date;
     imageUrl?: string;
+    submittedBy?: string; // User ID
+    submittedByName?: string; // User full name
+    submittedAt?: Date;
+    attachmentUrl?: string;
+    ocrManuallyEdited?: boolean;
   };
   closing?: {
     value: number | null;
@@ -33,6 +38,11 @@ export interface MeterReadingStatus {
     recordedBy?: string;
     recordedAt?: Date;
     imageUrl?: string;
+    submittedBy?: string; // User ID
+    submittedByName?: string; // User full name
+    submittedAt?: Date;
+    attachmentUrl?: string;
+    ocrManuallyEdited?: boolean;
   };
 }
 
@@ -137,6 +147,12 @@ export class BackdatedMeterReadingsDailyService {
               include: {
                 fuelType: true,
                 dispensingUnit: true,
+              },
+            },
+            submittedByUser: {
+              select: {
+                id: true,
+                fullName: true,
               },
             },
           },
@@ -289,6 +305,11 @@ export class BackdatedMeterReadingsDailyService {
                 recordedBy: openingReading.recordedBy || undefined,
                 recordedAt: openingReading.recordedAt,
                 imageUrl: openingReading.imageUrl || undefined,
+                submittedBy: openingReading.submittedBy || undefined,
+                submittedByName: (openingReading as any).submittedByUser?.fullName || undefined,
+                submittedAt: openingReading.submittedAt || undefined,
+                attachmentUrl: openingReading.attachmentUrl || undefined,
+                ocrManuallyEdited: openingReading.ocrManuallyEdited || undefined,
               }
             : derivedOpening
             ? {
@@ -307,6 +328,11 @@ export class BackdatedMeterReadingsDailyService {
                 recordedBy: closingReading.recordedBy || undefined,
                 recordedAt: closingReading.recordedAt,
                 imageUrl: closingReading.imageUrl || undefined,
+                submittedBy: closingReading.submittedBy || undefined,
+                submittedByName: (closingReading as any).submittedByUser?.fullName || undefined,
+                submittedAt: closingReading.submittedAt || undefined,
+                attachmentUrl: closingReading.attachmentUrl || undefined,
+                ocrManuallyEdited: closingReading.ocrManuallyEdited || undefined,
               }
             : derivedClosing
             ? {

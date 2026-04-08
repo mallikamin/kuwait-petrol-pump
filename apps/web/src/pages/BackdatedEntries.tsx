@@ -17,7 +17,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle, Users, Copy, Search, Gauge, Camera, Edit, Loader2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
+import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle, Users, Copy, Search, Gauge, Camera, Edit, Loader2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, RefreshCw, Download, Eye, Clock, User } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { apiClient } from '@/api/client';
 import { branchesApi, customersApi, meterReadingsApi, productsApi } from '@/api';
@@ -1016,7 +1016,7 @@ export function BackdatedEntries() {
 
   // Save backdated meter reading mutation
   const saveMeterReadingMutation = useMutation({
-    mutationFn: async ({ nozzleId, readingType, meterValue, imageUrl, ocrConfidence, isManual, shiftId }: {
+    mutationFn: async ({ nozzleId, readingType, meterValue, imageUrl, ocrConfidence, isManual, shiftId, attachmentUrl, ocrManuallyEdited }: {
       nozzleId: string;
       readingType: 'opening' | 'closing';
       meterValue: number;
@@ -1024,6 +1024,8 @@ export function BackdatedEntries() {
       ocrConfidence?: number;
       isManual: boolean;
       shiftId: string; // ← Now REQUIRED, passed from UI
+      attachmentUrl?: string;
+      ocrManuallyEdited?: boolean;
     }) => {
       if (!shiftId) {
         throw new Error('Shift ID is required. Please select a shift.');
@@ -1039,6 +1041,8 @@ export function BackdatedEntries() {
         ocrConfidence,
         isManualOverride: isManual,
         isOcr: !!ocrConfidence,
+        attachmentUrl,
+        ocrManuallyEdited,
       });
       return res.data;
     },
@@ -1079,8 +1083,17 @@ export function BackdatedEntries() {
 
   // Update meter reading mutation
   const updateMeterReadingMutation = useMutation({
-    mutationFn: async ({ readingId, meterValue }: { readingId: string; meterValue: number }) => {
-      const res = await apiClient.patch(`/api/meter-readings/${readingId}`, { meterValue });
+    mutationFn: async ({ readingId, meterValue, attachmentUrl, ocrManuallyEdited }: {
+      readingId: string;
+      meterValue: number;
+      attachmentUrl?: string;
+      ocrManuallyEdited?: boolean;
+    }) => {
+      const res = await apiClient.patch(`/api/meter-readings/${readingId}`, {
+        meterValue,
+        attachmentUrl,
+        ocrManuallyEdited,
+      });
       return res.data;
     },
     onSuccess: () => {
@@ -1104,6 +1117,8 @@ export function BackdatedEntries() {
       await updateMeterReadingMutation.mutateAsync({
         readingId: _editingReadingId,
         meterValue: data.currentReading,
+        attachmentUrl: data.referenceAttachmentUrl,
+        ocrManuallyEdited: data.isManualReading && data.ocrConfidence !== undefined,
       });
       setIsMeterReadingOpen(false);
       setSelectedMeterNozzle(null);
@@ -1120,6 +1135,8 @@ export function BackdatedEntries() {
       ocrConfidence: data.ocrConfidence,
       isManual: data.isManualReading,
       shiftId: selectedShiftForReading.id, // ← Pass shift template ID
+      attachmentUrl: data.referenceAttachmentUrl,
+      ocrManuallyEdited: data.isManualReading && data.ocrConfidence !== undefined,
     });
   };
 
@@ -1555,41 +1572,87 @@ export function BackdatedEntries() {
                                   {/* Reading Inputs */}
                                   <div className="grid grid-cols-3 gap-2">
                                     {/* Opening Reading */}
-                                    <div className="space-y-1">
+                                    <div className="space-y-2">
                                       <div className="text-xs font-medium text-muted-foreground">Opening</div>
                                       {hasOpening ? (
-                                        <div className="flex items-center gap-2 justify-between">
-                                          <div className="flex items-center gap-2">
-                                            <CheckCircle className="h-4 w-4 text-green-600" />
-                                            <span className="font-mono font-semibold text-sm">
-                                              {toNumber(openingReading?.meter_value ?? openingReading?.reading_value).toFixed(3)}
-                                            </span>
-                                          </div>
-                                          <div className="flex items-center gap-1">
-                                            <Button
-                                              size="sm"
-                                              variant="ghost"
-                                              onClick={() =>
-                                                openMeterReadingDialog(nozzle, shiftTemplate, 'opening', openingReading)
-                                              }
-                                              className="h-7 w-7 p-0"
-                                              title="Edit opening"
-                                            >
-                                              <Edit className="h-3 w-3" />
-                                            </Button>
-                                            <Button
-                                              size="sm"
-                                              variant="ghost"
-                                              onClick={() => {
-                                                if (openingReading && confirm('Delete this opening reading?')) {
-                                                  deleteMeterReadingMutation.mutate(openingReading.id);
+                                        <div className="space-y-2">
+                                          {/* Value and Actions */}
+                                          <div className="flex items-center gap-2 justify-between">
+                                            <div className="flex items-center gap-2">
+                                              <CheckCircle className="h-4 w-4 text-green-600" />
+                                              <span className="font-mono font-semibold text-sm">
+                                                {toNumber(openingReading?.meter_value ?? openingReading?.reading_value).toFixed(3)}
+                                              </span>
+                                            </div>
+                                            <div className="flex items-center gap-1">
+                                              {(openingReading?.image_url || openingReading?.imageUrl) && (
+                                                <Button
+                                                  size="sm"
+                                                  variant="ghost"
+                                                  onClick={() => window.open(openingReading?.image_url || openingReading?.imageUrl, '_blank')}
+                                                  className="h-7 w-7 p-0"
+                                                  title="View OCR image"
+                                                >
+                                                  <Eye className="h-3 w-3 text-blue-600" />
+                                                </Button>
+                                              )}
+                                              {(openingReading?.attachment_url || openingReading?.attachmentUrl) && (
+                                                <Button
+                                                  size="sm"
+                                                  variant="ghost"
+                                                  onClick={() => window.open(openingReading?.attachment_url || openingReading?.attachmentUrl, '_blank')}
+                                                  className="h-7 w-7 p-0"
+                                                  title="Download attachment"
+                                                >
+                                                  <Download className="h-3 w-3 text-green-600" />
+                                                </Button>
+                                              )}
+                                              <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={() =>
+                                                  openMeterReadingDialog(nozzle, shiftTemplate, 'opening', openingReading)
                                                 }
-                                              }}
-                                              className="h-7 w-7 p-0 text-red-600 hover:text-red-700"
-                                              title="Delete opening"
-                                            >
-                                              <Trash2 className="h-3 w-3" />
-                                            </Button>
+                                                className="h-7 w-7 p-0"
+                                                title="Edit opening"
+                                              >
+                                                <Edit className="h-3 w-3" />
+                                              </Button>
+                                              <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={() => {
+                                                  if (openingReading && confirm('Delete this opening reading?')) {
+                                                    deleteMeterReadingMutation.mutate(openingReading.id);
+                                                  }
+                                                }}
+                                                className="h-7 w-7 p-0 text-red-600 hover:text-red-700"
+                                                title="Delete opening"
+                                              >
+                                                <Trash2 className="h-3 w-3" />
+                                              </Button>
+                                            </div>
+                                          </div>
+                                          {/* Audit Trail */}
+                                          <div className="text-xs space-y-1 bg-gray-50 p-2 rounded border border-gray-200">
+                                            {(openingReading?.submitted_by_name || openingReading?.submittedByName) && (
+                                              <div className="flex items-center gap-1 text-gray-700">
+                                                <User className="h-3 w-3 text-blue-600" />
+                                                <span>By {openingReading?.submitted_by_name || openingReading?.submittedByName}</span>
+                                              </div>
+                                            )}
+                                            {(openingReading?.submitted_at || openingReading?.submittedAt) && (
+                                              <div className="flex items-center gap-1 text-gray-700">
+                                                <Clock className="h-3 w-3 text-blue-600" />
+                                                <span>{format(new Date(openingReading?.submitted_at || openingReading?.submittedAt), 'MMM dd, yyyy HH:mm')}</span>
+                                              </div>
+                                            )}
+                                            {(openingReading?.ocr_manually_edited || openingReading?.ocrManuallyEdited) && (
+                                              <div className="text-blue-600 font-medium">OCR (manually edited)</div>
+                                            )}
+                                            {(openingReading?.is_manual || openingReading?.isManual) && !(openingReading?.ocr_manually_edited || openingReading?.ocrManuallyEdited) && (
+                                              <div className="text-blue-600 font-medium">Manual entry</div>
+                                            )}
                                           </div>
                                         </div>
                                       ) : showComputedOpening ? (
@@ -1624,41 +1687,87 @@ export function BackdatedEntries() {
                                     </div>
 
                                     {/* Closing Reading */}
-                                    <div className="space-y-1">
+                                    <div className="space-y-2">
                                       <div className="text-xs font-medium text-muted-foreground">Closing</div>
                                       {hasClosing ? (
-                                        <div className="flex items-center gap-2 justify-between">
-                                          <div className="flex items-center gap-2">
-                                            <CheckCircle className="h-4 w-4 text-green-600" />
-                                            <span className="font-mono font-semibold text-sm">
-                                              {toNumber(closingReading?.meter_value ?? closingReading?.reading_value).toFixed(3)}
-                                            </span>
-                                          </div>
-                                          <div className="flex items-center gap-1">
-                                            <Button
-                                              size="sm"
-                                              variant="ghost"
-                                              onClick={() =>
-                                                openMeterReadingDialog(nozzle, shiftTemplate, 'closing', closingReading)
-                                              }
-                                              className="h-7 w-7 p-0"
-                                              title="Edit closing"
-                                            >
-                                              <Edit className="h-3 w-3" />
-                                            </Button>
-                                            <Button
-                                              size="sm"
-                                              variant="ghost"
-                                              onClick={() => {
-                                                if (closingReading && confirm('Delete this closing reading?')) {
-                                                  deleteMeterReadingMutation.mutate(closingReading.id);
+                                        <div className="space-y-2">
+                                          {/* Value and Actions */}
+                                          <div className="flex items-center gap-2 justify-between">
+                                            <div className="flex items-center gap-2">
+                                              <CheckCircle className="h-4 w-4 text-green-600" />
+                                              <span className="font-mono font-semibold text-sm">
+                                                {toNumber(closingReading?.meter_value ?? closingReading?.reading_value).toFixed(3)}
+                                              </span>
+                                            </div>
+                                            <div className="flex items-center gap-1">
+                                              {(closingReading?.image_url || closingReading?.imageUrl) && (
+                                                <Button
+                                                  size="sm"
+                                                  variant="ghost"
+                                                  onClick={() => window.open(closingReading?.image_url || closingReading?.imageUrl, '_blank')}
+                                                  className="h-7 w-7 p-0"
+                                                  title="View OCR image"
+                                                >
+                                                  <Eye className="h-3 w-3 text-blue-600" />
+                                                </Button>
+                                              )}
+                                              {(closingReading?.attachment_url || closingReading?.attachmentUrl) && (
+                                                <Button
+                                                  size="sm"
+                                                  variant="ghost"
+                                                  onClick={() => window.open(closingReading?.attachment_url || closingReading?.attachmentUrl, '_blank')}
+                                                  className="h-7 w-7 p-0"
+                                                  title="Download attachment"
+                                                >
+                                                  <Download className="h-3 w-3 text-green-600" />
+                                                </Button>
+                                              )}
+                                              <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={() =>
+                                                  openMeterReadingDialog(nozzle, shiftTemplate, 'closing', closingReading)
                                                 }
-                                              }}
-                                              className="h-7 w-7 p-0 text-red-600 hover:text-red-700"
-                                              title="Delete closing"
-                                            >
-                                              <Trash2 className="h-3 w-3" />
-                                            </Button>
+                                                className="h-7 w-7 p-0"
+                                                title="Edit closing"
+                                              >
+                                                <Edit className="h-3 w-3" />
+                                              </Button>
+                                              <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={() => {
+                                                  if (closingReading && confirm('Delete this closing reading?')) {
+                                                    deleteMeterReadingMutation.mutate(closingReading.id);
+                                                  }
+                                                }}
+                                                className="h-7 w-7 p-0 text-red-600 hover:text-red-700"
+                                                title="Delete closing"
+                                              >
+                                                <Trash2 className="h-3 w-3" />
+                                              </Button>
+                                            </div>
+                                          </div>
+                                          {/* Audit Trail */}
+                                          <div className="text-xs space-y-1 bg-gray-50 p-2 rounded border border-gray-200">
+                                            {(closingReading?.submitted_by_name || closingReading?.submittedByName) && (
+                                              <div className="flex items-center gap-1 text-gray-700">
+                                                <User className="h-3 w-3 text-blue-600" />
+                                                <span>By {closingReading?.submitted_by_name || closingReading?.submittedByName}</span>
+                                              </div>
+                                            )}
+                                            {(closingReading?.submitted_at || closingReading?.submittedAt) && (
+                                              <div className="flex items-center gap-1 text-gray-700">
+                                                <Clock className="h-3 w-3 text-blue-600" />
+                                                <span>{format(new Date(closingReading?.submitted_at || closingReading?.submittedAt), 'MMM dd, yyyy HH:mm')}</span>
+                                              </div>
+                                            )}
+                                            {(closingReading?.ocr_manually_edited || closingReading?.ocrManuallyEdited) && (
+                                              <div className="text-blue-600 font-medium">OCR (manually edited)</div>
+                                            )}
+                                            {(closingReading?.is_manual || closingReading?.isManual) && !(closingReading?.ocr_manually_edited || closingReading?.ocrManuallyEdited) && (
+                                              <div className="text-blue-600 font-medium">Manual entry</div>
+                                            )}
                                           </div>
                                         </div>
                                       ) : (

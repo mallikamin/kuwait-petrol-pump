@@ -14,6 +14,9 @@ export const createMeterReadingSchema = z.object({
   ocrConfidence: z.number().min(0).max(1).optional(),
   isManualOverride: z.boolean().default(false),
   customTimestamp: z.string().datetime().optional(), // For back-dated entries
+  // Audit metadata for backdated submissions
+  attachmentUrl: z.string().optional(), // Reference file for manual entry
+  ocrManuallyEdited: z.boolean().default(false), // Whether OCR was edited by user
 }).refine(
   (data) => data.shiftInstanceId || data.shiftId,
   { message: 'Either shiftInstanceId or shiftId must be provided' }

@@ -88,7 +88,7 @@ export class MeterReadingsService {
    * Create a new meter reading
    */
   async createMeterReading(data: CreateMeterReadingData, userId: string, organizationId: string) {
-    const { nozzleId, shiftInstanceId, shiftId, readingType, meterValue, imageUrl, imageBase64, ocrResult, isOcr, ocrConfidence, isManualOverride, customTimestamp } = data as CreateMeterReadingData & { customTimestamp?: string };
+    const { nozzleId, shiftInstanceId, shiftId, readingType, meterValue, imageUrl, imageBase64, ocrResult, isOcr, ocrConfidence, isManualOverride, customTimestamp, attachmentUrl, ocrManuallyEdited } = data as CreateMeterReadingData & { customTimestamp?: string; attachmentUrl?: string; ocrManuallyEdited?: boolean };
 
     // Verify nozzle belongs to organization
     const nozzle = await prisma.nozzle.findFirst({
@@ -305,6 +305,11 @@ export class MeterReadingsService {
         ...(ocrConfidence !== undefined && { ocrConfidence }),
         isManualOverride,
         recordedBy: userId,
+        // Audit metadata
+        submittedBy: userId, // Set submitter to current user
+        submittedAt: new Date(), // Set submission time to now
+        ...(attachmentUrl && { attachmentUrl }),
+        ...(ocrManuallyEdited !== undefined && { ocrManuallyEdited }),
       },
       include: {
         nozzle: {
@@ -774,7 +779,9 @@ export class MeterReadingsService {
     id: string,
     newMeterValue: number,
     userId: string,
-    organizationId: string
+    organizationId: string,
+    attachmentUrl?: string,
+    ocrManuallyEdited?: boolean
   ) {
     // Find the reading
     const reading = await prisma.meterReading.findFirst({
@@ -800,11 +807,13 @@ export class MeterReadingsService {
       throw new AppError(400, 'Cannot update reading for a closed shift');
     }
 
-    // Update the meter value
+    // Update the meter value and audit metadata
     const updated = await prisma.meterReading.update({
       where: { id },
       data: {
         meterValue: new Decimal(newMeterValue),
+        ...(attachmentUrl && { attachmentUrl }),
+        ...(ocrManuallyEdited !== undefined && { ocrManuallyEdited }),
       },
       include: {
         nozzle: {
