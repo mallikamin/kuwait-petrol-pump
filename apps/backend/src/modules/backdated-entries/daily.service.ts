@@ -446,13 +446,6 @@ export class DailyBackdatedEntriesService {
           const incomingTxnIds = new Set(nozzleTxns.filter(t => t.id).map(t => t.id!));
 
           // ✅ FIX #1: Safety check - only delete if ALL incoming rows have IDs
-          const allIncomingHaveIds = nozzleTxns.every(t => !!t.id);
-          if (!allIncomingHaveIds) {
-            console.warn('[BackdatedEntries] SAFETY: Some incoming transactions lack IDs. Skipping delete pass to prevent data loss.', {
-              total: nozzleTxns.length,
-              withIds: incomingTxnIds.size,
-            });
-          }
 
           // Upsert each transaction individually
           let upsertedCount = 0;
@@ -544,19 +537,16 @@ export class DailyBackdatedEntriesService {
 
           // ✅ FIX #1: Only delete if ALL incoming rows are ID-qualified
           let deletedCount = 0;
-          if (allIncomingHaveIds) {
-            // Delete transactions that exist in DB but NOT in incoming payload (user removed them)
-            const txnsToDelete = Array.from(existingTxnIds).filter(id => !incomingTxnIds.has(id));
-            if (txnsToDelete.length > 0) {
-              await prisma.backdatedTransaction.deleteMany({
-                where: {
-                  id: { in: txnsToDelete },
-                  backdatedEntryId: entryId, // Extra safety: scope to entry
-                },
-              });
-              deletedCount = txnsToDelete.length;
-              console.log('[BackdatedEntries] Deleted removed transactions:', deletedCount);
-            }
+          const txnsToDelete = Array.from(existingTxnIds).filter(id => !incomingTxnIds.has(id));
+          if (txnsToDelete.length > 0) {
+            await prisma.backdatedTransaction.deleteMany({
+              where: {
+                id: { in: txnsToDelete },
+                backdatedEntryId: entryId, // Extra safety: scope to entry
+              },
+            });
+            deletedCount = txnsToDelete.length;
+            console.log('[BackdatedEntries] Deleted removed transactions:', deletedCount);
           }
 
           console.log('[BackdatedEntries] Upserted transactions:', {
@@ -675,13 +665,6 @@ export class DailyBackdatedEntriesService {
         const incomingTxnIds = new Set(txnsWithoutNozzle.filter(t => t.id).map(t => t.id!));
 
         // ✅ FIX #1: Safety check for walk-in transactions
-        const allWalkInHaveIds = txnsWithoutNozzle.every(t => !!t.id);
-        if (!allWalkInHaveIds) {
-          console.warn('[BackdatedEntries] SAFETY: Some walk-in transactions lack IDs. Skipping delete pass.', {
-            total: txnsWithoutNozzle.length,
-            withIds: incomingTxnIds.size,
-          });
-        }
 
         // Lookup fuelTypeIds for walk-in transactions by fuelCode
         const fuelTypesMap = new Map<string, string>();
@@ -783,17 +766,15 @@ export class DailyBackdatedEntriesService {
 
         // ✅ FIX #1: Only delete if all walk-in transactions are ID-qualified
         let deletedCount = 0;
-        if (allWalkInHaveIds) {
-          const txnsToDelete = Array.from(existingTxnIds).filter(id => !incomingTxnIds.has(id));
-          if (txnsToDelete.length > 0) {
-            await prisma.backdatedTransaction.deleteMany({
-              where: {
-                id: { in: txnsToDelete },
-                backdatedEntryId: walkInEntryId, // Extra safety: scope to entry
-              },
-            });
-            deletedCount = txnsToDelete.length;
-          }
+        const txnsToDelete = Array.from(existingTxnIds).filter(id => !incomingTxnIds.has(id));
+        if (txnsToDelete.length > 0) {
+          await prisma.backdatedTransaction.deleteMany({
+            where: {
+              id: { in: txnsToDelete },
+              backdatedEntryId: walkInEntryId, // Extra safety: scope to entry
+            },
+          });
+          deletedCount = txnsToDelete.length;
         }
 
         console.log('[BackdatedEntries] Upserted walk-in transactions:', {
@@ -1106,3 +1087,4 @@ export class DailyBackdatedEntriesService {
     };
   }
 }
+
