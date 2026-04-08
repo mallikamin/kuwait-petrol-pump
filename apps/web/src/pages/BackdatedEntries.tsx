@@ -17,7 +17,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle, Users, Copy, Search, Gauge, Camera, Edit, Loader2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, RefreshCw, Download, Eye, Clock, User } from 'lucide-react';
+import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle, Users, Copy, Search, Gauge, Camera, Edit, Loader2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, RefreshCw, Eye, Clock, User } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { apiClient } from '@/api/client';
 import { branchesApi, customersApi, meterReadingsApi, productsApi } from '@/api';
@@ -84,6 +84,34 @@ const toNumber = (value: unknown): number => {
     return Number.isFinite(parsed) ? parsed : 0;
   }
   return 0;
+};
+
+const openAttachmentInNewTab = (rawUrl?: string | null) => {
+  if (!rawUrl) return;
+
+  if (rawUrl.startsWith('data:')) {
+    try {
+      const [meta, base64] = rawUrl.split(',');
+      if (!meta || !base64) return;
+
+      const mimeMatch = meta.match(/data:(.*?);base64/);
+      const mime = mimeMatch?.[1] || 'application/octet-stream';
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+
+      const blobUrl = URL.createObjectURL(new Blob([bytes], { type: mime }));
+      window.open(blobUrl, '_blank', 'noopener,noreferrer');
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+      return;
+    } catch {
+      return;
+    }
+  }
+
+  window.open(rawUrl, '_blank', 'noopener,noreferrer');
 };
 
 export function BackdatedEntries() {
@@ -1601,9 +1629,9 @@ export function BackdatedEntries() {
                                                 <Button
                                                   size="sm"
                                                   variant="ghost"
-                                                  onClick={() => window.open(openingReading?.image_url || openingReading?.imageUrl, '_blank')}
+                                                  onClick={() => openAttachmentInNewTab(openingReading?.image_url || openingReading?.imageUrl)}
                                                   className="h-7 w-7 p-0"
-                                                  title="View OCR image"
+                                                  title="View attachment"
                                                 >
                                                   <Eye className="h-3 w-3 text-blue-600" />
                                                 </Button>
@@ -1612,11 +1640,11 @@ export function BackdatedEntries() {
                                                 <Button
                                                   size="sm"
                                                   variant="ghost"
-                                                  onClick={() => window.open(openingReading?.attachment_url || openingReading?.attachmentUrl, '_blank')}
+                                                  onClick={() => openAttachmentInNewTab(openingReading?.attachment_url || openingReading?.attachmentUrl)}
                                                   className="h-7 w-7 p-0"
-                                                  title="Download attachment"
+                                                  title="View attachment"
                                                 >
-                                                  <Download className="h-3 w-3 text-green-600" />
+                                                  <Eye className="h-3 w-3 text-green-600" />
                                                 </Button>
                                               )}
                                               <Button
@@ -1716,9 +1744,9 @@ export function BackdatedEntries() {
                                                 <Button
                                                   size="sm"
                                                   variant="ghost"
-                                                  onClick={() => window.open(closingReading?.image_url || closingReading?.imageUrl, '_blank')}
+                                                  onClick={() => openAttachmentInNewTab(closingReading?.image_url || closingReading?.imageUrl)}
                                                   className="h-7 w-7 p-0"
-                                                  title="View OCR image"
+                                                  title="View attachment"
                                                 >
                                                   <Eye className="h-3 w-3 text-blue-600" />
                                                 </Button>
@@ -1727,11 +1755,11 @@ export function BackdatedEntries() {
                                                 <Button
                                                   size="sm"
                                                   variant="ghost"
-                                                  onClick={() => window.open(closingReading?.attachment_url || closingReading?.attachmentUrl, '_blank')}
+                                                  onClick={() => openAttachmentInNewTab(closingReading?.attachment_url || closingReading?.attachmentUrl)}
                                                   className="h-7 w-7 p-0"
-                                                  title="Download attachment"
+                                                  title="View attachment"
                                                 >
-                                                  <Download className="h-3 w-3 text-green-600" />
+                                                  <Eye className="h-3 w-3 text-green-600" />
                                                 </Button>
                                               )}
                                               <Button
