@@ -16,7 +16,8 @@ import {
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle, Users, Copy, Search, Gauge, Camera, Edit, Loader2, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Calendar, DollarSign, AlertCircle, Plus, Trash2, Save, CheckCircle, Users, Copy, Search, Gauge, Camera, Edit, Loader2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { branchesApi, customersApi, meterReadingsApi, productsApi } from '@/api';
 import { banksApi } from '@/api/banks';
@@ -86,6 +87,10 @@ export function BackdatedEntries() {
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const justSavedRef = useRef(false); // Track if we just saved to prevent useEffect from overwriting
+
+  // UX redesign state
+  const [isContextCollapsed, setIsContextCollapsed] = useState(true);
+  const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
 
   // Use sessionStorage for loadedKey to persist across tab navigation
   const setLoadedKey = (key: string) => sessionStorage.setItem('backdated_loaded_key', key);
@@ -778,6 +783,13 @@ export function BackdatedEntries() {
     return () => clearTimeout(timer);
   }, [isDirty, transactions, selectedBranchId]);
 
+  // Track viewport height for responsive sticky behavior
+  useEffect(() => {
+    const handleResize = () => setViewportHeight(window.innerHeight);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   // Remove transaction row
   const removeTransaction = (index: number) => {
     setTransactions(transactions.filter((_, i) => i !== index));
@@ -1175,97 +1187,215 @@ export function BackdatedEntries() {
         </AlertDescription>
       </Alert>
 
-      <div className="flex flex-col lg:flex-row gap-6">
+      <div className="flex flex-col lg:flex-row gap-4">
         {/* Left: Entry Form + Transactions */}
-        <div className="flex-1 space-y-6">
-          {/* Entry Details - Sticky Top Bar */}
-          <Card className="sticky top-0 z-10 shadow-md">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Calendar className="h-4 w-4" />
-                  Daily Entry Context
-                </CardTitle>
-                {selectedBranchId && businessDate && (
+        <div className="flex-1 space-y-4">
+          {/* Compact Sticky Toolbar */}
+          <div
+            className={cn(
+              'bg-card border-b shadow-sm z-20 transition-all -mx-6 px-6',
+              viewportHeight >= 800 ? 'sticky top-0' : 'relative'
+            )}
+          >
+            <div className="px-0 py-3">
+              <div className="flex flex-col lg:flex-row lg:items-center gap-3 lg:gap-4">
+                {/* Left: Context selectors */}
+                <div className="flex-1 flex flex-col sm:flex-row gap-3">
+                  <div className="flex-1 min-w-[180px]">
+                    <Label className="text-xs text-muted-foreground mb-1">Date</Label>
+                    <Input
+                      type="date"
+                      value={businessDate}
+                      onChange={(e) => setBusinessDate(e.target.value)}
+                      max={format(new Date(), 'yyyy-MM-dd')}
+                      className="h-9"
+                    />
+                  </div>
+
+                  <div className="flex-1 min-w-[180px]">
+                    <Label className="text-xs text-muted-foreground mb-1">Branch</Label>
+                    <Select value={selectedBranchId} onValueChange={setSelectedBranchId}>
+                      <SelectTrigger className="h-9">
+                        <SelectValue placeholder="Select branch" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {branchesData?.map((branch: any) => (
+                          <SelectItem key={branch.id} value={branch.id}>
+                            {branch.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="flex-1 min-w-[160px]">
+                    <Label className="text-xs text-muted-foreground mb-1">Shift</Label>
+                    <Select value={selectedShiftId || '__none__'} onValueChange={(v) => setSelectedShiftId(v === '__none__' ? '' : v)}>
+                      <SelectTrigger className="h-9">
+                        <SelectValue placeholder="Any shift" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Any shift</SelectItem>
+                        {mappedShiftOptions.map((shiftOption) => (
+                          <SelectItem key={shiftOption.id} value={shiftOption.id}>
+                            {shiftOption.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {/* Right: Action buttons */}
+                <div className="flex gap-2 lg:ml-auto">
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => {
-                      // Clear cache and force refetch
-                      const currentKey = `${selectedBranchId}_${businessDate}_${selectedShiftId || 'all'}`;
-                      const sessionKey = `backdated_transactions_${currentKey}`;
-                      sessionStorage.removeItem(sessionKey);
-                      setLoadedKey('');
-                      refetchDailySummary();
-                      toast.info('Refreshing from server...');
-                    }}
-                    className="text-xs"
+                    onClick={handleSaveDraft}
+                    disabled={saveDailyDraftMutation.isPending || transactions.length === 0}
+                    className="h-9"
                   >
-                    <RefreshCw className="h-3 w-3 mr-1" />
-                    Refresh from Server
+                    {saveDailyDraftMutation.isPending ? (
+                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                    ) : (
+                      <Save className="h-3 w-3 mr-1" />
+                    )}
+                    Save Draft
+                    {lastSaved && <span className="text-xs ml-2">({format(lastSaved, 'HH:mm')})</span>}
                   </Button>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3 pt-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <Label>Business Date *</Label>
-                  <Input
-                    type="date"
-                    value={businessDate}
-                    onChange={(e) => setBusinessDate(e.target.value)}
-                    max={format(new Date(), 'yyyy-MM-dd')}
-                  />
-                </div>
 
-                <div className="space-y-2">
-                  <Label>Branch *</Label>
-                  <Select value={selectedBranchId} onValueChange={setSelectedBranchId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select branch" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {branchesData?.map((branch: any) => (
-                        <SelectItem key={branch.id} value={branch.id}>
-                          {branch.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Button
+                    onClick={handleFinalizeDay}
+                    disabled={finalizeDayMutation.isPending || isDirty || transactions.length === 0}
+                    className="bg-green-600 hover:bg-green-700 h-9"
+                    size="sm"
+                  >
+                    {finalizeDayMutation.isPending ? (
+                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                    ) : (
+                      <CheckCircle className="h-3 w-3 mr-1" />
+                    )}
+                    Finalize
+                  </Button>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <Label className="text-sm">Shift (Optional)</Label>
-                  <Select value={selectedShiftId || '__none__'} onValueChange={(v) => setSelectedShiftId(v === '__none__' ? '' : v)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Any shift" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">Any shift</SelectItem>
-                      {mappedShiftOptions.map((shiftOption) => (
-                        <SelectItem key={shiftOption.id} value={shiftOption.id}>
-                          {shiftOption.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
+              {/* Sync message */}
               {syncMessage && (
-                <div className="rounded-md border border-blue-200 bg-blue-50 p-2 text-xs text-blue-800">
+                <div className="mt-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
                   {syncMessage}
                 </div>
               )}
-            </CardContent>
-          </Card>
+            </div>
+
+            {/* Show context toggle button */}
+            <div className="px-0 pb-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsContextCollapsed(!isContextCollapsed)}
+                className="w-full h-8 text-xs text-muted-foreground hover:text-foreground"
+              >
+                {isContextCollapsed ? (
+                  <>
+                    <ChevronDown className="h-3 w-3 mr-1" />
+                    Show Entry Context
+                  </>
+                ) : (
+                  <>
+                    <ChevronUp className="h-3 w-3 mr-1" />
+                    Hide Entry Context
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+
+          {/* Collapsible Entry Context Panel */}
+          <Collapsible open={!isContextCollapsed}>
+            <CollapsibleContent>
+              <Card className="mt-4 mb-6">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <Calendar className="h-4 w-4" />
+                      Daily Entry Context
+                    </CardTitle>
+                    {selectedBranchId && businessDate && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const currentKey = `${selectedBranchId}_${businessDate}_${selectedShiftId || 'all'}`;
+                          const sessionKey = `backdated_transactions_${currentKey}`;
+                          sessionStorage.removeItem(sessionKey);
+                          setLoadedKey('');
+                          refetchDailySummary();
+                          toast.info('Refreshing from server...');
+                        }}
+                        className="text-xs h-8"
+                      >
+                        <RefreshCw className="h-3 w-3 mr-1" />
+                        Refresh from Server
+                      </Button>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3 pt-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label>Business Date *</Label>
+                      <Input
+                        type="date"
+                        value={businessDate}
+                        onChange={(e) => setBusinessDate(e.target.value)}
+                        max={format(new Date(), 'yyyy-MM-dd')}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Branch *</Label>
+                      <Select value={selectedBranchId} onValueChange={setSelectedBranchId}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select branch" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {branchesData?.map((branch: any) => (
+                            <SelectItem key={branch.id} value={branch.id}>
+                              {branch.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label className="text-sm">Shift (Optional)</Label>
+                      <Select value={selectedShiftId || '__none__'} onValueChange={(v) => setSelectedShiftId(v === '__none__' ? '' : v)}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Any shift" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">Any shift</SelectItem>
+                          {mappedShiftOptions.map((shiftOption) => (
+                            <SelectItem key={shiftOption.id} value={shiftOption.id}>
+                              {shiftOption.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </CollapsibleContent>
+          </Collapsible>
 
           {/* Meter Readings Section - Shift-Segregated */}
           {selectedBranchId && businessDate && nozzlesData && nozzlesData.length > 0 && (
-            <Accordion type="single" collapsible defaultValue="meter-readings">
+            <Accordion type="single" collapsible>
               <AccordionItem value="meter-readings" className="border rounded-lg">
                 <AccordionTrigger className="px-4 hover:no-underline">
                   <div className="flex items-center justify-between w-full pr-2">
@@ -1911,7 +2041,7 @@ export function BackdatedEntries() {
               )}
 
               {transactions.length > 0 && (
-                <div className="flex justify-between items-center gap-4 mt-6 pt-4 border-t">
+                <div className="flex justify-between items-center gap-4 mt-4 pt-3 border-t">
                   {/* Transaction count indicator */}
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <span className="font-semibold">{transactions.length}</span>
@@ -2178,7 +2308,10 @@ export function BackdatedEntries() {
 
         {/* Right: Reconciliation Panel - Horizontally Collapsible */}
         <div className={`transition-all duration-300 ease-in-out ${isReconciliationCollapsed ? 'w-12' : 'w-96'} flex-shrink-0 relative`}>
-          <div className="sticky top-6 space-y-6">
+          <div className={cn(
+            'space-y-4',
+            viewportHeight >= 800 ? 'sticky top-[72px]' : 'relative'
+          )}>
             {/* Toggle Button */}
             <Button
               variant="outline"
@@ -2270,23 +2403,32 @@ export function BackdatedEntries() {
 
               {/* Nozzle Meter Reading Checklist */}
               {nozzleReconciliation.length > 0 && (
-                <div>
-                  <div className="font-semibold mb-2">Nozzle Meter Readings</div>
-                  <div className="space-y-1.5 text-xs">
-                    {nozzleReconciliation.map((nozzle: any) => (
-                      <div key={nozzle.nozzleId} className="flex items-center justify-between p-2 bg-muted/30 rounded">
-                        <div className="flex items-center gap-2">
-                          <div className={`w-2 h-2 rounded-full ${nozzle.hasBoth ? 'bg-green-500' : 'bg-orange-500'}`} />
-                          <span className="font-medium">{nozzle.nozzleName}</span>
-                          <Badge variant="outline" className="text-[10px] px-1 py-0">{nozzle.fuelCode}</Badge>
-                        </div>
-                        <span className="text-xs">
-                          {nozzle.hasBoth ? '✓ Both' : !nozzle.hasOpening ? '✗ Opening' : '✗ Closing'}
-                        </span>
+                <Collapsible defaultOpen={false}>
+                  <div className="pt-2 border-t">
+                    <CollapsibleTrigger asChild>
+                      <Button variant="ghost" size="sm" className="w-full justify-between h-8 px-2">
+                        <span className="font-semibold text-sm">Nozzle Meter Readings</span>
+                        <ChevronDown className="h-3 w-3" />
+                      </Button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="space-y-1.5 text-xs pt-2">
+                        {nozzleReconciliation.map((nozzle: any) => (
+                          <div key={nozzle.nozzleId} className="flex items-center justify-between p-2 bg-muted/30 rounded">
+                            <div className="flex items-center gap-2">
+                              <div className={`w-2 h-2 rounded-full ${nozzle.hasBoth ? 'bg-green-500' : 'bg-orange-500'}`} />
+                              <span className="font-medium">{nozzle.nozzleName}</span>
+                              <Badge variant="outline" className="text-[10px] px-1 py-0">{nozzle.fuelCode}</Badge>
+                            </div>
+                            <span className="text-xs">
+                              {nozzle.hasBoth ? '✓ Both' : !nozzle.hasOpening ? '✗ Opening' : '✗ Closing'}
+                            </span>
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    </CollapsibleContent>
                   </div>
-                </div>
+                </Collapsible>
               )}
 
               {/* Fuel Totals */}
@@ -2328,41 +2470,50 @@ export function BackdatedEntries() {
               </div>
 
               {/* Payment Breakdown */}
-              <div className="pt-2 border-t">
-                <div className="font-semibold mb-2">Payment Breakdown</div>
-                <div className="space-y-1 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Posted Cash:</span>
-                    <span className="font-mono">{postedCashAmount.toFixed(2)} PKR</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Credit Card:</span>
-                    <span className="font-mono">{transactionTotals.creditCard.toFixed(2)} PKR</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Bank Card:</span>
-                    <span className="font-mono">{transactionTotals.bankCard.toFixed(2)} PKR</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">PSO Card:</span>
-                    <span className="font-mono">{transactionTotals.psoCard.toFixed(2)} PKR</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Credit Customer:</span>
-                    <span className="font-mono">{transactionTotals.creditCustomer.toFixed(2)} PKR</span>
-                  </div>
-                  <div className="flex justify-between pt-1 border-t">
-                    <span className="text-muted-foreground">Back-traced Cash:</span>
-                    <span className="font-mono font-semibold">{backTracedCashAmount.toFixed(2)} PKR</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Cash Gap:</span>
-                    <span className={`font-mono font-semibold ${Math.abs(cashGapAmount) < 0.01 ? 'text-green-600' : 'text-orange-600'}`}>
-                      {cashGapAmount > 0 ? '+' : ''}{cashGapAmount.toFixed(2)} PKR
-                    </span>
-                  </div>
+              <Collapsible defaultOpen={false}>
+                <div className="pt-2 border-t">
+                  <CollapsibleTrigger asChild>
+                    <Button variant="ghost" size="sm" className="w-full justify-between h-8 px-2">
+                      <span className="font-semibold text-sm">Payment Breakdown</span>
+                      <ChevronDown className="h-3 w-3" />
+                    </Button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <div className="space-y-1 text-xs pt-2">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Posted Cash:</span>
+                        <span className="font-mono">{postedCashAmount.toFixed(2)} PKR</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Credit Card:</span>
+                        <span className="font-mono">{transactionTotals.creditCard.toFixed(2)} PKR</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Bank Card:</span>
+                        <span className="font-mono">{transactionTotals.bankCard.toFixed(2)} PKR</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">PSO Card:</span>
+                        <span className="font-mono">{transactionTotals.psoCard.toFixed(2)} PKR</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Credit Customer:</span>
+                        <span className="font-mono">{transactionTotals.creditCustomer.toFixed(2)} PKR</span>
+                      </div>
+                      <div className="flex justify-between pt-1 border-t">
+                        <span className="text-muted-foreground">Back-traced Cash:</span>
+                        <span className="font-mono font-semibold">{backTracedCashAmount.toFixed(2)} PKR</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Cash Gap:</span>
+                        <span className={`font-mono font-semibold ${Math.abs(cashGapAmount) < 0.01 ? 'text-green-600' : 'text-orange-600'}`}>
+                          {cashGapAmount > 0 ? '+' : ''}{cashGapAmount.toFixed(2)} PKR
+                        </span>
+                      </div>
+                    </div>
+                  </CollapsibleContent>
                 </div>
-              </div>
+              </Collapsible>
 
               {/* Variance */}
               <div className="pt-2 border-t">
