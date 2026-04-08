@@ -33,7 +33,7 @@ export class ProductsService {
       search,
       category,
       isActive,
-      limit = 50,
+      limit = 1000,
       offset = 0,
     } = filters;
 

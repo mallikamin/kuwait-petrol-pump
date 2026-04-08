@@ -31,7 +31,7 @@ export class CustomersService {
     const {
       search,
       isActive,
-      limit = 50,
+      limit = 1000,
       offset = 0,
     } = filters;
 
