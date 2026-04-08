@@ -39,6 +39,8 @@ interface OCRResult {
   };
 }
 
+type OCRProcessingState = 'idle' | 'image-selected' | 'uploading' | 'processing-ocr' | 'success' | 'error';
+
 export function MeterReadingCapture({
   nozzleId,
   fuelTypeId: _fuelTypeId,
@@ -56,6 +58,7 @@ export function MeterReadingCapture({
   const [ocrResult, setOcrResult] = useState<OCRResult | null>(null);
   const [currentReading, setCurrentReading] = useState<string>('');
   const [manualEdit, setManualEdit] = useState(false);
+  const [ocrProcessingState, setOcrProcessingState] = useState<OCRProcessingState>('idle');
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -166,11 +169,13 @@ export function MeterReadingCapture({
 
     stopCamera();
     setImageDataUrl(dataUrl);
+    setOcrProcessingState('image-selected');
 
     // Compress and process OCR
     try {
       setLoading(true);
       setError(null);
+      setOcrProcessingState('uploading');
 
       const compressed = await compressImage(dataUrl);
 
@@ -184,6 +189,7 @@ export function MeterReadingCapture({
       console.log('[Upload] ✅ Image uploaded:', uploadRes.data.imageUrl);
 
       // Call OCR
+      setOcrProcessingState('processing-ocr');
       console.log('[OCR] Processing...');
       const ocrRes = await apiClient.post<OCRResult>('/api/meter-readings/ocr', {
         imageBase64: compressed,
@@ -195,9 +201,11 @@ export function MeterReadingCapture({
       if (ocrRes.data.extractedValue && !ocrRes.data.error) {
         setCurrentReading(ocrRes.data.extractedValue.toString());
         setImageDataUrl(uploadRes.data.imageUrl); // Store server URL instead of base64
+        setOcrProcessingState('success');
       } else {
         setError(ocrRes.data.error || 'Could not extract meter reading. Please enter manually.');
         setManualEdit(true);
+        setOcrProcessingState('error');
       }
 
       setLoading(false);
@@ -206,6 +214,7 @@ export function MeterReadingCapture({
       setError(err.response?.data?.error || 'Failed to process image');
       setLoading(false);
       setManualEdit(true);
+      setOcrProcessingState('error');
     }
   };
 
@@ -231,11 +240,13 @@ export function MeterReadingCapture({
     reader.onload = async (e) => {
       const dataUrl = e.target?.result as string;
       setImageDataUrl(dataUrl);
+      setOcrProcessingState('image-selected'); // Show image selected state
 
       try {
         setLoading(true);
         setError(null);
         setUploadProgress(10);
+        setOcrProcessingState('uploading');
 
         const compressed = await compressImage(dataUrl);
         setUploadProgress(30);
@@ -257,11 +268,13 @@ export function MeterReadingCapture({
           setLoading(false);
           setManualEdit(true); // Keep in manual mode
           setCurrentReading(''); // Clear any auto-filled reading
+          setOcrProcessingState('success');
           console.log('[Manual Mode] Image stored without OCR');
           return;
         }
 
         // Call OCR only for OCR mode
+        setOcrProcessingState('processing-ocr');
         console.log('[OCR] Processing...');
         const ocrRes = await apiClient.post<OCRResult>('/api/meter-readings/ocr', {
           imageBase64: compressed,
@@ -272,9 +285,11 @@ export function MeterReadingCapture({
 
         if (ocrRes.data.extractedValue && !ocrRes.data.error) {
           setCurrentReading(ocrRes.data.extractedValue.toString());
+          setOcrProcessingState('success');
         } else {
           setError(ocrRes.data.error || 'Could not extract meter reading. Please enter manually.');
           setManualEdit(true);
+          setOcrProcessingState('error');
         }
 
         setUploadProgress(100);
@@ -284,10 +299,12 @@ export function MeterReadingCapture({
         setError(err.response?.data?.error || 'Failed to process image');
         setLoading(false);
         setManualEdit(true);
+        setOcrProcessingState('error');
       }
     };
     reader.onerror = () => {
       setError('Failed to read image file');
+      setOcrProcessingState('error');
     };
     reader.readAsDataURL(file);
   };
@@ -465,7 +482,7 @@ export function MeterReadingCapture({
       <CardHeader>
         <CardTitle className="flex items-center justify-between">
           <span>Confirm Meter Reading</span>
-          <Button variant="ghost" size="sm" onClick={() => { setMode('choose'); setCurrentReading(''); setOcrResult(null); setImageDataUrl(null); setError(null); setManualEdit(false); }}>
+          <Button variant="ghost" size="sm" onClick={() => { setMode('choose'); setCurrentReading(''); setOcrResult(null); setImageDataUrl(null); setError(null); setManualEdit(false); setOcrProcessingState('idle'); }}>
             <X className="h-4 w-4" />
           </Button>
         </CardTitle>
@@ -477,8 +494,58 @@ export function MeterReadingCapture({
           <span className="text-lg font-bold">{previousReading.toFixed(2)}L</span>
         </div>
 
-        {/* OCR confidence */}
-        {ocrResult && !manualEdit && (
+        {/* OCR Processing States */}
+        {imageDataUrl && ocrProcessingState !== 'idle' && (
+          <div className="space-y-2">
+            {/* Image Selected */}
+            {ocrProcessingState === 'image-selected' && (
+              <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-950 rounded-lg">
+                <CheckCircle className="h-5 w-5 text-blue-600" />
+                <span className="text-sm font-medium text-blue-900 dark:text-blue-200">✓ Image selected</span>
+              </div>
+            )}
+            {/* Uploading */}
+            {ocrProcessingState === 'uploading' && (
+              <div className="flex items-center gap-2 p-3 bg-amber-50 dark:bg-amber-950 rounded-lg">
+                <Loader2 className="h-5 w-5 text-amber-600 animate-spin" />
+                <span className="text-sm font-medium text-amber-900 dark:text-amber-200">Uploading image...</span>
+              </div>
+            )}
+            {/* Processing OCR */}
+            {ocrProcessingState === 'processing-ocr' && (
+              <div className="flex items-center gap-2 p-3 bg-amber-50 dark:bg-amber-950 rounded-lg">
+                <Loader2 className="h-5 w-5 text-amber-600 animate-spin" />
+                <span className="text-sm font-medium text-amber-900 dark:text-amber-200">Extracting meter reading from image...</span>
+              </div>
+            )}
+            {/* Success with extracted value */}
+            {ocrProcessingState === 'success' && ocrResult?.extractedValue !== null && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-950 rounded-lg">
+                  <CheckCircle className="h-5 w-5 text-green-600" />
+                  <span className="text-sm font-medium text-green-900 dark:text-green-200">✓ Meter reading extracted</span>
+                </div>
+                {ocrResult && (
+                  <div className="p-3 bg-muted rounded-lg border">
+                    <p className="text-xs text-muted-foreground mb-1">Extracted Value:</p>
+                    <p className="text-2xl font-bold">{ocrResult.extractedValue?.toFixed(2)}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Confidence: {Math.round(ocrResult.confidence * 100)}%</p>
+                  </div>
+                )}
+              </div>
+            )}
+            {/* Error */}
+            {ocrProcessingState === 'error' && (
+              <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-950 rounded-lg">
+                <AlertCircle className="h-5 w-5 text-red-600" />
+                <span className="text-sm font-medium text-red-900 dark:text-red-200">Could not extract reading - please enter manually</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* OCR confidence - simplified for success state */}
+        {ocrResult && !manualEdit && ocrProcessingState !== 'success' && (
           <div className="flex items-center justify-between p-3 border rounded-lg">
             <span className="text-sm font-medium">OCR Confidence</span>
             <Badge variant={ocrResult.confidence > 0.8 ? 'default' : 'secondary'}>
@@ -535,9 +602,9 @@ export function MeterReadingCapture({
           <Button
             variant="outline"
             className="flex-1"
-            onClick={() => { setMode('choose'); setCurrentReading(''); setOcrResult(null); setImageDataUrl(null); setError(null); setManualEdit(false); }}
+            onClick={() => { setMode('choose'); setCurrentReading(''); setOcrResult(null); setImageDataUrl(null); setError(null); setManualEdit(false); setOcrProcessingState('idle'); }}
           >
-            Retake
+            Retake / Cancel
           </Button>
           <Button
             className="flex-1"
@@ -545,7 +612,7 @@ export function MeterReadingCapture({
             disabled={!currentReading || loading}
           >
             <CheckCircle className="mr-2 h-4 w-4" />
-            Confirm
+            Continue
           </Button>
         </div>
 

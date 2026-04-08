@@ -587,7 +587,7 @@ export function POS() {
       }
 
       setReceiptData(receipt);
-      setShowReceipt(true);
+      // Don't auto-open receipt - keep operator in fast-entry workflow
 
       // Reset form
       clearCart();
@@ -705,9 +705,9 @@ export function POS() {
 
         {/* FUEL SALE TAB */}
         <TabsContent value="fuel" className="space-y-4">
-          <div className="grid gap-4 lg:grid-cols-3">
-            {/* Left: Fuel Transactions (2 cols) */}
-            <div className="lg:col-span-2 space-y-4">
+          <div className="grid gap-4 lg:grid-cols-4">
+            {/* Left: Fuel Transactions (3 cols) */}
+            <div className="lg:col-span-3 space-y-4">
               {/* Add Customer Group Button */}
               <Card>
                 <CardContent className="pt-6">
@@ -761,11 +761,11 @@ export function POS() {
                                 const txn = fuelTransactions[globalIdx];
                                 const showBank = txn.paymentMethod === 'credit_card' || txn.paymentMethod === 'bank_card';
                                 return (
-                                  <div key={txn.id} className="flex gap-2 items-start p-2 rounded border bg-muted/30">
+                                  <div key={txn.id} className="flex gap-1.5 items-start p-2 rounded border bg-muted/30 flex-wrap">
                                     {/* Vehicle # */}
-                                    <div className="w-32">
+                                    <div className="w-28">
                                       <Input
-                                        placeholder="Vehicle#"
+                                        placeholder="Veh#"
                                         value={txn.vehicleNumber}
                                         onChange={(e) => updateFuelTransaction(globalIdx, 'vehicleNumber', e.target.value)}
                                         className="h-8 text-xs"
@@ -773,7 +773,7 @@ export function POS() {
                                     </div>
 
                                     {/* Slip # */}
-                                    <div className="w-28">
+                                    <div className="w-20">
                                       <Input
                                         placeholder="Slip#"
                                         value={txn.slipNumber}
@@ -783,7 +783,7 @@ export function POS() {
                                     </div>
 
                                     {/* Payment Method */}
-                                    <div className="w-36">
+                                    <div className="w-28">
                                       <Select
                                         value={txn.paymentMethod}
                                         onValueChange={(v) => {
@@ -798,23 +798,23 @@ export function POS() {
                                         </SelectTrigger>
                                         <SelectContent>
                                           <SelectItem value="cash">Cash</SelectItem>
-                                          <SelectItem value="credit_card">Credit Card</SelectItem>
-                                          <SelectItem value="bank_card">Bank Card</SelectItem>
-                                          <SelectItem value="pso_card">PSO Card</SelectItem>
-                                          <SelectItem value="credit_customer">Credit Customer</SelectItem>
+                                          <SelectItem value="credit_card">Card</SelectItem>
+                                          <SelectItem value="bank_card">Bank</SelectItem>
+                                          <SelectItem value="pso_card">PSO</SelectItem>
+                                          <SelectItem value="credit_customer">Credit</SelectItem>
                                         </SelectContent>
                                       </Select>
                                     </div>
 
                                     {/* Bank (conditional) */}
                                     {showBank && (
-                                      <div className="w-36">
+                                      <div className="w-24">
                                         <Select
                                           value={txn.bankId}
                                           onValueChange={(v) => updateFuelTransaction(globalIdx, 'bankId', v)}
                                         >
                                           <SelectTrigger className="h-8 text-xs">
-                                            <SelectValue placeholder="Bank *" />
+                                            <SelectValue placeholder="Bank" />
                                           </SelectTrigger>
                                           <SelectContent>
                                             {banks.length > 0 ? (
@@ -825,7 +825,7 @@ export function POS() {
                                               ))
                                             ) : (
                                               <SelectItem value="__no_banks__" disabled>
-                                                No banks available
+                                                None
                                               </SelectItem>
                                             )}
                                           </SelectContent>
@@ -834,7 +834,7 @@ export function POS() {
                                     )}
 
                                     {/* Fuel Type */}
-                                    <div className="w-28">
+                                    <div className="w-20">
                                       <Select
                                         value={txn.fuelTypeId}
                                         onValueChange={(v) => updateFuelTransaction(globalIdx, 'fuelTypeId', v)}
@@ -850,12 +850,13 @@ export function POS() {
                                       </Select>
                                     </div>
 
-                                    {/* Liters */}
-                                    <div className="w-24">
+                                    {/* Liters - increased width to show full "Liters" text */}
+                                    <div className="w-20 flex-grow min-w-20">
                                       <Input
                                         type="number"
                                         step="0.01"
-                                        placeholder="Liters"
+                                        placeholder="L"
+                                        title="Liters"
                                         value={txn.quantityLiters}
                                         onChange={(e) => updateFuelTransaction(globalIdx, 'quantityLiters', e.target.value)}
                                         className="h-8 text-xs"
@@ -863,22 +864,24 @@ export function POS() {
                                     </div>
 
                                     {/* Price/L (read-only) */}
-                                    <div className="w-20">
+                                    <div className="w-16">
                                       <Input
                                         value={txn.pricePerLiter}
                                         readOnly
                                         className="h-8 text-xs bg-muted"
                                         title="Price per liter"
+                                        placeholder="₨"
                                       />
                                     </div>
 
                                     {/* Total (read-only) */}
-                                    <div className="w-24">
+                                    <div className="w-20">
                                       <Input
                                         value={txn.lineTotal}
                                         readOnly
                                         className="h-8 text-xs bg-muted font-semibold"
                                         title="Total"
+                                        placeholder="₨"
                                       />
                                     </div>
 
@@ -921,9 +924,9 @@ export function POS() {
 
         {/* PRODUCT SALE TAB */}
         <TabsContent value="product" className="space-y-4">
-          <div className="grid gap-4 lg:grid-cols-3">
-            {/* Left: Product Catalog (2 cols) */}
-            <div className="lg:col-span-2 space-y-4">
+          <div className="grid gap-4 lg:grid-cols-4">
+            {/* Left: Product Catalog (3 cols) */}
+            <div className="lg:col-span-3 space-y-4">
               {/* Search + Filter */}
               <div className="flex gap-2">
                 <div className="relative flex-1">
