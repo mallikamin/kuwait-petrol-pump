@@ -654,7 +654,6 @@ export function MeterReadingCapture({
             value={currentReading}
             onChange={(e) => setCurrentReading(e.target.value)}
             className="text-xl font-semibold"
-            autoFocus={mode === 'manual'}
           />
         </div>
 
@@ -694,7 +693,7 @@ export function MeterReadingCapture({
         </div>
 
         <p className="text-xs text-center text-muted-foreground">
-          {manualEdit || mode === 'manual' ? 'Manual entry' : 'OCR extracted - review and confirm'}
+          {manualEdit ? 'Manual entry' : 'OCR extracted - review and confirm'}
         </p>
       </CardContent>
     </Card>
