@@ -268,7 +268,7 @@ export function MeterReadingCapture({
           setLoading(false);
           setManualEdit(true); // Keep in manual mode
           setCurrentReading(''); // Clear any auto-filled reading
-          setOcrProcessingState('success');
+          setOcrProcessingState('idle'); // Don't show OCR states in manual mode
           console.log('[Manual Mode] Image stored without OCR');
           return;
         }
@@ -401,19 +401,6 @@ export function MeterReadingCapture({
             </Button>
           </div>
 
-          {/* Manual upload option */}
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={() => {
-              setCaptureMode('manual');
-              fileInputRef.current?.click();
-            }}
-          >
-            <Upload className="h-4 w-4 mr-2" />
-            Upload Photo (No OCR) - Manual Mode
-          </Button>
-
           {/* Hidden file input */}
           <input
             ref={fileInputRef}
@@ -476,12 +463,102 @@ export function MeterReadingCapture({
     );
   }
 
-  // Manual entry or result view
+  // Manual entry view (text input only)
+  if (mode === 'manual') {
+    return (
+      <Card className="w-full">
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between">
+            <span>Manual Meter Reading Entry</span>
+            <Button variant="ghost" size="sm" onClick={() => { setMode('choose'); setCurrentReading(''); setError(null); setManualEdit(false); }}>
+              <X className="h-4 w-4" />
+            </Button>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Previous reading */}
+          <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+            <span className="text-sm font-medium">Previous Reading</span>
+            <span className="text-lg font-bold">{previousReading.toFixed(2)}L</span>
+          </div>
+
+          {/* Current reading input */}
+          <div className="space-y-2">
+            <Label htmlFor="manual-reading">Current Reading</Label>
+            <Input
+              id="manual-reading"
+              type="number"
+              step="0.01"
+              placeholder="Enter current meter reading"
+              value={currentReading}
+              onChange={(e) => setCurrentReading(e.target.value)}
+              className="text-xl font-semibold"
+              autoFocus
+            />
+          </div>
+
+          {/* Calculated liters */}
+          {currentReading && (
+            <div className="flex items-center justify-between p-4 bg-primary/10 rounded-lg">
+              <span className="text-sm font-medium">Calculated Quantity</span>
+              <span className="text-2xl font-bold text-primary">{calculatedLiters.toFixed(2)}L</span>
+            </div>
+          )}
+
+          {/* Alternative: Upload photo for manual entry */}
+          <Button
+            variant="outline"
+            className="w-full"
+            onClick={() => {
+              setCaptureMode('manual');
+              fileInputRef.current?.click();
+            }}
+          >
+            <Upload className="h-4 w-4 mr-2" />
+            Upload Photo (No OCR) - Use as Reference
+          </Button>
+
+          {/* Error */}
+          {error && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          {/* Actions */}
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => { setMode('choose'); setCurrentReading(''); setError(null); setManualEdit(false); }}
+            >
+              Back
+            </Button>
+            <Button
+              className="flex-1"
+              onClick={confirmReading}
+              disabled={!currentReading || loading}
+            >
+              <CheckCircle className="mr-2 h-4 w-4" />
+              Continue
+            </Button>
+          </div>
+
+          <p className="text-xs text-center text-muted-foreground">
+            Enter reading manually or upload a reference photo
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // OCR result or captured image confirmation view
   return (
     <Card className="w-full">
       <CardHeader>
         <CardTitle className="flex items-center justify-between">
-          <span>Confirm Meter Reading</span>
+          <span>{captureMode === 'manual' ? 'Confirm Reading (Manual)' : 'Confirm OCR Reading'}</span>
           <Button variant="ghost" size="sm" onClick={() => { setMode('choose'); setCurrentReading(''); setOcrResult(null); setImageDataUrl(null); setError(null); setManualEdit(false); setOcrProcessingState('idle'); }}>
             <X className="h-4 w-4" />
           </Button>
@@ -494,8 +571,8 @@ export function MeterReadingCapture({
           <span className="text-lg font-bold">{previousReading.toFixed(2)}L</span>
         </div>
 
-        {/* OCR Processing States */}
-        {imageDataUrl && ocrProcessingState !== 'idle' && (
+        {/* OCR Processing States (only in OCR mode, not manual) */}
+        {imageDataUrl && ocrProcessingState !== 'idle' && captureMode !== 'manual' && (
           <div className="space-y-2">
             {/* Image Selected */}
             {ocrProcessingState === 'image-selected' && (
