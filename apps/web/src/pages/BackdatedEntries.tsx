@@ -1012,9 +1012,18 @@ export function BackdatedEntries() {
       refetchDailySummary();
     },
     onError: (error: any) => {
-      const errorMsg = error?.response?.data?.error || error.message || 'Failed to finalize day';
-      console.error('[Finalize] Error:', error.response?.data || error);
-      toast.error(`Finalize failed: ${errorMsg}`);
+      const payload = error?.response?.data;
+      const errorMsg =
+        (typeof payload?.error === 'string' && payload.error) ||
+        (typeof payload?.message === 'string' && payload.message) ||
+        (Array.isArray(payload?.details) && payload.details.length > 0
+          ? payload.details.map((d: any) => d?.message || JSON.stringify(d)).join(' | ')
+          : null) ||
+        error?.message ||
+        'Failed to finalize day';
+
+      console.error('[Finalize] Error:', payload || error);
+      toast.error(`Finalize blocked: ${errorMsg}`, { duration: 9000 });
     },
   });
 
