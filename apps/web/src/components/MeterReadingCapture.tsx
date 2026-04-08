@@ -47,8 +47,10 @@ export function MeterReadingCapture({
   onCapture,
   onCancel,
 }: MeterReadingCaptureProps) {
-  const [mode, setMode] = useState<'choose' | 'camera' | 'manual'>('choose');
+  const [mode, setMode] = useState<'choose' | 'camera' | 'manual' | 'upload-manual'>('choose');
+  const [captureMode, setCaptureMode] = useState<'ocr' | 'manual'>('ocr'); // Track whether user selected OCR or manual mode
   const [loading, setLoading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [ocrResult, setOcrResult] = useState<OCRResult | null>(null);
@@ -230,12 +232,13 @@ export function MeterReadingCapture({
       const dataUrl = e.target?.result as string;
       setImageDataUrl(dataUrl);
 
-      // Compress and process OCR
       try {
         setLoading(true);
         setError(null);
+        setUploadProgress(10);
 
         const compressed = await compressImage(dataUrl);
+        setUploadProgress(30);
 
         // Upload image
         console.log('[Upload] Uploading image...');
@@ -245,8 +248,20 @@ export function MeterReadingCapture({
         );
 
         console.log('[Upload] ✅ Image uploaded:', uploadRes.data.imageUrl);
+        setUploadProgress(70);
+        setImageDataUrl(uploadRes.data.imageUrl); // Store server URL instead of base64
 
-        // Call OCR
+        // If manual mode, skip OCR
+        if (captureMode === 'manual') {
+          setUploadProgress(100);
+          setLoading(false);
+          setManualEdit(true); // Keep in manual mode
+          setCurrentReading(''); // Clear any auto-filled reading
+          console.log('[Manual Mode] Image stored without OCR');
+          return;
+        }
+
+        // Call OCR only for OCR mode
         console.log('[OCR] Processing...');
         const ocrRes = await apiClient.post<OCRResult>('/api/meter-readings/ocr', {
           imageBase64: compressed,
@@ -257,12 +272,12 @@ export function MeterReadingCapture({
 
         if (ocrRes.data.extractedValue && !ocrRes.data.error) {
           setCurrentReading(ocrRes.data.extractedValue.toString());
-          setImageDataUrl(uploadRes.data.imageUrl); // Store server URL instead of base64
         } else {
           setError(ocrRes.data.error || 'Could not extract meter reading. Please enter manually.');
           setManualEdit(true);
         }
 
+        setUploadProgress(100);
         setLoading(false);
       } catch (err: any) {
         console.error('[Upload] Error:', err);
@@ -291,13 +306,16 @@ export function MeterReadingCapture({
       return;
     }
 
+    // Determine if this reading is manual (user typed it in)
+    const isManualReading = manualEdit || mode === 'manual' || captureMode === 'manual';
+
     onCapture({
       previousReading,
       currentReading: current,
       calculatedLiters,
       imageUrl: imageDataUrl || undefined,
-      ocrConfidence: ocrResult?.confidence,
-      isManualReading: manualEdit || mode === 'manual',
+      ocrConfidence: isManualReading ? undefined : ocrResult?.confidence, // Don't send OCR confidence for manual
+      isManualReading,
     });
   };
 
@@ -333,7 +351,10 @@ export function MeterReadingCapture({
             <Button
               size="lg"
               className="h-24 flex flex-col gap-2"
-              onClick={startCamera}
+              onClick={() => {
+                setCaptureMode('ocr');
+                startCamera();
+              }}
             >
               <Camera className="h-8 w-8" />
               <span>Take Photo</span>
@@ -343,10 +364,13 @@ export function MeterReadingCapture({
               size="lg"
               variant="outline"
               className="h-24 flex flex-col gap-2"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => {
+                setCaptureMode('ocr');
+                fileInputRef.current?.click();
+              }}
             >
               <Upload className="h-8 w-8" />
-              <span>Upload Photo</span>
+              <span>Upload Photo (OCR)</span>
             </Button>
 
             <Button
@@ -356,9 +380,22 @@ export function MeterReadingCapture({
               onClick={() => setMode('manual')}
             >
               <Edit2 className="h-8 w-8" />
-              <span>Enter Manually</span>
+              <span>Manual Entry</span>
             </Button>
           </div>
+
+          {/* Manual upload option */}
+          <Button
+            variant="outline"
+            className="w-full"
+            onClick={() => {
+              setCaptureMode('manual');
+              fileInputRef.current?.click();
+            }}
+          >
+            <Upload className="h-4 w-4 mr-2" />
+            Upload Photo (No OCR) - Manual Mode
+          </Button>
 
           {/* Hidden file input */}
           <input
@@ -370,7 +407,7 @@ export function MeterReadingCapture({
           />
 
           <p className="text-xs text-center text-muted-foreground">
-            Take a photo for automatic reading or enter manually
+            Take a photo or upload for OCR, or enter reading manually
           </p>
         </CardContent>
       </Card>

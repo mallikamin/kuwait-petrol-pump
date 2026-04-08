@@ -690,9 +690,19 @@ export function BackdatedEntries() {
     }
 
     const currentKey = `${selectedBranchId}_${businessDate}_${selectedShiftId || 'all'}`;
+    const previousKey = sessionStorage.getItem('backdated_loaded_key');
+
+    // ✅ FIX: If businessDate changed, clear in-memory staged rows for previous key
+    if (previousKey && previousKey !== currentKey) {
+      const oldSessionKey = `backdated_transactions_${previousKey}`;
+      console.log('[Date Change] Clearing previous date data:', { previousKey, currentKey });
+      sessionStorage.removeItem(oldSessionKey);
+    }
 
     console.log('[Transactions] Loading key:', {
       currentKey,
+      previousKey,
+      dateChanged: previousKey !== currentKey,
       hasAPIData: !!dailySummaryData?.transactions,
       apiCount: dailySummaryData?.transactions?.length || 0,
     });

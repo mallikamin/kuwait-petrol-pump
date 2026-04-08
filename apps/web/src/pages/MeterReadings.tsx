@@ -461,7 +461,7 @@ export function MeterReadings() {
             </Alert>
           ) : (
             <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
-              {shiftTemplatesData.map((shiftTemplate: any) => {
+              {(Array.isArray(shiftTemplatesData) ? shiftTemplatesData : []).map((shiftTemplate: any) => {
                 // Find shift instance for this shift template on the selected business date
                 const shiftInstance = (shiftInstancesData || []).find(
                   (si: any) => si.shiftId === shiftTemplate.id

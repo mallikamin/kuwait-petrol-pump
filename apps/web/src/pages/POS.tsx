@@ -113,6 +113,9 @@ export function POS() {
   const [isAddFuelGroupOpen, setIsAddFuelGroupOpen] = useState(false);
   const [fuelCustomerSearchQuery, setFuelCustomerSearchQuery] = useState('');
   const [openFuelAccordionItems, setOpenFuelAccordionItems] = useState<string[]>([]);
+  const [showAddFuelCustomerDialog, setShowAddFuelCustomerDialog] = useState(false);
+  const [isSubmittingFuelCustomer, setIsSubmittingFuelCustomer] = useState(false);
+  const [newFuelCustomer, setNewFuelCustomer] = useState({ name: '', phone: '', email: '' });
 
   // Customer selection (non-fuel tab only)
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
@@ -342,6 +345,41 @@ export function POS() {
     addFuelTransactionToCustomer(customerId, customerName);
     setIsAddFuelGroupOpen(false);
     setFuelCustomerSearchQuery('');
+  };
+
+  const handleAddNewFuelCustomer = async () => {
+    if (!newFuelCustomer.name.trim()) {
+      toast({ title: 'Customer name required', description: 'Please enter a customer name', variant: 'destructive' });
+      return;
+    }
+
+    setIsSubmittingFuelCustomer(true);
+    try {
+      const response = await customersApi.create({
+        name: newFuelCustomer.name.trim(),
+        phone: newFuelCustomer.phone.trim() || undefined,
+        email: newFuelCustomer.email.trim() || undefined,
+      });
+
+      const customer = response;
+      toast({ title: 'Success', description: 'Customer added successfully' });
+      setShowAddFuelCustomerDialog(false);
+      setNewFuelCustomer({ name: '', phone: '', email: '' });
+
+      // Refresh customer list
+      refetchCustomers();
+
+      // Auto-add fuel transaction for this customer
+      if (customer && customer.id && customer.name) {
+        setTimeout(() => {
+          addFuelCustomerGroup(customer.id, customer.name);
+        }, 100);
+      }
+    } catch (error: any) {
+      toast({ title: 'Error', description: error?.response?.data?.message || 'Failed to add customer', variant: 'destructive' });
+    } finally {
+      setIsSubmittingFuelCustomer(false);
+    }
   };
 
   // Legacy fuel cart helper - removed in Phase A (grouped layout replaces this)
@@ -1042,10 +1080,68 @@ export function POS() {
                   </Button>
                 ))}
             </div>
+            <div className="border-t pt-2">
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  setIsAddFuelGroupOpen(false);
+                  setShowAddFuelCustomerDialog(true);
+                }}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Create New Customer
+              </Button>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsAddFuelGroupOpen(false)}>
               Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create New Fuel Customer Dialog */}
+      <Dialog open={showAddFuelCustomerDialog} onOpenChange={setShowAddFuelCustomerDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create New Customer</DialogTitle>
+            <DialogDescription>Add a new customer for fuel sale</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Full Name *</Label>
+              <Input
+                placeholder="Customer name"
+                value={newFuelCustomer.name}
+                onChange={(e) => setNewFuelCustomer({ ...newFuelCustomer, name: e.target.value })}
+                autoFocus
+              />
+            </div>
+            <div>
+              <Label>Phone</Label>
+              <Input
+                placeholder="Phone number"
+                value={newFuelCustomer.phone}
+                onChange={(e) => setNewFuelCustomer({ ...newFuelCustomer, phone: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label>Email</Label>
+              <Input
+                placeholder="Email address"
+                value={newFuelCustomer.email}
+                onChange={(e) => setNewFuelCustomer({ ...newFuelCustomer, email: e.target.value })}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddFuelCustomerDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleAddNewFuelCustomer} disabled={isSubmittingFuelCustomer}>
+              {isSubmittingFuelCustomer ? 'Creating...' : 'Create Customer'}
             </Button>
           </DialogFooter>
         </DialogContent>

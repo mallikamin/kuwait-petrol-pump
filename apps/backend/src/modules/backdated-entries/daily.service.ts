@@ -935,6 +935,8 @@ export class DailyBackdatedEntriesService {
 
     // ✅ CREATE SALE RECORDS (so transactions appear in Sales tab)
     const createdSales: string[] = [];
+    const inventoryUpdates: { productId: string; quantityReduced: number }[] = [];
+
     for (const txn of allTransactions) {
       // Only create sale if fuelTypeId exists (fuel transactions only)
       if (txn.fuelTypeId) {
@@ -976,10 +978,64 @@ export class DailyBackdatedEntriesService {
           },
         });
         createdSales.push(sale.id);
+
+        // ✅ REDUCE INVENTORY for fuel sales (if inventory is being tracked)
+        if (txn.fuelTypeId && txn.quantity > 0) {
+          try {
+            // Find fuel type product variant and reduce inventory
+            const fuelProduct = await prisma.product.findFirst({
+              where: {
+                fuelTypeId: txn.fuelTypeId,
+              },
+            });
+
+            if (fuelProduct) {
+              await prisma.product.update({
+                where: { id: fuelProduct.id },
+                data: {
+                  quantityOnHand: { decrement: txn.quantity },
+                },
+              });
+              inventoryUpdates.push({
+                productId: fuelProduct.id,
+                quantityReduced: txn.quantity,
+              });
+            }
+          } catch (err) {
+            console.warn(`Failed to update inventory for fuel type ${txn.fuelTypeId}:`, err);
+          }
+        }
+      } else if (txn.productName) {
+        // Handle non-fuel sales (products) if they exist
+        try {
+          // Try to find product by name
+          const product = await prisma.product.findFirst({
+            where: {
+              name: txn.productName,
+              branchId: txn._entry.branchId,
+            },
+          });
+
+          if (product) {
+            await prisma.product.update({
+              where: { id: product.id },
+              data: {
+                quantityOnHand: { decrement: txn.quantity },
+              },
+            });
+            inventoryUpdates.push({
+              productId: product.id,
+              quantityReduced: txn.quantity,
+            });
+          }
+        } catch (err) {
+          console.warn(`Failed to update inventory for product ${txn.productName}:`, err);
+        }
       }
     }
 
     console.log(`✅ Created ${createdSales.length} sale records from ${allTransactions.length} backdated transactions`);
+    console.log(`✅ Updated inventory for ${inventoryUpdates.length} products`);
 
     // Enqueue all transactions for QB sync
     const plainTransactions = allTransactions.map((t) => {
@@ -1037,11 +1093,18 @@ export class DailyBackdatedEntriesService {
 
     return {
       success: true,
-      message: `Day finalized. ${entries.length} entries, ${plainTransactions.length} transactions, ${createdSales.length} sales created.`,
-      entriesCount: entries.length,
-      transactionsCount: plainTransactions.length,
-      salesCreated: createdSales.length,
-      qbSyncQueued: plainTransactions.length,
+      message: `Day finalized successfully`,
+      postedSalesCount: createdSales.length,
+      inventoryUpdatesCount: inventoryUpdates.length,
+      reportSyncStatus: 'completed',
+      details: {
+        entriesFinalized: entries.length,
+        transactionsProcessed: plainTransactions.length,
+        salesCreated: createdSales.length,
+        inventoryReductionsApplied: inventoryUpdates.length,
+        qbSyncQueued: plainTransactions.length > 0 ? 'pending' : 'none',
+        saleIds: createdSales,
+      },
     };
   }
 }
