@@ -66,3 +66,11 @@ apps/desktop-pos/out/
 apps/desktop-pos/dist-electron/
 build-mobile-isolated/
 apps/web/dist.tar.gz
+
+# Reconciliation exports (live generated reports)
+qb-pos-*.csv
+qb-pos-*.xlsx
+qb-pos-*.json
+qb-entities-*.json
+*-reconciliation-*.csv
+*-reconciliation-*.xlsx
