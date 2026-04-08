@@ -1656,7 +1656,7 @@ export function BackdatedEntries() {
                                             {(openingReading?.submitted_at || openingReading?.submittedAt) && (
                                               <div className="flex items-center gap-1 text-gray-700">
                                                 <Clock className="h-3 w-3 text-blue-600" />
-                                                <span>{format(new Date(openingReading?.submitted_at || openingReading?.submittedAt), 'MMM dd, yyyy HH:mm')}</span>
+                                                <span>{format(new Date(openingReading?.submitted_at || openingReading?.submittedAt as string), 'MMM dd, yyyy HH:mm')}</span>
                                               </div>
                                             )}
                                             {(openingReading?.ocr_manually_edited || openingReading?.ocrManuallyEdited) && (
@@ -1771,7 +1771,7 @@ export function BackdatedEntries() {
                                             {(closingReading?.submitted_at || closingReading?.submittedAt) && (
                                               <div className="flex items-center gap-1 text-gray-700">
                                                 <Clock className="h-3 w-3 text-blue-600" />
-                                                <span>{format(new Date(closingReading?.submitted_at || closingReading?.submittedAt), 'MMM dd, yyyy HH:mm')}</span>
+                                                <span>{format(new Date(closingReading?.submitted_at || closingReading?.submittedAt as string), 'MMM dd, yyyy HH:mm')}</span>
                                               </div>
                                             )}
                                             {(closingReading?.ocr_manually_edited || closingReading?.ocrManuallyEdited) && (
