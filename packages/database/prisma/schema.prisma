@@ -173,6 +173,7 @@ model User {
   openedShifts              ShiftInstance[]         @relation("ShiftOpenedBy")
   closedShifts              ShiftInstance[]         @relation("ShiftClosedBy")
   meterReadings             MeterReading[]
+  submittedMeterReadings    MeterReading[]          @relation("SubmittedMeterReadings")
   sales                     Sale[]
   bifurcations              Bifurcation[]
   auditLogs                 AuditLog[]
@@ -252,6 +253,11 @@ model MeterReading {
   isManualOverride Boolean  @default(false) @map("is_manual_override")
   recordedBy       String?  @map("recorded_by") @db.Uuid
   recordedAt       DateTime @default(now()) @map("recorded_at") @db.Timestamptz
+  // Audit metadata for backdated submissions
+  submittedBy      String?  @map("submitted_by") @db.Uuid // User who submitted this reading
+  submittedAt      DateTime? @map("submitted_at") @db.Timestamptz // When reading was submitted
+  attachmentUrl    String?  @map("attachment_url") @db.Text // Reference file URL (for manual entry)
+  ocrManuallyEdited Boolean @default(false) @map("ocr_manually_edited") // Whether OCR result was edited by user
   // Offline sync tracking (Sprint 1)
   syncStatus       String   @default("pending") @map("sync_status") @db.VarChar(20) // 'pending', 'synced', 'failed'
   offlineQueueId   String?  @map("offline_queue_id") @db.VarChar(100) // Idempotency key (tenant-scoped, see @@unique)
@@ -261,9 +267,10 @@ model MeterReading {
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   // Relations
-  nozzle         Nozzle        @relation(fields: [nozzleId], references: [id])
-  shiftInstance  ShiftInstance @relation(fields: [shiftInstanceId], references: [id])
-  recordedByUser User?         @relation(fields: [recordedBy], references: [id])
+  nozzle           Nozzle        @relation(fields: [nozzleId], references: [id])
+  shiftInstance    ShiftInstance @relation(fields: [shiftInstanceId], references: [id])
+  recordedByUser   User?         @relation(fields: [recordedBy], references: [id])
+  submittedByUser  User?         @relation("SubmittedMeterReadings", fields: [submittedBy], references: [id])
 
   @@unique([nozzleId, offlineQueueId], name: "unique_nozzle_offline_queue") // Multi-tenant safety (nozzle implies org)
   @@index([shiftInstanceId], name: "idx_meter_readings_shift")
