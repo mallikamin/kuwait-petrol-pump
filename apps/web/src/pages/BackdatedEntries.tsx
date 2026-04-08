@@ -747,10 +747,13 @@ export function BackdatedEntries() {
       apiCount: dailySummaryData?.transactions?.length || 0,
     });
 
-    // Try loading from sessionStorage first (preserves unsaved work)
+    const hasServerTransactions = !!(dailySummaryData?.transactions && dailySummaryData.transactions.length > 0);
+
+    // Try loading from sessionStorage first only when server has no transactions.
+    // This prevents stale local drafts from overriding cleaned server data.
     const sessionKey = `backdated_transactions_${currentKey}`;
     const sessionData = sessionStorage.getItem(sessionKey);
-    if (sessionData) {
+    if (sessionData && !hasServerTransactions) {
       try {
         const { transactions: sessionTxns, timestamp } = JSON.parse(sessionData);
         const ageMinutes = (Date.now() - timestamp) / 1000 / 60;
@@ -803,7 +806,7 @@ export function BackdatedEntries() {
       );
       setSyncMessage(`Loaded ${dailySummaryData.transactions.length} existing transactions.`);
       setLoadedKey(currentKey);
-      // Clear sessionStorage since we loaded from server
+      // Clear sessionStorage since server is now source of truth for this key.
       sessionStorage.removeItem(sessionKey);
     } else {
       console.log('[Transactions] No API data, clearing');
