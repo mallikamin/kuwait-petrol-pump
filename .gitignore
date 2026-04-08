@@ -74,3 +74,4 @@ qb-pos-*.json
 qb-entities-*.json
 *-reconciliation-*.csv
 *-reconciliation-*.xlsx
+parity_check.py
