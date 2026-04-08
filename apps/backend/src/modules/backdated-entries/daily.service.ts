@@ -909,6 +909,60 @@ export class DailyBackdatedEntriesService {
       throw new AppError(400, 'No entries found for this date to finalize');
     }
 
+    // Reconciliation gate: block finalize unless accounting checks pass.
+    const summary = await this.getDailySummary({ branchId, businessDate }, organizationId);
+    const litersTolerance = 0.01;
+    const cashTolerancePkr = 1.0;
+    const reconciliationErrors: string[] = [];
+
+    const hsdGap = summary.meterTotals.hsdLiters - summary.postedTotals.hsdLiters;
+    const pmgGap = summary.meterTotals.pmgLiters - summary.postedTotals.pmgLiters;
+    const cashGap = summary.backTracedCash.cashGap;
+
+    if (Math.abs(hsdGap) > litersTolerance) {
+      reconciliationErrors.push(
+        `HSD not reconciled: ${Math.abs(hsdGap).toFixed(3)} L ${hsdGap > 0 ? 'pending to post' : 'over-posted'}`
+      );
+    }
+
+    if (Math.abs(pmgGap) > litersTolerance) {
+      reconciliationErrors.push(
+        `PMG not reconciled: ${Math.abs(pmgGap).toFixed(3)} L ${pmgGap > 0 ? 'pending to post' : 'over-posted'}`
+      );
+    }
+
+    if (Math.abs(cashGap) > cashTolerancePkr) {
+      reconciliationErrors.push(
+        `Cash reconciliation gap: PKR ${Math.abs(cashGap).toFixed(2)} ${cashGap > 0 ? 'short' : 'excess'}`
+      );
+    }
+
+    const unreconciledEntriesCount = entries.filter((e) => !(e as any).isReconciled).length;
+    if (unreconciledEntriesCount > 0) {
+      reconciliationErrors.push(
+        `${unreconciledEntriesCount} nozzle entries are still marked unreconciled`
+      );
+    }
+
+    const walkInCashLiters = summary.transactions
+      .filter((t) => !t.customer && t.paymentMethod === 'cash')
+      .reduce((sum, t) => sum + t.quantity, 0);
+    if (
+      (Math.abs(hsdGap) > litersTolerance || Math.abs(pmgGap) > litersTolerance) &&
+      walkInCashLiters <= litersTolerance
+    ) {
+      reconciliationErrors.push(
+        `Cash/Walk-in customers not fully posted yet (${summary.remainingLiters.total.toFixed(3)} L pending)`
+      );
+    }
+
+    if (reconciliationErrors.length > 0) {
+      throw new AppError(
+        400,
+        `Finalize blocked: ${reconciliationErrors.join('; ')}`
+      );
+    }
+
     // Mark all entries as finalized
     await prisma.backdatedEntry.updateMany({
       where: {

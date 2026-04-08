@@ -1034,21 +1034,31 @@ export function BackdatedEntries() {
       return;
     }
 
-    // Calculate reconciliation percentage
-    const totalMeter = fuelTotals.HSD + fuelTotals.PMG;
-    const totalPosted = postedByFuel.HSD + postedByFuel.PMG;
-    const reconciledPercent = totalMeter > 0 ? (totalPosted / totalMeter) * 100 : 0;
+    const litersTolerance = 0.01;
+    const cashTolerance = 1.0;
+    const hsdGap = fuelTotals.HSD - postedByFuel.HSD;
+    const pmgGap = fuelTotals.PMG - postedByFuel.PMG;
+    const walkInCashLiters = transactions
+      .filter((txn) => !txn.customerId && txn.paymentMethod === 'cash')
+      .reduce((sum, txn) => sum + toNumber(txn.quantity), 0);
 
-    // Warn if not fully reconciled
-    if (reconciledPercent < 95) {
-      const proceed = window.confirm(
-        `WARNING: Only ${reconciledPercent.toFixed(1)}% reconciled.\n\n` +
-        `Meter Total: ${totalMeter.toFixed(0)}L\n` +
-        `Posted: ${totalPosted.toFixed(0)}L\n` +
-        `Remaining: ${(totalMeter - totalPosted).toFixed(0)}L\n\n` +
-        `Finalize anyway? (Not recommended - add remaining transactions first)`
-      );
-      if (!proceed) return;
+    const errors: string[] = [];
+    if (Math.abs(hsdGap) > litersTolerance) {
+      errors.push(`HSD not reconciled: ${Math.abs(hsdGap).toFixed(3)} L ${hsdGap > 0 ? 'pending' : 'over-posted'}`);
+    }
+    if (Math.abs(pmgGap) > litersTolerance) {
+      errors.push(`PMG not reconciled: ${Math.abs(pmgGap).toFixed(3)} L ${pmgGap > 0 ? 'pending' : 'over-posted'}`);
+    }
+    if (Math.abs(cashGapAmount) > cashTolerance) {
+      errors.push(`Cash reconciliation gap: PKR ${Math.abs(cashGapAmount).toFixed(2)}`);
+    }
+    if ((Math.abs(hsdGap) > litersTolerance || Math.abs(pmgGap) > litersTolerance) && walkInCashLiters <= litersTolerance) {
+      errors.push('Cash/Walk-in customers not posted yet');
+    }
+
+    if (errors.length > 0) {
+      toast.error(`Finalize blocked: ${errors.join(' | ')}`, { duration: 7000 });
+      return;
     }
 
     await finalizeDayMutation.mutateAsync();
