@@ -366,14 +366,12 @@ export function POS() {
       setShowAddFuelCustomerDialog(false);
       setNewFuelCustomer({ name: '', phone: '', email: '' });
 
-      // Refresh customer list
-      refetchCustomers();
+      // Refresh customer list and wait for completion
+      await refetchCustomers();
 
       // Auto-add fuel transaction for this customer
       if (customer && customer.id && customer.name) {
-        setTimeout(() => {
-          addFuelCustomerGroup(customer.id, customer.name);
-        }, 100);
+        addFuelCustomerGroup(customer.id, customer.name);
       }
     } catch (error: any) {
       toast({ title: 'Error', description: error?.response?.data?.message || 'Failed to add customer', variant: 'destructive' });
@@ -701,8 +699,8 @@ export function POS() {
           {!todaysSalesData || todaysSalesData.count === 0 ? (
             <p className="text-sm text-muted-foreground">No sales posted today yet.</p>
           ) : (
-            <div className="space-y-2 max-h-[300px] overflow-y-auto">
-              {todaysSalesData.sales.slice(0, 10).map((sale: any) => (
+            <div className="space-y-2">
+              {todaysSalesData.sales.slice(0, 3).map((sale: any) => (
                 <div key={sale.id} className="flex items-center justify-between p-2 rounded-md bg-muted/50 text-sm">
                   <div className="flex-1">
                     <p className="font-medium">
@@ -715,10 +713,7 @@ export function POS() {
                       <p className="text-xs text-muted-foreground">{sale.customer.name}</p>
                     )}
                     <p className="text-xs text-muted-foreground mt-1">
-                      Created: {sale.cashier?.fullName || 'System'} • {sale.createdAt ? new Date(sale.createdAt).toLocaleString('en-PK', { day: '2-digit', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : '—'}
-                      {sale.updatedAt && new Date(sale.updatedAt).getTime() > new Date(sale.createdAt).getTime() + 1000 && (
-                        <span className="block">Updated: {sale.cashier?.fullName || 'System'} • {new Date(sale.updatedAt).toLocaleString('en-PK', { day: '2-digit', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}</span>
-                      )}
+                      {sale.createdAt ? new Date(sale.createdAt).toLocaleString('en-PK', { day: '2-digit', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }) : '—'}
                     </p>
                   </div>
                   <div className="text-right">
@@ -727,6 +722,11 @@ export function POS() {
                   </div>
                 </div>
               ))}
+              {todaysSalesData.count > 3 && (
+                <p className="text-xs text-muted-foreground text-center py-2">
+                  +{todaysSalesData.count - 3} more sales. View all in Sales page.
+                </p>
+              )}
             </div>
           )}
         </CardContent>
