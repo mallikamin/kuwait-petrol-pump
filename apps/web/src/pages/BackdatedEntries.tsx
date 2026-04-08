@@ -28,6 +28,7 @@ import { MeterReadingCapture, type MeterReadingData } from '@/components/MeterRe
 
 interface Transaction {
   id?: string;
+  nozzleId?: string;
   customerId?: string;
   customerName?: string;
   fuelCode: 'HSD' | 'PMG' | 'OTHER' | '';
@@ -784,6 +785,7 @@ export function BackdatedEntries() {
       setTransactions(
         dailySummaryData.transactions.map((txn: any) => ({
           id: txn.id,
+          nozzleId: txn.nozzle?.id || '',
           customerId: txn.customer?.id || '',
           customerName: txn.customer?.name || '',
           fuelCode: txn.fuelCode || txn.nozzle?.fuelType?.code || '',
@@ -934,6 +936,8 @@ export function BackdatedEntries() {
         businessDate,
         shiftId: selectedShiftId || undefined,
         transactions: transactions.map(txn => ({
+          id: txn.id || undefined,
+          nozzleId: txn.nozzleId || undefined,
           customerId: txn.customerId || undefined,
           fuelCode: txn.fuelCode || undefined,
           vehicleNumber: txn.vehicleNumber || undefined,

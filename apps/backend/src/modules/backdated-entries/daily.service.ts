@@ -227,9 +227,10 @@ export class DailyBackdatedEntriesService {
     let pmgPostedLiters = 0;
 
     allTransactions.forEach((txn) => {
-      if (txn.nozzle.fuelType === 'HSD') {
+      const txnFuelCode = (txn.fuelCode || '').toUpperCase();
+      if (txnFuelCode === 'HSD') {
         hsdPostedLiters += txn.quantity;
-      } else if (txn.nozzle.fuelType === 'PMG') {
+      } else if (txnFuelCode === 'PMG') {
         pmgPostedLiters += txn.quantity;
       }
     });
