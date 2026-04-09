@@ -320,7 +320,7 @@ export function BackdatedEntries() {
   });
 
   // ✅ FIXED: Fetch meter readings from backdated endpoint (shift-independent, day-level)
-  const { data: backdatedMeterReadingsData, refetch: refetchMeterReadings } = useQuery({
+  const { data: backdatedMeterReadingsData, refetch: refetchMeterReadings, isError: backdatedReadingsError } = useQuery({
     queryKey: ['backdated-meter-readings-daily', selectedBranchId, businessDate],
     enabled: !!selectedBranchId && !!businessDate,
     queryFn: async () => {
@@ -1742,7 +1742,7 @@ export function BackdatedEntries() {
                 </Alert>
 
                 {/* Day-level nozzle readings (NO shift segregation) */}
-                {getBackdatedReadingsQuery.isError ? (
+                {backdatedReadingsError ? (
                   <Alert className="mb-4 border-red-200 bg-red-50">
                     <AlertCircle className="h-4 w-4 text-red-600" />
                     <AlertDescription className="text-sm text-red-900">
