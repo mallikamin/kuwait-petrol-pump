@@ -1398,11 +1398,25 @@ export function BackdatedEntries() {
         return;
       }
 
+      // Normalize nozzle ID (day-level API uses nozzleId, legacy might use id)
+      const nozzleId = selectedMeterNozzle.nozzleId || selectedMeterNozzle.id;
+      if (!nozzleId) {
+        toast.error('Invalid nozzle ID. Please refresh and try again.');
+        return;
+      }
+
+      // Coerce and validate meter value
+      const meterValue = Number(data.currentReading);
+      if (!Number.isFinite(meterValue) || meterValue < 0) {
+        toast.error('Invalid meter value. Please enter a valid number.');
+        return;
+      }
+
       console.log('[MeterReading] Capture handler called:', {
         editingReadingId,
-        nozzleId: selectedMeterNozzle.id,
+        nozzleId,
         readingType: selectedReadingType,
-        meterValue: data.currentReading,
+        meterValue,
         isManualReading: data.isManualReading,
       });
 
@@ -1410,7 +1424,7 @@ export function BackdatedEntries() {
       if (editingReadingId) {
         await updateMeterReadingMutation.mutateAsync({
           readingId: editingReadingId,
-          meterValue: data.currentReading,
+          meterValue,
           attachmentUrl: data.referenceAttachmentUrl,
           ocrManuallyEdited: data.isManualReading && data.ocrConfidence !== undefined,
         });
@@ -1421,9 +1435,9 @@ export function BackdatedEntries() {
 
       // Otherwise, create new reading
       await saveMeterReadingMutation.mutateAsync({
-        nozzleId: selectedMeterNozzle.id,
+        nozzleId,
         readingType: selectedReadingType,
-        meterValue: data.currentReading,
+        meterValue,
         imageUrl: data.imageUrl,
         ocrConfidence: data.ocrConfidence,
         attachmentUrl: data.referenceAttachmentUrl,
@@ -1431,7 +1445,8 @@ export function BackdatedEntries() {
       });
     } catch (error: any) {
       console.error('[MeterReading] Capture handler error:', error);
-      toast.error(error?.message || 'Failed to save meter reading. Please try again.');
+      const errorMsg = error?.response?.data?.error || error?.response?.data?.message || error?.message || 'Failed to save meter reading. Please try again.';
+      toast.error(errorMsg);
     }
   };
 
