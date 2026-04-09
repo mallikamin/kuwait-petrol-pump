@@ -114,6 +114,6 @@ export const meterReadingsApi = {
         businessDate: params.businessDate,
       },
     });
-    return response.data;
+    return response.data?.data ?? response.data;
   },
 };

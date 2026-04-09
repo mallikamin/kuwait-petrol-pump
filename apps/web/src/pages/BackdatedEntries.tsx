@@ -1742,7 +1742,14 @@ export function BackdatedEntries() {
                 </Alert>
 
                 {/* Day-level nozzle readings (NO shift segregation) */}
-                {backdatedMeterReadingsData && backdatedMeterReadingsData.nozzles && backdatedMeterReadingsData.nozzles.length > 0 ? (
+                {getBackdatedReadingsQuery.isError ? (
+                  <Alert className="mb-4 border-red-200 bg-red-50">
+                    <AlertCircle className="h-4 w-4 text-red-600" />
+                    <AlertDescription className="text-sm text-red-900">
+                      <strong>Failed to load backdated meter readings.</strong> Please try again.
+                    </AlertDescription>
+                  </Alert>
+                ) : backdatedMeterReadingsData?.nozzles && backdatedMeterReadingsData.nozzles.length > 0 ? (
                   <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2">
                     {backdatedMeterReadingsData.nozzles.map((nozzle: any) => {
                       const hasOpening = nozzle.opening?.status === 'entered';
@@ -2007,7 +2014,7 @@ export function BackdatedEntries() {
                   <Alert className="mb-4 border-amber-200 bg-amber-50">
                     <AlertCircle className="h-4 w-4 text-amber-600" />
                     <AlertDescription className="text-sm text-amber-900">
-                      <strong>No nozzles configured for this branch.</strong> Please configure nozzles in Dispensing Units first.
+                      <strong>No nozzle readings found for this date.</strong> Enter opening and closing readings for each nozzle above.
                     </AlertDescription>
                   </Alert>
                 )}
