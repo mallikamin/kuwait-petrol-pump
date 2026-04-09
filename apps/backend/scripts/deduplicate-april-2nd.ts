@@ -38,7 +38,7 @@ async function main() {
     const beforeState = await prisma.$queryRaw<
       Array<{
         fuel_code: string;
-        sales_count: number;
+        sales_count: bigint | number;
         total_liters: number;
         total_amount: number;
       }>
@@ -60,8 +60,9 @@ async function main() {
     console.log('Before cleanup:');
     let totalSalesBefore = 0;
     for (const row of beforeState) {
-      console.log(`  ${row.fuel_code}: ${row.sales_count} sales, ${row.total_liters} L, ${row.total_amount} PKR`);
-      totalSalesBefore += row.sales_count || 0;
+      const count = Number(row.sales_count || 0);
+      console.log(`  ${row.fuel_code}: ${count} sales, ${row.total_liters} L, ${row.total_amount} PKR`);
+      totalSalesBefore += count;
     }
     console.log(`  Total: ${totalSalesBefore} sales\n`);
 
@@ -77,7 +78,7 @@ async function main() {
         total_amount: number;
         fuel_code: string;
         quantity_liters: number;
-        duplicate_count: number;
+        duplicate_count: bigint | number;
         first_created: Date;
         last_created: Date;
         sale_ids: string[];
@@ -108,7 +109,8 @@ async function main() {
 
     console.log(`Found ${duplicates.length} duplicate fingerprints:\n`);
     for (const dup of duplicates) {
-      console.log(`  ${dup.fuel_code || 'UNKNOWN'} | ${dup.slip_number || 'N/A'} | Qty: ${dup.quantity_liters}L | ${dup.duplicate_count}x copies`);
+      const count = Number(dup.duplicate_count || 0);
+      console.log(`  ${dup.fuel_code || 'UNKNOWN'} | ${dup.slip_number || 'N/A'} | Qty: ${dup.quantity_liters}L | ${count}x copies`);
       console.log(`    First: ${dup.first_created}`);
       console.log(`    Last: ${dup.last_created}`);
       console.log(`    Sale IDs: ${dup.sale_ids.slice(0, 2).join(', ')}${dup.sale_ids.length > 2 ? ` ... (+${dup.sale_ids.length - 2})` : ''}`);
@@ -214,7 +216,7 @@ async function main() {
     const afterState = await prisma.$queryRaw<
       Array<{
         fuel_code: string;
-        sales_count: number;
+        sales_count: bigint | number;
         total_liters: number;
         total_amount: number;
       }>
@@ -239,14 +241,15 @@ async function main() {
     let expectedPMG = false;
 
     for (const row of afterState) {
-      console.log(`  ${row.fuel_code}: ${row.sales_count} sales, ${row.total_liters} L, ${row.total_amount} PKR`);
-      totalSalesAfter += row.sales_count || 0;
+      const count = Number(row.sales_count || 0);
+      console.log(`  ${row.fuel_code}: ${count} sales, ${row.total_liters} L, ${row.total_amount} PKR`);
+      totalSalesAfter += count;
 
       // Verify expected counts
-      if (row.fuel_code === 'HSD' && row.sales_count === 11 && row.total_liters === 2600) {
+      if (row.fuel_code === 'HSD' && count === 11 && row.total_liters === 2600) {
         expectedHSD = true;
       }
-      if (row.fuel_code === 'PMG' && row.sales_count === 2 && row.total_liters === 1250) {
+      if (row.fuel_code === 'PMG' && count === 2 && row.total_liters === 1250) {
         expectedPMG = true;
       }
     }
@@ -265,8 +268,10 @@ async function main() {
       console.log('   PMG: 2 sales, 1250L ✅');
     } else {
       console.log('⚠️  WARNING: Counts do not match expected values');
-      console.log(`   HSD Expected: 11 sales, 2600L - Got: ${afterState.find(r => r.fuel_code === 'HSD')?.sales_count} sales, ${afterState.find(r => r.fuel_code === 'HSD')?.total_liters}L`);
-      console.log(`   PMG Expected: 2 sales, 1250L - Got: ${afterState.find(r => r.fuel_code === 'PMG')?.sales_count} sales, ${afterState.find(r => r.fuel_code === 'PMG')?.total_liters}L`);
+      const hsd = afterState.find(r => r.fuel_code === 'HSD');
+      const pmg = afterState.find(r => r.fuel_code === 'PMG');
+      console.log(`   HSD Expected: 11 sales, 2600L - Got: ${Number(hsd?.sales_count || 0)} sales, ${hsd?.total_liters}L`);
+      console.log(`   PMG Expected: 2 sales, 1250L - Got: ${Number(pmg?.sales_count || 0)} sales, ${pmg?.total_liters}L`);
     }
   } catch (error) {
     console.error('❌ ERROR during cleanup:', error);
