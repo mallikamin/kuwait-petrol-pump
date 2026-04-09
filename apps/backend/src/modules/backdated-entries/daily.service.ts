@@ -241,7 +241,7 @@ export class DailyBackdatedEntriesService {
               name: txn.customer.name,
             }
           : null,
-        fuelCode: (txn as any).fuelType?.code || '',
+        fuelCode: (txn as any).fuelType?.code || '', // ✅ CRITICAL: Return actual fuel type from transaction, NOT from nozzle
         vehicleNumber: txn.vehicleNumber,
         slipNumber: txn.slipNumber,
         productName: txn.productName,

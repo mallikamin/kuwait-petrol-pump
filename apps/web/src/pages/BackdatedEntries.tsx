@@ -827,7 +827,7 @@ export function BackdatedEntries() {
           nozzleId: txn.nozzle?.id || '',
           customerId: txn.customer?.id || '',
           customerName: txn.customer?.name || '',
-          fuelCode: txn.fuelCode || txn.nozzle?.fuelType?.code || '',
+          fuelCode: txn.fuelCode || '', // ✅ CRITICAL FIX: Never fall back to nozzle fuel type (walk-in transactions use placeholder HSD nozzle)
           vehicleNumber: txn.vehicleNumber || '',
           slipNumber: txn.slipNumber || '',
           productName: txn.productName || 'Fuel',
