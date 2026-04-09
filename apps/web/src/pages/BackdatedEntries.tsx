@@ -1118,26 +1118,43 @@ export function BackdatedEntries() {
     onError: (error: any) => {
       const payload = error?.response?.data;
 
+      // ✅ Log full response for debugging
+      console.error('[Finalize] API error response:', payload);
+      console.error('[Finalize] Error status:', error?.response?.status);
+      console.error('[Finalize] Metrics:', payload?.metrics);
+
       // ✅ Extract blocker messages from structured error response
-      let errorMsg = '';
+      let blockerMessages: string[] = [];
+      let mainMsg = '';
 
       if (Array.isArray(payload?.details) && payload.details.length > 0) {
-        // Server returned structured blockers (new format)
-        errorMsg = payload.details.map((d: any) => d?.message || JSON.stringify(d)).join(' | ');
+        // Server returned structured blockers (new format) - show each one
+        blockerMessages = payload.details
+          .map((d: any) => {
+            const msg = d?.message || '';
+            const metrics = d?.data ? ` (${JSON.stringify(d.data)})` : '';
+            return msg + metrics;
+          })
+          .filter(Boolean);
+        mainMsg = blockerMessages.join('\n• ');
       } else if (typeof payload?.error === 'string' && payload.error) {
         // Fall back to error field
-        errorMsg = payload.error;
+        mainMsg = payload.error;
       } else if (typeof payload?.message === 'string' && payload.message) {
         // Or message field
-        errorMsg = payload.message;
+        mainMsg = payload.message;
       } else {
         // Or generic error message
-        errorMsg = error?.message || 'Failed to finalize day';
+        mainMsg = error?.message || 'Failed to finalize day';
       }
 
-      console.error('[Finalize] Error response:', payload);
-      console.error('[Finalize] Metrics:', payload?.metrics);
-      toast.error(`Finalize blocked: ${errorMsg}`, { duration: 9000 });
+      // ✅ Surface blockers in toast with clear formatting
+      const finalMsg = blockerMessages.length > 0
+        ? `Finalize blocked:\n• ${mainMsg}`
+        : `Finalize blocked: ${mainMsg}`;
+
+      console.log('[Finalize] Showing error to user:', finalMsg);
+      toast.error(finalMsg, { duration: 9000 });
     },
   });
 
@@ -1151,9 +1168,14 @@ export function BackdatedEntries() {
   };
 
   const handleFinalizeDay = async () => {
-    // ✅ SAFETY: Block finalize while API is loading (prevents stale data finalization)
+    // ✅ SAFETY: Minimal client checks only - NO hard-stop validation
     if (isDailySummaryLoading) {
       toast.error('Please wait - server data is still loading');
+      return;
+    }
+
+    if (!selectedBranchId) {
+      toast.error('Please select a branch');
       return;
     }
 
@@ -1161,76 +1183,28 @@ export function BackdatedEntries() {
       toast.error('Please save draft first before finalizing');
       return;
     }
+
     if (transactions.length === 0) {
       toast.error('No transactions to finalize');
       return;
     }
 
+    // ✅ GATE: All minimal checks passed, call backend (backend is only authority for validation)
+    console.log('[Finalize] API call started', {
+      branchId: selectedBranchId,
+      businessDate,
+      transactionCount: transactions.length,
+    });
+
     try {
-      // ✅ Step 1: Force fresh refetch of daily summary from server (trust server truth, not stale local state)
-      console.log('[Finalize] Force-fetching latest server summary for validation...');
-      const latestSummaryRes = await apiClient.get('/api/backdated-entries/daily', {
-        params: {
-          branchId: selectedBranchId,
-          businessDate,
-          shiftId: selectedShiftId || undefined,
-        },
-      });
-      console.log('[Finalize] Server summary received:', latestSummaryRes.data);
-      const serverSummary = latestSummaryRes.data?.data;
-
-      if (!serverSummary) {
-        console.error('[Finalize] ERROR: serverSummary is undefined', latestSummaryRes.data);
-        toast.error('Failed to fetch validation data from server', { duration: 7000 });
-        return;
-      }
-
-      // ✅ Step 2: Validate using server truth (not local state)
-      const litersTolerance = 0.01;
-      const cashTolerancePkr = 1.0;
-
-      const hsdGap = serverSummary.meterTotals.hsdLiters - serverSummary.postedTotals.hsdLiters;
-      const pmgGap = serverSummary.meterTotals.pmgLiters - serverSummary.postedTotals.pmgLiters;
-      const cashGap = serverSummary.backTracedCash?.cashGap || 0;
-
-      const errors: string[] = [];
-      if (Math.abs(hsdGap) > litersTolerance) {
-        errors.push(`HSD not reconciled: ${Math.abs(hsdGap).toFixed(3)} L ${hsdGap > 0 ? 'pending to post' : 'over-posted'}`);
-      }
-      if (Math.abs(pmgGap) > litersTolerance) {
-        errors.push(`PMG not reconciled: ${Math.abs(pmgGap).toFixed(3)} L ${pmgGap > 0 ? 'pending to post' : 'over-posted'}`);
-      }
-      if (Math.abs(cashGap) > cashTolerancePkr) {
-        errors.push(`Cash reconciliation gap: PKR ${Math.abs(cashGap).toFixed(2)} ${cashGap > 0 ? 'short' : 'excess'}`);
-      }
-
-      const walkInCashLiters = serverSummary.transactions
-        .filter((t: any) => !t.customer && t.paymentMethod === 'cash')
-        .reduce((sum: number, t: any) => sum + (t.quantity || 0), 0);
-
-      if (
-        (Math.abs(hsdGap) > litersTolerance || Math.abs(pmgGap) > litersTolerance) &&
-        walkInCashLiters <= litersTolerance
-      ) {
-        errors.push(`Cash/Walk-in customers not fully posted yet (${serverSummary.remainingLiters.total.toFixed(3)} L pending)`);
-      }
-
-      if (errors.length > 0) {
-        console.log('[Finalize] Server validation failed:', errors);
-        toast.error(`Finalize blocked: ${errors.join(' | ')}`, { duration: 7000 });
-        return;
-      }
-
-      // ✅ Step 3: Proceed with finalize (with try/catch for uncaught promise rejection)
-      console.log('[Finalize] Validation passed, calling mutation...');
+      // ✅ Step 1: Call backend finalize endpoint - backend validates & returns blockers
       const result = await finalizeDayMutation.mutateAsync();
-      console.log('[Finalize] Mutation returned:', result);
+      console.log('[Finalize] API call succeeded, mutation returned:', result);
     } catch (error: any) {
-      // ✅ Catch uncaught promise rejections from refetch or mutation
-      console.error('[Finalize] Uncaught error:', error);
+      // ✅ Catch uncaught promise rejections (mutation onError already handles API errors)
+      console.error('[Finalize] Uncaught error outside mutation:', error);
 
-      // If it's a network/API error from the mutation, the onError handler will show a toast
-      // This catch block handles unexpected errors
+      // Only show toast if not an API error (API errors handled by mutation onError)
       if (!error?.response?.status) {
         toast.error(error?.message || 'An unexpected error occurred during finalization', { duration: 7000 });
       }

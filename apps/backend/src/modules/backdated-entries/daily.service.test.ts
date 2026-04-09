@@ -601,4 +601,97 @@ describe('DailyBackdatedEntriesService - Fuel Type Corruption Regression', () =>
     expect(hsdTotal?.totalLiters).toBe(1100);
     expect(pmgTotal?.totalLiters).toBe(1250);
   });
+
+  /**
+   * TEST 6: HOTFIX REGRESSION - Finalize Blocker Formatting
+   *
+   * SCENARIO: Liters show 100% but backend validation blockers exist
+   * (cash gap, walk-in pending, etc.)
+   *
+   * ISSUE: Frontend was doing client-side validation and returning early
+   * with "Array(3)" error (raw array.toString()), never calling backend.
+   * Backend was returning structured error with details[], but frontend
+   * never saw it.
+   *
+   * FIX: Frontend removed client-side hard validation, always calls backend.
+   * Backend returns proper structured error with details[] array.
+   *
+   * This test verifies finalize returns 400 with details[] (not raw array).
+   */
+  it('TEST 6: finalize returns structured error with details[] on blocker', async () => {
+    const blockDate = '2026-04-15';
+    const blockBranchId = testBranchId;
+
+    console.log('[HOTFIX TEST] Creating test scenario with partial reconciliation...');
+
+    // Step 1: Save transactions with unfilled cash gap
+    // (HSD & PMG at 100% liters, but cash reconciliation will fail)
+    await service.saveDailyDraft({
+      branchId: blockBranchId,
+      businessDate: blockDate,
+      transactions: [
+        {
+          customerId: undefined,
+          nozzleId: hsdNozzleId,
+          fuelCode: 'HSD',
+          vehicleNumber: 'TEST-001',
+          slipNumber: 'SLIP-001',
+          productName: 'HSD',
+          quantity: 50,
+          unitPrice: 250,
+          lineTotal: 12500,
+          paymentMethod: 'cash',
+        },
+      ],
+    }, testOrganizationId);
+
+    // Step 2: Attempt finalize - should return structured error, not Array(3)
+    console.log('[HOTFIX TEST] Calling finalizeDay (expect blocker error)...');
+    let error: any = null;
+
+    try {
+      await service.finalizeDay(
+        { branchId: blockBranchId, businessDate: blockDate },
+        testOrganizationId
+      );
+    } catch (e) {
+      error = e as any;
+    }
+
+    // ✅ CRITICAL: Error should be AppError with statusCode 400
+    expect(error).toBeInstanceOf(AppError);
+    expect(error.statusCode).toBe(400);
+
+    // ✅ CRITICAL: Error MUST have details[] array (not raw string/array.toString())
+    console.log('[HOTFIX TEST] Checking error structure:', {
+      message: error.message,
+      hasDetails: !!error.details,
+      detailsIsArray: Array.isArray(error.details),
+      detailsLength: error.details?.length,
+      detailsSample: error.details?.[0],
+    });
+
+    expect(error.details).toBeDefined();
+    expect(Array.isArray(error.details)).toBe(true);
+    expect(error.details.length).toBeGreaterThan(0);
+
+    // ✅ Each detail must have message property (no raw Array(3))
+    for (const detail of error.details) {
+      expect(detail.message).toBeDefined();
+      expect(typeof detail.message).toBe('string');
+      expect(detail.message.length).toBeGreaterThan(0);
+    }
+
+    // ✅ Metrics should be populated for frontend to show gaps
+    expect(error.metrics).toBeDefined();
+    expect(error.metrics.hsdGap).toBeDefined();
+    expect(error.metrics.pmgGap).toBeDefined();
+    expect(error.metrics.cashGap).toBeDefined();
+
+    console.log('[HOTFIX TEST] ✅ Finalize properly returns structured blockers:', {
+      detailsCount: error.details.length,
+      detailsMessages: error.details.map((d: any) => d.message),
+      metrics: error.metrics,
+    });
+  });
 });
