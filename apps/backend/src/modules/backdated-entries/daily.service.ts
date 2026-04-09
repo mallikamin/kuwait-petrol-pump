@@ -157,55 +157,51 @@ export class DailyBackdatedEntriesService {
       totalTransactions: entries.reduce((sum, e) => sum + e.transactions.length, 0),
     });
 
-    // Meter totals must come from meter_readings (single source of truth), not backdated entries.
+    // Meter totals must come from backdated_meter_readings (single source of truth), not backdated entries.
+    // ✅ P0 FIX: No longer uses shift_instances (backdated is day-level, not shift-level)
     const dailyMeterReadings = await this.meterReadingsDailyService.getDailyMeterReadings(
       branchId,
       businessDate,
       organizationId
     );
-    const selectedShifts = shiftId
-      ? dailyMeterReadings.shifts.filter((s) => s.shiftId === shiftId)
-      : dailyMeterReadings.shifts;
 
     const nozzleMeterLiters = new Map<string, number>();
     const nozzlesWithValidMeter = new Set<string>();
     let hsdMeterLiters = 0;
     let pmgMeterLiters = 0;
 
-    selectedShifts.forEach((shiftData) => {
-      shiftData.nozzles.forEach((nozzle) => {
-        // ✅ CRITICAL FIX: Only use ENTERED readings for meter totals, NOT derived readings from adjacent days
-        // Derived readings are for UX convenience only, NOT for accounting calculations
-        const opening = nozzle.opening?.status === 'entered' ? nozzle.opening.value : null;
-        const closing = nozzle.closing?.status === 'entered' ? nozzle.closing.value : null;
+    // ✅ SHIFT-INDEPENDENT: Iterate over nozzles directly (no shift segregation)
+    dailyMeterReadings.nozzles.forEach((nozzle) => {
+      // ✅ CRITICAL FIX: Only use ENTERED readings for meter totals, NOT derived readings
+      // Derived readings no longer exist (backdated is shift-independent)
+      const opening = nozzle.opening?.status === 'entered' ? nozzle.opening.value : null;
+      const closing = nozzle.closing?.status === 'entered' ? nozzle.closing.value : null;
 
-        if (opening === null || opening === undefined || closing === null || closing === undefined) {
-          return; // Skip if either actual reading is missing
-        }
+      if (opening === null || opening === undefined || closing === null || closing === undefined) {
+        return; // Skip if either actual reading is missing
+      }
 
-        const liters = closing - opening;
-        if (liters < 0) {
-          console.warn('[BackdatedEntries] Negative meter delta ignored', {
-            branchId,
-            businessDate,
-            shiftId: shiftData.shiftId,
-            nozzleId: nozzle.nozzleId,
-            opening,
-            closing,
-            liters,
-          });
-          return;
-        }
+      const liters = closing - opening;
+      if (liters < 0) {
+        console.warn('[BackdatedEntries] Negative meter delta ignored', {
+          branchId,
+          businessDate,
+          nozzleId: nozzle.nozzleId,
+          opening,
+          closing,
+          liters,
+        });
+        return;
+      }
 
-        nozzlesWithValidMeter.add(nozzle.nozzleId);
-        nozzleMeterLiters.set(nozzle.nozzleId, (nozzleMeterLiters.get(nozzle.nozzleId) || 0) + liters);
+      nozzlesWithValidMeter.add(nozzle.nozzleId);
+      nozzleMeterLiters.set(nozzle.nozzleId, liters);
 
-        if (nozzle.fuelType === 'HSD') {
-          hsdMeterLiters += liters;
-        } else if (nozzle.fuelType === 'PMG') {
-          pmgMeterLiters += liters;
-        }
-      });
+      if (nozzle.fuelType === 'HSD') {
+        hsdMeterLiters += liters;
+      } else if (nozzle.fuelType === 'PMG') {
+        pmgMeterLiters += liters;
+      }
     });
 
     // Build nozzle status map

@@ -37,6 +37,7 @@ model Organization {
   qbSnapshots     QBEntitySnapshot[]
   qbEntityMappings QBEntityMapping[]
   qbMappingBatches QBMappingBatch[]
+  backdatedMeterReadings BackdatedMeterReading[]
 
   @@map("organizations")
 }
@@ -64,6 +65,7 @@ model Branch {
   purchaseOrders    PurchaseOrder[]
   fuelInventory     FuelInventory[]
   backdatedEntries  BackdatedEntry[]
+  backdatedMeterReadings BackdatedMeterReading[]
 
   @@map("branches")
 }
@@ -144,6 +146,7 @@ model Nozzle {
   meterReadings     MeterReading[]
   fuelSales         FuelSale[]
   backdatedEntries  BackdatedEntry[]
+  backdatedMeterReadings BackdatedMeterReading[]
 
   @@unique([dispensingUnitId, nozzleNumber])
   @@map("nozzles")
@@ -181,6 +184,9 @@ model User {
   stockReceipts             StockReceipt[]          @relation("StockReceiptUser")
   createdBackdatedTxns      BackdatedTransaction[]  @relation("BackdatedTransactionCreatedBy")
   updatedBackdatedTxns      BackdatedTransaction[]  @relation("BackdatedTransactionUpdatedBy")
+  submittedBackdatedMeterReadings BackdatedMeterReading[] @relation("BackdatedMeterReadingSubmittedBy")
+  createdBackdatedMeterReadings   BackdatedMeterReading[] @relation("BackdatedMeterReadingCreatedBy")
+  updatedBackdatedMeterReadings   BackdatedMeterReading[] @relation("BackdatedMeterReadingUpdatedBy")
 
   @@unique([organizationId, username], name: "unique_org_username") // Multi-tenant safety
   @@index([organizationId], name: "idx_users_org")
@@ -1173,4 +1179,42 @@ model BackdatedTransaction {
   @@index([paymentMethod], name: "idx_backdated_txn_payment")
   @@index([qbSyncStatus], name: "idx_backdated_txn_qb_sync_status")
   @@map("backdated_transactions")
+}
+
+/// BackdatedMeterReading (Shift-independent meter readings for historical data entry)
+model BackdatedMeterReading {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId  String   @map("organization_id") @db.Uuid
+  branchId        String   @map("branch_id") @db.Uuid
+  businessDate    DateTime @map("business_date") @db.Date
+  nozzleId        String   @map("nozzle_id") @db.Uuid
+  readingType     String   @map("reading_type") @db.VarChar(20) // 'opening' | 'closing'
+  meterValue      Decimal  @map("meter_value") @db.Decimal(12, 3)
+
+  // Audit fields
+  source              String?   @db.VarChar(20) // 'manual' | 'ocr'
+  imageUrl            String?   @map("image_url") @db.Text
+  attachmentUrl       String?   @map("attachment_url") @db.Text
+  ocrConfidence       Float?    @map("ocr_confidence") @db.DoublePrecision
+  ocrManuallyEdited   Boolean   @default(false) @map("ocr_manually_edited")
+  submittedBy         String?   @map("submitted_by") @db.Uuid
+  submittedAt         DateTime? @map("submitted_at") @db.Timestamptz
+  createdBy           String?   @map("created_by") @db.Uuid
+  updatedBy           String?   @map("updated_by") @db.Uuid
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  organization        Organization @relation(fields: [organizationId], references: [id])
+  branch              Branch       @relation(fields: [branchId], references: [id])
+  nozzle              Nozzle       @relation(fields: [nozzleId], references: [id])
+  submittedByUser     User?        @relation("BackdatedMeterReadingSubmittedBy", fields: [submittedBy], references: [id])
+  createdByUser       User?        @relation("BackdatedMeterReadingCreatedBy", fields: [createdBy], references: [id])
+  updatedByUser       User?        @relation("BackdatedMeterReadingUpdatedBy", fields: [updatedBy], references: [id])
+
+  @@unique([branchId, businessDate, nozzleId, readingType], name: "unique_branch_date_nozzle_type")
+  @@index([organizationId, branchId, businessDate], name: "idx_backdated_meter_org_branch_date")
+  @@index([nozzleId, businessDate], name: "idx_backdated_meter_nozzle_date")
+  @@index([businessDate], name: "idx_backdated_meter_date")
+  @@map("backdated_meter_readings")
 }
