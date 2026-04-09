@@ -2542,7 +2542,7 @@ export function BackdatedEntries() {
                 <MeterReadingCapture
                   nozzleId={selectedMeterNozzle.id}
                   nozzleName={`${selectedMeterNozzle.name || `Nozzle ${selectedMeterNozzle.nozzleNumber}`} (${selectedMeterNozzle.fuelType?.name || 'Unknown'})`}
-                  previousReading={_editingReadingValue ?? undefined}
+                  previousReading={editingReadingValue ?? undefined}
                   onCapture={handleMeterReadingCapture}
                   onCancel={() => {
                     setIsMeterReadingOpen(false);
