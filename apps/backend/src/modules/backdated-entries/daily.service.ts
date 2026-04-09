@@ -1138,6 +1138,60 @@ export class DailyBackdatedEntriesService {
   }
 
   /**
+   * ✅ Helper: Calculate payment method breakdown (Cash, Credit, Bank Card, PSO Card)
+   */
+  private calculatePaymentBreakdown(
+    transactions: any[]
+  ): {
+    cash: { liters: number; amount: number };
+    credit: { liters: number; amount: number };
+    bankCard: { liters: number; amount: number };
+    psoCard: { liters: number; amount: number };
+  } {
+    const breakdown = {
+      cash: { liters: 0, amount: 0 },
+      credit: { liters: 0, amount: 0 },
+      bankCard: { liters: 0, amount: 0 },
+      psoCard: { liters: 0, amount: 0 },
+    };
+
+    for (const txn of transactions) {
+      if (!txn.fuelTypeId) continue; // Skip non-fuel transactions
+
+      const liters = parseFloat(txn.quantity.toString());
+      const amount = parseFloat(txn.lineTotal.toString());
+      const method = (txn.paymentMethod || '').toLowerCase();
+
+      // Map payment methods to 4 categories
+      if (method === 'cash') {
+        breakdown.cash.liters += liters;
+        breakdown.cash.amount += amount;
+      } else if (method === 'credit' || method === 'credit_customer') {
+        breakdown.credit.liters += liters;
+        breakdown.credit.amount += amount;
+      } else if (method === 'card' || method === 'bank_card' || method === 'credit_card') {
+        breakdown.bankCard.liters += liters;
+        breakdown.bankCard.amount += amount;
+      } else if (method === 'pso_card') {
+        breakdown.psoCard.liters += liters;
+        breakdown.psoCard.amount += amount;
+      }
+    }
+
+    // Round to 2 decimal places for amount, 3 for liters
+    breakdown.cash.liters = parseFloat(breakdown.cash.liters.toFixed(3));
+    breakdown.cash.amount = parseFloat(breakdown.cash.amount.toFixed(2));
+    breakdown.credit.liters = parseFloat(breakdown.credit.liters.toFixed(3));
+    breakdown.credit.amount = parseFloat(breakdown.credit.amount.toFixed(2));
+    breakdown.bankCard.liters = parseFloat(breakdown.bankCard.liters.toFixed(3));
+    breakdown.bankCard.amount = parseFloat(breakdown.bankCard.amount.toFixed(2));
+    breakdown.psoCard.liters = parseFloat(breakdown.psoCard.liters.toFixed(3));
+    breakdown.psoCard.amount = parseFloat(breakdown.psoCard.amount.toFixed(2));
+
+    return breakdown;
+  }
+
+  /**
    * POST /api/backdated-entries/daily/finalize
    *
    * Mark all entries for the day as finalized and enqueue QB sync
@@ -1172,6 +1226,41 @@ export class DailyBackdatedEntriesService {
 
     if (entries.length === 0) {
       throw new AppError(400, 'No entries found for this date to finalize');
+    }
+
+    // ✅ CHECK: Is day already finalized with no changes?
+    const allFinalized = entries.every(e => e.isFinalized);
+    if (allFinalized) {
+      // Check if any transactions don't already have sales
+      const txnCount = entries.reduce((sum, e) => sum + e.transactions.length, 0);
+      const existingSalesCount = await prisma.sale.count({
+        where: {
+          branchId,
+          saleDate: {
+            gte: businessDateObj,
+            lt: new Date(businessDateObj.getTime() + 86400000), // +1 day
+          },
+          offlineQueueId: { startsWith: 'backdated-' },
+        },
+      });
+
+      if (existingSalesCount >= txnCount) {
+        // All transactions already have sales - day is finalized
+        console.log(`[Finalize] Day already finalized for ${businessDate}. No changes detected.`);
+        return {
+          success: true,
+          message: 'Day already finalized',
+          alreadyFinalized: true,
+          salesCreated: 0,
+          transactionsProcessed: 0,
+          paymentBreakdown: {
+            cash: { liters: 0, amount: 0 },
+            credit: { liters: 0, amount: 0 },
+            bankCard: { liters: 0, amount: 0 },
+            psoCard: { liters: 0, amount: 0 },
+          },
+        };
+      }
     }
 
     // Reconciliation gate: block finalize unless accounting checks pass.
@@ -1258,6 +1347,23 @@ export class DailyBackdatedEntriesService {
     for (const txn of allTransactions) {
       // Only create sale if fuelTypeId exists (fuel transactions only)
       if (txn.fuelTypeId) {
+        // ✅ Generate deterministic idempotency key
+        const idempotencyKey = `backdated-${txn.id}`;
+
+        // ✅ CHECK: Does sale already exist for this transaction?
+        const existingSale = await prisma.sale.findFirst({
+          where: {
+            branchId: txn._entry.branchId,
+            offlineQueueId: idempotencyKey,
+          },
+        });
+
+        if (existingSale) {
+          console.log(`[Finalize] Skipping transaction ${txn.id} - sale already exists (${existingSale.id})`);
+          createdSales.push(existingSale.id); // Count existing sale
+          continue;
+        }
+
         // Find shift instance for this business date
         let shiftInstanceId = null;
         if (txn._entry.shiftId) {
@@ -1273,6 +1379,7 @@ export class DailyBackdatedEntriesService {
 
         const sale = await prisma.sale.create({
           data: {
+            offlineQueueId: idempotencyKey, // ✅ Idempotency key
             branchId: txn._entry.branchId,
             shiftInstanceId,
             saleDate: txn.transactionDateTime,
@@ -1355,13 +1462,18 @@ export class DailyBackdatedEntriesService {
       }
     }
 
+    // Calculate payment method breakdown
+    const paymentBreakdown = this.calculatePaymentBreakdown(allTransactions);
+
     // Include cash gap as warning (if any) even though it's no longer a blocker
     const responsePayload: any = {
       success: true,
       message: `Day finalized successfully`,
+      alreadyFinalized: false,
       postedSalesCount: createdSales.length,
       inventoryUpdatesCount: 0, // Inventory deductions handled via StockLevel adjustments
       reportSyncStatus: 'completed',
+      paymentBreakdown, // ✅ NEW: Payment method breakdown
       details: {
         entriesFinalized: entries.length,
         transactionsProcessed: plainTransactions.length,
