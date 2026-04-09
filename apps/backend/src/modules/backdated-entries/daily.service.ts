@@ -377,7 +377,7 @@ export class DailyBackdatedEntriesService {
       branchId,
       businessDate,
       shiftId,
-      userId, // Log for audit
+      userId,
       transactionCount: transactions.length,
       organizationId,
     });
@@ -396,6 +396,30 @@ export class DailyBackdatedEntriesService {
 
     // Normalize date to midnight UTC for consistent queries
     const businessDateObj = this.normalizeBusinessDate(businessDate);
+
+    // ✅ SAFETY: Check for unexpected transaction count drops (accidental deletion via partial payload)
+    // Only warn if shrinking AND no explicit deletedTransactionIds provided (opt-in safety)
+    const existingTxnCount = await prisma.backdatedTransaction.count({
+      where: {
+        backdatedEntry: {
+          branchId,
+          businessDate: businessDateObj,
+          shiftId: shiftId || null,
+        },
+      },
+    });
+
+    if (transactions.length < existingTxnCount && transactions.length > 0 && !input.shiftId) {
+      // Only allow shrinking if all incoming rows have IDs (explicit delete via omission is disallowed)
+      const allHaveIds = transactions.every(t => !!t.id);
+      if (!allHaveIds) {
+        throw new AppError(
+          409,
+          `Transaction count would drop from ${existingTxnCount} to ${transactions.length} without explicit delete IDs. ` +
+          `To prevent accidental data loss, please include all transaction IDs or use explicit deletedTransactionIds.`
+        );
+      }
+    }
 
     console.log('[BackdatedEntries] Normalized date:', businessDateObj.toISOString());
 

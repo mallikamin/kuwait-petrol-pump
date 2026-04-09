@@ -276,9 +276,14 @@ export function BackdatedEntries() {
   });
 
   // Fetch daily summary from new consolidated API
+  // ✅ DETERMINISTIC BEHAVIOR: Always refetch on mount/focus, never cache stale data
   const { data: dailySummaryData, refetch: refetchDailySummary, isLoading: isDailySummaryLoading } = useQuery({
-    queryKey: ['backdated-entries-daily', selectedBranchId, businessDate, selectedShiftId],
+    queryKey: ['backdated-entries-daily', selectedBranchId, businessDate, selectedShiftId || 'all'],
     enabled: !!selectedBranchId && !!businessDate,
+    staleTime: 0, // Never treat data as fresh (forces refetch)
+    refetchOnMount: 'always', // Always refetch on component mount
+    refetchOnWindowFocus: true, // Refetch when user returns to tab
+    retry: 1, // Retry once on failure
     queryFn: async () => {
       const res = await apiClient.get('/api/backdated-entries/daily', {
         params: {
@@ -853,8 +858,9 @@ export function BackdatedEntries() {
 
 
   // Auto-save timer (2 minutes)
+  // ✅ SAFETY: Disable auto-save while API is loading (prevents overwriting server data with stale local)
   useEffect(() => {
-    if (!isDirty || transactions.length === 0 || !selectedBranchId) return;
+    if (!isDirty || transactions.length === 0 || !selectedBranchId || isDailySummaryLoading) return;
     const timer = setTimeout(async () => {
       try {
         await saveDailyDraftMutation.mutateAsync();
@@ -1078,6 +1084,12 @@ export function BackdatedEntries() {
   };
 
   const handleFinalizeDay = async () => {
+    // ✅ SAFETY: Block finalize while API is loading (prevents stale data finalization)
+    if (isDailySummaryLoading) {
+      toast.error('Please wait - server data is still loading');
+      return;
+    }
+
     if (isDirty) {
       toast.error('Please save draft first before finalizing');
       return;
