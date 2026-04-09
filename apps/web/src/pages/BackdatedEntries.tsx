@@ -866,7 +866,7 @@ export function BackdatedEntries() {
 
       console.log('[Transactions] Hydration complete:', {
         count: hydratedTransactions.length,
-        sampleFuelCodes: hydratedTransactions.slice(0, 3).map(t => ({ id: t.id, fuelCode: t.fuelCode, productName: t.productName })),
+        sampleFuelCodes: hydratedTransactions.slice(0, 3).map((t: Transaction) => ({ id: t.id, fuelCode: t.fuelCode, productName: t.productName })),
       });
 
       setSyncMessage(`Loaded ${dailySummaryData.transactions.length} existing transactions.`);
