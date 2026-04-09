@@ -1327,7 +1327,6 @@ export function BackdatedEntries() {
       meterValue: data.currentReading,
       imageUrl: data.imageUrl,
       ocrConfidence: data.ocrConfidence,
-      isManual: data.isManualReading,
       attachmentUrl: data.referenceAttachmentUrl,
       ocrManuallyEdited: data.isManualReading && data.ocrConfidence !== undefined,
     });
