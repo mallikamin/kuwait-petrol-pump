@@ -695,8 +695,89 @@ describe('DailyBackdatedEntriesService - Fuel Type Corruption Regression', () =>
     });
   });
 
+  it('TEST 7: finalize succeeds with liters OK but cashGap warning (not blocker)', async () => {
+    const testDate = '2026-04-20';
+    const testBranchIdLocal = testBranchId;
+
+    console.log('[CASH VARIANCE TEST] Creating scenario: liters 0 gap + cash variance...');
+
+    // Step 1: Save transactions totaling exact meter readings (no liter gap)
+    // HSD: 100L, PMG: 50L
+    await service.saveDailyDraft({
+      branchId: testBranchIdLocal,
+      businessDate: testDate,
+      transactions: [
+        {
+          customerId: undefined,
+          nozzleId: hsdNozzleId,
+          fuelCode: 'HSD',
+          vehicleNumber: 'TEST-HSD-100',
+          slipNumber: 'HSD-001',
+          productName: 'HSD',
+          quantity: 100, // Matches meter reading
+          unitPrice: 250,
+          lineTotal: 25000,
+          paymentMethod: 'cash',
+        },
+        {
+          customerId: undefined,
+          nozzleId: pmgNozzleId,
+          fuelCode: 'PMG',
+          vehicleNumber: 'TEST-PMG-050',
+          slipNumber: 'PMG-001',
+          productName: 'PMG',
+          quantity: 50, // Matches meter reading
+          unitPrice: 200,
+          lineTotal: 10000,
+          paymentMethod: 'cash',
+        },
+      ],
+    }, testOrganizationId);
+
+    // Step 2: Finalize - should succeed (liters reconciled) despite any cash variance
+    console.log('[CASH VARIANCE TEST] Calling finalizeDay (expect SUCCESS with warning)...');
+
+    const result = await service.finalizeDay(
+      { branchId: testBranchIdLocal, businessDate: testDate },
+      testOrganizationId
+    );
+
+    // ✅ CRITICAL: Should succeed (200), not throw error
+    expect(result).toBeDefined();
+    expect(result.success).toBe(true);
+    console.log('[CASH VARIANCE TEST] Finalize succeeded:', {
+      success: result.success,
+      message: result.message,
+      hasCashGapWarning: !!result.cashGapWarning,
+      cashGapWarning: result.cashGapWarning,
+    });
+
+    // ✅ If there is a cash gap, it should be in the response as warning (not blocker)
+    if (result.cashGapWarning) {
+      expect(result.cashGapWarning.amount).toBeDefined();
+      expect(result.cashGapWarning.message).toBeDefined();
+      expect(typeof result.cashGapWarning.amount).toBe('number');
+      console.log('[CASH VARIANCE TEST] ✅ Cash variance returned as warning:', result.cashGapWarning);
+    }
+
+    // ✅ Verify entries are marked as finalized despite cash variance
+    const entries = await prisma.backdatedEntry.findMany({
+      where: {
+        branchId: testBranchIdLocal,
+        businessDate: new Date(testDate),
+      },
+    });
+
+    expect(entries.length).toBeGreaterThan(0);
+    for (const entry of entries) {
+      expect((entry as any).isFinalized).toBe(true);
+    }
+
+    console.log('[CASH VARIANCE TEST] ✅ Finalize succeeded with liters OK, cash gap as warning only');
+  });
+
   /**
-   * TEST 6: Legacy transactions with null fuelTypeId still counted in postedTotals
+   * TEST 8: Legacy transactions with null fuelTypeId still counted in postedTotals
    *
    * SYMPTOM: Transactions are visible for April dates, but postedTotals HSD/PMG show 0.
    * ROOT CAUSE: Legacy transactions have null fuelTypeId, so fuelCode resolves to empty string.

@@ -1196,14 +1196,11 @@ export class DailyBackdatedEntriesService {
       });
     }
 
-    if (Math.abs(cashGap) > cashTolerancePkr) {
-      reconciliationErrors.push({
-        message: `Cash reconciliation gap: PKR ${Math.abs(cashGap).toFixed(2)} ${cashGap > 0 ? 'short' : 'excess'}`
-      });
-    }
+    // NOTE: cashGap is now returned as a warning only, not a blocker
+    // Finalization only blocks on HSD/PMG liters reconciliation
 
     // Legacy per-entry isReconciled flags are not maintained by the current daily workflow.
-    // Quantitative gates above (liters + cash) are the source of truth for finalization.
+    // Quantitative gates above (liters only) are the source of truth for finalization.
 
     const walkInCashLiters = summary.transactions
       .filter((t) => !t.customer && t.paymentMethod === 'cash')
@@ -1358,7 +1355,8 @@ export class DailyBackdatedEntriesService {
       }
     }
 
-    return {
+    // Include cash gap as warning (if any) even though it's no longer a blocker
+    const responsePayload: any = {
       success: true,
       message: `Day finalized successfully`,
       postedSalesCount: createdSales.length,
@@ -1372,6 +1370,16 @@ export class DailyBackdatedEntriesService {
         saleIds: createdSales,
       },
     };
+
+    // Add cash gap warning if it exists (for audit visibility)
+    if (Math.abs(cashGap) > cashTolerancePkr) {
+      responsePayload.cashGapWarning = {
+        amount: parseFloat(cashGap.toFixed(2)),
+        message: `Cash variance: PKR ${Math.abs(cashGap).toFixed(2)} ${cashGap > 0 ? 'short' : 'excess'}`
+      };
+    }
+
+    return responsePayload;
   }
 
   /**

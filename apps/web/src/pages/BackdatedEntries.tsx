@@ -1193,16 +1193,27 @@ export function BackdatedEntries() {
       setIsDirty(false); // ✅ Reset dirty state after successful finalize
 
       // ✅ Show success dialog with details
-      setFinalizeResult({
+      const resultPayload: any = {
         type: 'success',
         message: message,
         salesCreated: data?.salesCount || 0,
         transactionsProcessed: data?.transactionsCount || 0,
-      });
+      };
+
+      // Include cash gap warning if present (no longer a blocker, just audit info)
+      if (data?.cashGapWarning) {
+        resultPayload.cashGapWarning = data.cashGapWarning;
+      }
+
+      setFinalizeResult(resultPayload);
       setFinalizeDialogOpen(true);
 
-      // Also show brief toast
-      toast.success('Day finalized successfully!');
+      // Show toast with warning if cash gap exists
+      if (data?.cashGapWarning) {
+        toast.success(`Finalized with cash variance warning: PKR ${Math.abs(data.cashGapWarning.amount).toFixed(2)}`);
+      } else {
+        toast.success('Day finalized successfully!');
+      }
       refetchDailySummary();
     },
     onError: (error: any) => {
