@@ -599,6 +599,31 @@ export class DailyBackdatedEntriesService {
           throw new AppError(404, `Nozzle ${nozzleId} not found`);
         }
 
+        // ✅ NOZZLE-FUEL CONSISTENCY CHECK
+        // Validate ALL transactions for this nozzle have matching fuel codes
+        const nozzleFuelCode = nozzle.fuelType.code;
+        const mismatchedTxns = nozzleTxns.filter(txn => {
+          const txnFuelCode = (txn.fuelCode || '').toUpperCase();
+          return txnFuelCode && txnFuelCode !== nozzleFuelCode;
+        });
+
+        if (mismatchedTxns.length > 0) {
+          const details = mismatchedTxns.map(txn => ({
+            txnId: txn.id || 'new',
+            nozzleName: nozzle.name,
+            nozzleFuelCode,
+            txnFuelCode: txn.fuelCode,
+            quantity: txn.quantity,
+          }));
+
+          throw new AppError(
+            409,
+            `Fuel type mismatch: Cannot save transactions with fuel type different from nozzle. ` +
+            `Nozzle ${nozzle.name} is ${nozzleFuelCode}, but ${mismatchedTxns.length} transaction(s) have different fuel codes. ` +
+            `Details: ${JSON.stringify(details)}`,
+          );
+        }
+
         // Check if entry already exists
         const existingEntry = await prisma.backdatedEntry.findFirst({
           where: {
