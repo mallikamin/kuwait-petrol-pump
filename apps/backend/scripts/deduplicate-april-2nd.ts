@@ -51,7 +51,7 @@ async function main() {
       FROM sales s
       LEFT JOIN fuel_sales fs ON fs.sale_id = s.id
       LEFT JOIN fuel_types ft ON ft.id = fs.fuel_type_id
-      WHERE s.branch_id = ${BRANCH_ID}
+      WHERE s.branch_id = ${BRANCH_ID}::uuid
         AND s.sale_date::date = ${BUSINESS_DATE}
       GROUP BY ft.code
       ORDER BY ft.code
@@ -98,7 +98,7 @@ async function main() {
       FROM sales s
       LEFT JOIN fuel_sales fs ON fs.sale_id = s.id
       LEFT JOIN fuel_types ft ON ft.id = fs.fuel_type_id
-      WHERE s.branch_id = ${BRANCH_ID}
+      WHERE s.branch_id = ${BRANCH_ID}::uuid
         AND s.sale_date::date = ${BUSINESS_DATE}
       GROUP BY s.customer_id, s.vehicle_number, s.slip_number,
                s.payment_method, s.total_amount, ft.code, fs.quantity_liters
@@ -125,7 +125,7 @@ async function main() {
     const firstBatchResult = await prisma.$queryRaw<Array<{ first_created: Date }>>`
       SELECT MIN(created_at) as first_created
       FROM sales
-      WHERE branch_id = ${BRANCH_ID}
+      WHERE branch_id = ${BRANCH_ID}::uuid
         AND sale_date::date = ${BUSINESS_DATE}
     `;
 
@@ -140,7 +140,7 @@ async function main() {
     const duplicateSales = await prisma.$queryRaw<Array<{ id: string }>>`
       SELECT id
       FROM sales
-      WHERE branch_id = ${BRANCH_ID}
+      WHERE branch_id = ${BRANCH_ID}::uuid
         AND sale_date::date = ${BUSINESS_DATE}
         AND created_at > ${firstBatchTime}
     `;
@@ -171,7 +171,7 @@ async function main() {
           SELECT bt.id
           FROM backdated_transactions bt
           JOIN backdated_entries be ON bt.backdated_entry_id = be.id
-          WHERE be.branch_id = ${BRANCH_ID}
+          WHERE be.branch_id = ${BRANCH_ID}::uuid
             AND be.business_date = ${BUSINESS_DATE}
         )
         AND q.created_at > ${firstBatchTime}
@@ -227,7 +227,7 @@ async function main() {
       FROM sales s
       LEFT JOIN fuel_sales fs ON fs.sale_id = s.id
       LEFT JOIN fuel_types ft ON ft.id = fs.fuel_type_id
-      WHERE s.branch_id = ${BRANCH_ID}
+      WHERE s.branch_id = ${BRANCH_ID}::uuid
         AND s.sale_date::date = ${BUSINESS_DATE}
       GROUP BY ft.code
       ORDER BY ft.code
