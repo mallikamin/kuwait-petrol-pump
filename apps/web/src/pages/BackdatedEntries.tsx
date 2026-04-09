@@ -351,7 +351,20 @@ export function BackdatedEntries() {
           recorded_at: nozzle.opening.recordedAt,
           recorded_by: nozzle.opening.recordedBy,
           created_at: nozzle.opening.submittedAt,
-        });
+          // Additional backdated fields
+          submitted_by_name: nozzle.opening.submittedByName || '',
+          submittedByName: nozzle.opening.submittedByName || '',
+          submitted_at: nozzle.opening.submittedAt || '',
+          submittedAt: nozzle.opening.submittedAt || '',
+          ocr_manually_edited: nozzle.opening.ocrManuallyEdited || false,
+          ocrManuallyEdited: nozzle.opening.ocrManuallyEdited || false,
+          is_manual: nozzle.opening.ocrManuallyEdited || false,
+          isManual: nozzle.opening.ocrManuallyEdited || false,
+          image_url: nozzle.opening.imageUrl || '',
+          imageUrl: nozzle.opening.imageUrl || '',
+          attachment_url: nozzle.opening.attachmentUrl || '',
+          attachmentUrl: nozzle.opening.attachmentUrl || '',
+        } as any);
       }
 
       // Closing reading
@@ -367,7 +380,20 @@ export function BackdatedEntries() {
           recorded_at: nozzle.closing.recordedAt,
           recorded_by: nozzle.closing.recordedBy,
           created_at: nozzle.closing.submittedAt,
-        });
+          // Additional backdated fields
+          submitted_by_name: nozzle.closing.submittedByName || '',
+          submittedByName: nozzle.closing.submittedByName || '',
+          submitted_at: nozzle.closing.submittedAt || '',
+          submittedAt: nozzle.closing.submittedAt || '',
+          ocr_manually_edited: nozzle.closing.ocrManuallyEdited || false,
+          ocrManuallyEdited: nozzle.closing.ocrManuallyEdited || false,
+          is_manual: nozzle.closing.ocrManuallyEdited || false,
+          isManual: nozzle.closing.ocrManuallyEdited || false,
+          image_url: nozzle.closing.imageUrl || '',
+          imageUrl: nozzle.closing.imageUrl || '',
+          attachment_url: nozzle.closing.attachmentUrl || '',
+          attachmentUrl: nozzle.closing.attachmentUrl || '',
+        } as any);
       }
 
       return readings;
