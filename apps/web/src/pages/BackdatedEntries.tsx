@@ -145,10 +145,18 @@ export function BackdatedEntries() {
   const [finalizeResult, setFinalizeResult] = useState<{
     type: 'success' | 'error';
     message?: string;
+    alreadyFinalized?: boolean;
     blockers?: Array<{ message: string }>;
     metrics?: { hsdGap?: number; pmgGap?: number; cashGap?: number };
     salesCreated?: number;
     transactionsProcessed?: number;
+    paymentBreakdown?: {
+      cash: { liters: number; amount: number };
+      credit: { liters: number; amount: number };
+      bankCard: { liters: number; amount: number };
+      psoCard: { liters: number; amount: number };
+    };
+    cashGapWarning?: { amount: number; message: string };
   } | null>(null);
 
   // Use sessionStorage for loadedKey to persist across tab navigation
