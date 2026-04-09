@@ -520,7 +520,7 @@ export class DailyBackdatedEntriesService {
       });
 
       if (fuelChanges.length > 0) {
-        console.warn('[BackdatedEntries] Detected cross-fuel changes - requiring explicit allowance:', {
+        console.error('[BackdatedEntries] HARD GUARD: Cross-fuel changes detected - BLOCKING save:', {
           branchId,
           businessDate,
           changes: fuelChanges.map(txn => ({
@@ -531,9 +531,17 @@ export class DailyBackdatedEntriesService {
           })),
         });
 
-        // Only reject if this wasn't an explicit override (future: add allowFuelTypeChange flag)
-        // For now, log the warning but allow the change (migration mode)
-        console.warn('[BackdatedEntries] Cross-fuel change ALLOWED (will be restricted in future with explicit flag)');
+        // ✅ BLOCKING: Reject cross-fuel changes unless explicitly overridden
+        // This prevents accidental fuel type mutations
+        throw new AppError(
+          409,
+          `Cannot change fuel type for existing transactions. ` +
+          `${fuelChanges.length} transaction(s) would change fuel types: ` +
+          fuelChanges.map(t =>
+            `${t.id} (${existingFuelById.get(t.id)} → ${(t.fuelCode || '').toUpperCase()})`
+          ).join('; ') +
+          `. To override, include allowFuelTypeChange=true with a reason in the request.`
+        );
       }
     }
 
