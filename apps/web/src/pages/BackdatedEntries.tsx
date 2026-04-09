@@ -924,6 +924,26 @@ export function BackdatedEntries() {
     const updated = [...transactions];
     updated[index] = { ...updated[index], [field]: value };
 
+    // ✅ NOZZLE-FUEL CONSISTENCY GUARD
+    // When fuel code changes, verify it matches the selected nozzle's fuel type
+    // If mismatch, clear nozzleId to force user to select compatible nozzle
+    if (field === 'fuelCode' && updated[index].nozzleId) {
+      const nozzleFuelMap = (dailySummaryData?.nozzleStatuses || []).reduce((map: any, ns: any) => {
+        map[ns.nozzleId] = ns.fuelType;
+        return map;
+      }, {});
+
+      const nozzleFuelType = nozzleFuelMap[updated[index].nozzleId];
+      if (nozzleFuelType && nozzleFuelType !== value) {
+        console.warn('[Frontend Guard] Fuel type mismatch detected, clearing nozzleId:', {
+          nozzleId: updated[index].nozzleId,
+          nozzleFuelType,
+          selectedFuelCode: value,
+        });
+        updated[index].nozzleId = ''; // Clear incompatible nozzle selection
+      }
+    }
+
     // Auto-fill product name and unit price when fuel type selected
     if (field === 'fuelCode') {
       const fuelPrice = (fuelPricesData || []).find((fp: any) => fp.fuelType?.code === value);
