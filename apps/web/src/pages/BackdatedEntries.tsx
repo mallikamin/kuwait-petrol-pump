@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -116,6 +116,9 @@ const openAttachmentInNewTab = (rawUrl?: string | null) => {
 };
 
 export function BackdatedEntries() {
+  // ✅ CRITICAL: React Query client for manual cache invalidation
+  const queryClient = useQueryClient();
+
   // Entry fields
   const [businessDate, setBusinessDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [selectedBranchId, setSelectedBranchId] = useState('');
@@ -156,6 +159,14 @@ export function BackdatedEntries() {
       setSelectedShiftId(shiftParam);
     }
   }, []);
+
+  // ✅ CRITICAL: Invalidate React Query cache when date/branch/shift change (forces fresh fetch)
+  useEffect(() => {
+    console.log('[QueryCache] Invalidating backdated-entries-daily for new date/branch/shift');
+    queryClient.invalidateQueries({
+      queryKey: ['backdated-entries-daily'],
+    });
+  }, [businessDate, selectedBranchId, selectedShiftId, queryClient]);
 
   // Keep URL in sync with selected context to avoid date/branch/shift persistence loss.
   useEffect(() => {
