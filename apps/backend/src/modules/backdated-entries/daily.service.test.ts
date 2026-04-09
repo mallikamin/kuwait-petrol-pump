@@ -694,4 +694,137 @@ describe('DailyBackdatedEntriesService - Fuel Type Corruption Regression', () =>
       metrics: error.metrics,
     });
   });
+
+  /**
+   * TEST 6: Legacy transactions with null fuelTypeId still counted in postedTotals
+   *
+   * SYMPTOM: Transactions are visible for April dates, but postedTotals HSD/PMG show 0.
+   * ROOT CAUSE: Legacy transactions have null fuelTypeId, so fuelCode resolves to empty string.
+   * FIX: Implement fallback priority in resolveFuelCode():
+   *   1. Try txn.fuelType?.code
+   *   2. Fallback to entry.nozzle.fuelType.code
+   *   3. Parse from productName as last resort
+   *
+   * GIVEN: A mix of transactions:
+   *   - 2 transactions with explicit fuelTypeId (modern)
+   *   - 2 transactions with null fuelTypeId but nozzle has fuel type (legacy)
+   * WHEN: Fetch via getDailySummary
+   * THEN: postedTotals should count ALL 4 transactions via nozzle fallback
+   */
+  test('legacy transactions with null fuelTypeId counted via nozzle fallback', async () => {
+    const legacyDate = testDate;
+    const legacyBranchId = testBranchId;
+
+    // First, save modern transactions with explicit fuelTypeId
+    await service.saveDailyDraft(
+      {
+        branchId: legacyBranchId,
+        businessDate: legacyDate,
+        transactions: [
+          {
+            id: 'modern-hsd-1',
+            nozzleId: hsdNozzleId,
+            fuelCode: 'HSD',
+            productName: 'High Speed Diesel',
+            quantity: 300,
+            unitPrice: 350,
+            lineTotal: 105000,
+            paymentMethod: 'cash' as const,
+          },
+          {
+            id: 'modern-pmg-1',
+            nozzleId: hsdNozzleId,
+            fuelCode: 'PMG',
+            productName: 'Premium Gasoline',
+            quantity: 400,
+            unitPrice: 460,
+            lineTotal: 184000,
+            paymentMethod: 'cash' as const,
+          },
+        ],
+      },
+      testUserId,
+      testOrganizationId
+    );
+
+    // Now manually insert legacy transactions with NULL fuelTypeId
+    // (simulating old data that predates the fuelTypeId field)
+    const entry = await prisma.backdatedEntry.findFirst({
+      where: {
+        branchId: legacyBranchId,
+        businessDate: new Date(`${legacyDate}T00:00:00Z`),
+        nozzleId: hsdNozzleId,
+      },
+    });
+
+    if (entry) {
+      // Insert legacy transaction with null fuelTypeId, but nozzle is HSD
+      await prisma.backdatedTransaction.create({
+        data: {
+          id: 'legacy-hsd-null',
+          backdatedEntryId: entry.id,
+          fuelTypeId: null as any, // ⚠️ Explicitly NULL
+          productName: 'Diesel',
+          quantity: 200,
+          unitPrice: 350,
+          lineTotal: 70000,
+          paymentMethod: 'cash',
+          vehicleNumber: 'LEGACY-HSD-001',
+          transactionDateTime: new Date(`${legacyDate}T10:00:00Z`),
+          createdBy: testUserId,
+        },
+      });
+
+      // Insert another legacy transaction with null fuelTypeId, productName says PMG
+      await prisma.backdatedTransaction.create({
+        data: {
+          id: 'legacy-pmg-null',
+          backdatedEntryId: entry.id,
+          fuelTypeId: null as any, // ⚠️ Explicitly NULL
+          productName: 'Petrol',
+          quantity: 150,
+          unitPrice: 460,
+          lineTotal: 69000,
+          paymentMethod: 'cash',
+          vehicleNumber: 'LEGACY-PMG-001',
+          transactionDateTime: new Date(`${legacyDate}T11:00:00Z`),
+          createdBy: testUserId,
+        },
+      });
+    }
+
+    // Fetch summary - should count all 4 transactions
+    const summary = await service.getDailySummary(
+      { branchId: legacyBranchId, businessDate: legacyDate },
+      testOrganizationId
+    );
+
+    console.log('[TEST 6] Summary for legacy transactions:', {
+      transactionCount: summary.transactions.length,
+      postedTotals: summary.postedTotals,
+      transactions: summary.transactions.map((t: any) => ({
+        id: t.id,
+        fuelCode: t.fuelCode,
+        quantity: t.quantity,
+      })),
+    });
+
+    // ✅ CRITICAL: All 4 transactions should be counted
+    expect(summary.transactions.length).toBe(4); // 2 modern + 2 legacy
+
+    // ✅ CRITICAL: postedTotals should reflect all transactions
+    // HSD: 300 (modern) + 200 (legacy via nozzle fallback) = 500
+    // PMG: 400 (modern) + 150 (legacy via productName fallback) = 550
+    expect(summary.postedTotals.hsdLiters).toBe(500);
+    expect(summary.postedTotals.pmgLiters).toBe(550);
+
+    // ✅ Verify each legacy transaction resolved fuel type correctly
+    const legacyHsd = summary.transactions.find((t: any) => t.id === 'legacy-hsd-null');
+    const legacyPmg = summary.transactions.find((t: any) => t.id === 'legacy-pmg-null');
+
+    expect(legacyHsd).toBeDefined();
+    expect(legacyHsd?.fuelCode).toBe('HSD'); // ✅ Resolved via nozzle fallback
+    expect(legacyPmg).toBeDefined();
+    expect(legacyPmg?.fuelCode).toBe('PMG'); // ✅ Resolved via productName fallback
+  });
 });

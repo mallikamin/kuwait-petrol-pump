@@ -224,6 +224,31 @@ export class DailyBackdatedEntriesService {
       };
     });
 
+    // Helper: Resolve fuel code with fallback priority
+    const resolveFuelCode = (txn: any, entry: any): string => {
+      // Priority 1: Try transaction's explicit fuel type
+      if (txn.fuelType?.code) {
+        return txn.fuelType.code;
+      }
+
+      // Priority 2: Fallback to nozzle's fuel type (legacy transactions with null fuelTypeId)
+      if (entry.nozzle?.fuelType?.code) {
+        return entry.nozzle.fuelType.code;
+      }
+
+      // Priority 3: Parse from productName (HSD, Diesel => 'HSD', PMG, Petrol => 'PMG')
+      const productNameUpper = (txn.productName || '').toUpperCase();
+      if (productNameUpper.includes('HSD') || productNameUpper.includes('DIESEL')) {
+        return 'HSD';
+      }
+      if (productNameUpper.includes('PMG') || productNameUpper.includes('PETROL')) {
+        return 'PMG';
+      }
+
+      // No fuel code could be resolved
+      return '';
+    };
+
     // Collect all transactions
     const allTransactions = entries.flatMap((entry) =>
       entry.transactions.map((txn) => ({
@@ -240,7 +265,7 @@ export class DailyBackdatedEntriesService {
               name: txn.customer.name,
             }
           : null,
-        fuelCode: (txn as any).fuelType?.code || '', // ✅ CRITICAL: Return actual fuel type from transaction, NOT from nozzle
+        fuelCode: resolveFuelCode(txn, entry), // ✅ FIXED: Use fallback priority to resolve fuel code for legacy transactions
         vehicleNumber: txn.vehicleNumber,
         slipNumber: txn.slipNumber,
         productName: txn.productName,
