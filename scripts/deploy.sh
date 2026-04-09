@@ -88,7 +88,7 @@ cd ${SERVER_PATH}/apps/web
 rm -rf dist_prev
 if [ -d dist ]; then mv dist dist_prev; fi
 mv dist_new dist
-cd ..
+cd ${SERVER_PATH}
 docker compose -f docker-compose.prod.yml restart nginx
 "
 echo "Frontend deploy OK"
