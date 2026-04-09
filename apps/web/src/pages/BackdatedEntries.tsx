@@ -820,31 +820,55 @@ export function BackdatedEntries() {
     // ✅ PRIORITY: Always load from API first (server is source of truth)
     if (dailySummaryData?.transactions && dailySummaryData.transactions.length > 0) {
       console.log('[Transactions] Loading from API (server truth):', dailySummaryData.transactions.length);
-      hydratingTransactionsRef.current = true;
-      setTransactions(
-        dailySummaryData.transactions.map((txn: any) => ({
+
+      // ✅ IMMUTABLE HYDRATION: Create exact copies of API data WITHOUT mutations
+      // Do NOT auto-fill product names or prices during hydration - keep API values as-is
+      // Only user field edits (via updateTransaction) should trigger auto-fill logic
+      const hydratedTransactions = dailySummaryData.transactions.map((txn: any) => {
+        const mapped = {
           id: txn.id,
           nozzleId: txn.nozzle?.id || '',
           customerId: txn.customer?.id || '',
           customerName: txn.customer?.name || '',
-          fuelCode: txn.fuelCode || '', // ✅ CRITICAL FIX: Never fall back to nozzle fuel type (walk-in transactions use placeholder HSD nozzle)
+          fuelCode: txn.fuelCode || '', // ✅ CRITICAL: Use exact API value (NEVER fall back to nozzle fuel type)
           vehicleNumber: txn.vehicleNumber || '',
           slipNumber: txn.slipNumber || '',
-          productName: txn.productName || 'Fuel',
+          productName: txn.productName || 'Fuel', // Keep exact API value
           quantity: toNumber(txn.quantity).toString(),
-          unitPrice: toNumber(txn.unitPrice).toFixed(2),
+          unitPrice: toNumber(txn.unitPrice).toFixed(2), // Keep exact API value
           lineTotal: toNumber(txn.lineTotal).toFixed(2),
           paymentMethod: txn.paymentMethod,
           bankId: txn.bankId || '',
-          // Audit fields
+          // Audit fields (immutable)
           createdBy: txn.createdBy,
           createdByUser: txn.createdByUser,
           updatedBy: txn.updatedBy,
           updatedByUser: txn.updatedByUser,
           createdAt: txn.createdAt,
           updatedAt: txn.updatedAt,
-        }))
-      );
+        };
+
+        // ✅ FORENSIC: Log if fuelCode appears empty (would indicate API bug)
+        if (!txn.fuelCode) {
+          console.warn('[Hydration] Transaction has empty fuelCode from API - should not happen!', {
+            txnId: txn.id,
+            productName: txn.productName,
+            nozzleId: txn.nozzle?.id,
+            nozzleFuelType: txn.nozzle?.fuelType?.code,
+          });
+        }
+
+        return mapped;
+      });
+
+      hydratingTransactionsRef.current = true;
+      setTransactions(hydratedTransactions);
+
+      console.log('[Transactions] Hydration complete:', {
+        count: hydratedTransactions.length,
+        sampleFuelCodes: hydratedTransactions.slice(0, 3).map(t => ({ id: t.id, fuelCode: t.fuelCode, productName: t.productName })),
+      });
+
       setSyncMessage(`Loaded ${dailySummaryData.transactions.length} existing transactions.`);
       setLoadedKey(currentKey);
       // Clear sessionStorage since server is now source of truth for this key.

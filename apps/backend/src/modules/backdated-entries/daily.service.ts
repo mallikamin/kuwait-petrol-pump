@@ -264,9 +264,16 @@ export class DailyBackdatedEntriesService {
       }))
     );
 
-    // Calculate posted liters by fuel type
+    // ✅ AUTHORITATIVE INVARIANT CHECK: Verify fuel code consistency
+    // Calculate posted liters by fuel type AND detect inconsistencies
     let hsdPostedLiters = 0;
     let pmgPostedLiters = 0;
+    const consistencyWarnings: Array<{
+      txnId: string;
+      fuelCode: string;
+      fuelTypeId: string;
+      issue: string;
+    }> = [];
 
     allTransactions.forEach((txn) => {
       const txnFuelCode = (txn.fuelCode || '').toUpperCase();
@@ -275,7 +282,37 @@ export class DailyBackdatedEntriesService {
       } else if (txnFuelCode === 'PMG') {
         pmgPostedLiters += txn.quantity;
       }
+
+      // ✅ FORENSIC: Check for fuelCode string vs fuelTypeId mismatch
+      // This detects if transaction was corrupted (fuelCode says HSD but stored as PMG)
+      const txnFuelType = entries
+        .flatMap(e => e.transactions)
+        .find(t => t.id === txn.id);
+
+      if (txnFuelType) {
+        const resolvedFuelCode = entries
+          .flatMap(e => e.nozzle.fuelType)
+          .find(ft => ft.id === txnFuelType.fuelTypeId)?.code || '???';
+
+        if (txnFuelCode && resolvedFuelCode && txnFuelCode !== resolvedFuelCode) {
+          consistencyWarnings.push({
+            txnId: txn.id,
+            fuelCode: txnFuelCode,
+            fuelTypeId: txnFuelType.fuelTypeId,
+            issue: `fuelCode string "${txnFuelCode}" disagrees with fuelTypeId "${resolvedFuelCode}"`,
+          });
+        }
+      }
     });
+
+    // Log warnings if any inconsistencies found
+    if (consistencyWarnings.length > 0) {
+      console.warn('[BackdatedEntries] CONSISTENCY WARNINGS - Fuel type mismatch detected:', {
+        branchId,
+        businessDate,
+        warnings: consistencyWarnings,
+      });
+    }
 
     // Calculate remaining liters
     const hsdRemainingLiters = hsdMeterLiters - hsdPostedLiters;
@@ -453,6 +490,50 @@ export class DailyBackdatedEntriesService {
           `Transaction with ${txn.quantity}L and product "${txn.productName}" has invalid/missing fuel code: "${txn.fuelCode}". ` +
           `Valid codes are: ${Array.from(fuelTypesMap.keys()).join(', ')}`
         );
+      }
+    }
+
+    // ✅ HARD SAVE GUARD: Prevent accidental cross-fuel changes
+    // Check if we're about to move liters between fuels for existing transaction IDs
+    if (input.shiftId === undefined) { // Only check for full-day saves, not shift-level
+      const existingFuelMap = await prisma.backdatedTransaction.findMany({
+        where: {
+          backdatedEntry: {
+            branchId,
+            businessDate: businessDateObj,
+          },
+          id: { in: transactions.filter(t => t.id).map(t => t.id!) },
+        },
+        include: { fuelType: true },
+      });
+
+      const existingFuelById = new Map(
+        existingFuelMap.map(txn => [txn.id, txn.fuelType.code])
+      );
+
+      // Find any transactions where fuel type is changing
+      const fuelChanges = transactions.filter(incoming => {
+        if (!incoming.id || !existingFuelById.has(incoming.id)) return false;
+        const existingFuelCode = existingFuelById.get(incoming.id);
+        const incomingFuelCode = (incoming.fuelCode || '').toUpperCase();
+        return existingFuelCode !== incomingFuelCode;
+      });
+
+      if (fuelChanges.length > 0) {
+        console.warn('[BackdatedEntries] Detected cross-fuel changes - requiring explicit allowance:', {
+          branchId,
+          businessDate,
+          changes: fuelChanges.map(txn => ({
+            id: txn.id,
+            from: existingFuelById.get(txn.id),
+            to: (txn.fuelCode || '').toUpperCase(),
+            quantity: txn.quantity,
+          })),
+        });
+
+        // Only reject if this wasn't an explicit override (future: add allowFuelTypeChange flag)
+        // For now, log the warning but allow the change (migration mode)
+        console.warn('[BackdatedEntries] Cross-fuel change ALLOWED (will be restricted in future with explicit flag)');
       }
     }
 
@@ -1233,6 +1314,141 @@ export class DailyBackdatedEntriesService {
         qbSyncQueued: plainTransactions.length > 0 ? 'pending' : 'none',
         saleIds: createdSales,
       },
+    };
+  }
+
+  /**
+   * ✅ FORENSIC ENDPOINT: Inspect all transactions for a given date+shift
+   * Returns detailed transaction audit trail with fuel type consistency checks
+   *
+   * GET /api/backdated-entries/daily/forensic
+   */
+  async getForensicTransactions(params: DailyQueryParams, organizationId: string) {
+    const { branchId, businessDate, shiftId } = params;
+
+    console.log('[BackdatedEntries.Forensic] Called:', {
+      branchId,
+      businessDate,
+      shiftId,
+      organizationId,
+    });
+
+    // Validate branch
+    const branch = await prisma.branch.findFirst({
+      where: {
+        id: branchId,
+        organizationId,
+      },
+    });
+
+    if (!branch) {
+      throw new AppError(404, 'Branch not found or does not belong to organization');
+    }
+
+    const businessDateObj = this.normalizeBusinessDate(businessDate);
+
+    // Get all transactions with full audit trail
+    const transactions = await prisma.backdatedTransaction.findMany({
+      where: {
+        backdatedEntry: {
+          branchId,
+          businessDate: businessDateObj,
+          ...(shiftId ? { shiftId } : {}),
+        },
+      },
+      include: {
+        backdatedEntry: {
+          include: {
+            nozzle: {
+              include: { fuelType: true },
+            },
+          },
+        },
+        fuelType: true,
+        customer: true,
+        createdByUser: {
+          select: { id: true, fullName: true, username: true },
+        },
+        updatedByUser: {
+          select: { id: true, fullName: true, username: true },
+        },
+      },
+      orderBy: [{ transactionDateTime: 'asc' }, { createdAt: 'asc' }],
+    });
+
+    // Build forensic output with consistency checks
+    const forensicTransactions = transactions.map(txn => {
+      const entryNozzleFuelCode = txn.backdatedEntry?.nozzle?.fuelType?.code || '???';
+      const txnFuelTypeCode = txn.fuelType?.code || '???';
+      const consistencyIssue = entryNozzleFuelCode !== txnFuelTypeCode ? 'MISMATCH' : 'OK';
+
+      return {
+        id: txn.id,
+        transactionDateTime: txn.transactionDateTime,
+        nozzleId: txn.backdatedEntry?.nozzleId,
+        nozzleName: txn.backdatedEntry?.nozzle?.name || '???',
+        entryNozzleFuelCode, // What the nozzle says
+        txnFuelTypeCode, // What the transaction says
+        consistencyIssue, // Check: are they aligned?
+        fuelTypeId: txn.fuelTypeId,
+        quantity: parseFloat(txn.quantity.toString()),
+        unitPrice: parseFloat(txn.unitPrice.toString()),
+        lineTotal: parseFloat(txn.lineTotal.toString()),
+        productName: txn.productName,
+        paymentMethod: txn.paymentMethod,
+        customerName: txn.customer?.name || null,
+        // Audit
+        createdBy: txn.createdBy,
+        createdByUser: txn.createdByUser,
+        createdAt: txn.createdAt,
+        updatedBy: txn.updatedBy,
+        updatedByUser: txn.updatedByUser,
+        updatedAt: txn.updatedAt,
+      };
+    });
+
+    // Group by fuel and compute totals
+    const groupedByFuel = new Map<string, typeof forensicTransactions>();
+    forensicTransactions.forEach(txn => {
+      const key = txn.txnFuelTypeCode;
+      if (!groupedByFuel.has(key)) {
+        groupedByFuel.set(key, []);
+      }
+      groupedByFuel.get(key)!.push(txn);
+    });
+
+    const totals = Array.from(groupedByFuel.entries()).map(([fuelCode, txns]) => ({
+      fuelCode,
+      count: txns.length,
+      totalLiters: txns.reduce((sum, t) => sum + t.quantity, 0),
+      totalAmount: txns.reduce((sum, t) => sum + t.lineTotal, 0),
+    }));
+
+    // Flag consistency issues
+    const consistencyIssues = forensicTransactions.filter(t => t.consistencyIssue === 'MISMATCH');
+    if (consistencyIssues.length > 0) {
+      console.error('[BackdatedEntries.Forensic] CONSISTENCY ERRORS DETECTED:', {
+        branchId,
+        businessDate,
+        issueCount: consistencyIssues.length,
+        issues: consistencyIssues.map(t => ({
+          id: t.id,
+          nozzleFuel: t.entryNozzleFuelCode,
+          txnFuel: t.txnFuelTypeCode,
+          quantity: t.quantity,
+        })),
+      });
+    }
+
+    return {
+      branchId,
+      businessDate,
+      shiftId: shiftId || null,
+      transactionCount: forensicTransactions.length,
+      totals,
+      consistencyCheckResult: consistencyIssues.length === 0 ? 'PASS' : `FAIL (${consistencyIssues.length} issues)`,
+      transactions: forensicTransactions,
+      consistencyIssues,
     };
   }
 }

@@ -473,4 +473,132 @@ describe('DailyBackdatedEntriesService - Fuel Type Corruption Regression', () =>
     const pmgTxns = txnFuelCodes.filter((t: any) => t.fuelCode === 'PMG');
     expect(pmgTxns.length).toBe(3); // ✅ Not corrupted to HSD
   });
+
+  /**
+   * TEST 5: CRITICAL - Navigation corruption test
+   *
+   * CODEX BUG SCENARIO: User saves mixed HSD+PMG on April 2.
+   * After finalize, user navigates to another screen.
+   * Then navigates back to BackdatedEntries and loads the same date.
+   * EXPECTED: HSD and PMG split should be unchanged
+   * ACTUAL BUG (pre-fix): HSD jumps to 3700L, PMG drops to 0L (all txns become HSD)
+   *
+   * GIVEN: Mixed HSD+PMG saved and finalized
+   * WHEN: Refetch via getDailySummary (simulating navigation back)
+   * THEN: Fuel split should remain unchanged (no corruption)
+   */
+  test('navigation away and back preserves fuel split (P0 corruption scenario)', async () => {
+    const navDate = '2026-04-02'; // Real date from bug report
+    const navBranchId = testBranchId;
+
+    // Step 1: Save mixed HSD + PMG (April 2, 100% reconciled: 1100L HSD + 1250L PMG)
+    const initialSave = await service.saveDailyDraft(
+      {
+        branchId: navBranchId,
+        businessDate: navDate,
+        transactions: [
+          {
+            id: 'nav-hsd-1',
+            nozzleId: hsdNozzleId,
+            fuelCode: 'HSD',
+            productName: 'High Speed Diesel',
+            quantity: 550,
+            unitPrice: 350,
+            lineTotal: 192500,
+            paymentMethod: 'cash' as const,
+          },
+          {
+            id: 'nav-hsd-2',
+            nozzleId: hsdNozzleId,
+            fuelCode: 'HSD',
+            productName: 'High Speed Diesel',
+            quantity: 550,
+            unitPrice: 350,
+            lineTotal: 192500,
+            paymentMethod: 'cash' as const,
+          },
+          {
+            id: 'nav-pmg-1',
+            nozzleId: hsdNozzleId, // ⚠️ Walk-in with placeholder HSD nozzle
+            fuelCode: 'PMG', // ✅ But PMG
+            productName: 'Premium Gasoline',
+            quantity: 625,
+            unitPrice: 460,
+            lineTotal: 287500,
+            paymentMethod: 'cash' as const,
+          },
+          {
+            id: 'nav-pmg-2',
+            nozzleId: hsdNozzleId,
+            fuelCode: 'PMG', // ✅ But PMG
+            productName: 'Premium Gasoline',
+            quantity: 625,
+            unitPrice: 460,
+            lineTotal: 287500,
+            paymentMethod: 'cash' as const,
+          },
+        ],
+      },
+      testUserId,
+      testOrganizationId
+    );
+
+    // Verify initial save
+    expect(initialSave.postedTotals.hsdLiters).toBe(1100);
+    expect(initialSave.postedTotals.pmgLiters).toBe(1250);
+    console.log('[NAV TEST] Step 1 - Initial save:', {
+      hsd: initialSave.postedTotals.hsdLiters,
+      pmg: initialSave.postedTotals.pmgLiters,
+      txnCount: initialSave.transactions.length,
+    });
+
+    // Step 2: Simulate user navigating away and back by fetching again (multiple times)
+    // This is the real-world pattern that triggers the bug
+    for (let refetchAttempt = 1; refetchAttempt <= 3; refetchAttempt++) {
+      const refetch = await service.getDailySummary(
+        { branchId: navBranchId, businessDate: navDate },
+        testOrganizationId
+      );
+
+      console.log(`[NAV TEST] Step 2.${refetchAttempt} - After navigation refetch:`, {
+        hsd: refetch.postedTotals.hsdLiters,
+        pmg: refetch.postedTotals.pmgLiters,
+        txnCount: refetch.transactions.length,
+        sampleFuelCodes: refetch.transactions.map(t => ({ id: t.id, fuelCode: t.fuelCode })),
+      });
+
+      // ✅ CRITICAL ASSERTION: Fuel split must not flip
+      expect(refetch.postedTotals.hsdLiters).toBe(1100); // NOT 3700!
+      expect(refetch.postedTotals.pmgLiters).toBe(1250); // NOT 0!
+      expect(refetch.transactions.length).toBe(4); // All 4 txns still there
+
+      // ✅ CRITICAL: Verify each transaction has correct fuelCode
+      const hsdTxns = refetch.transactions.filter(t => t.fuelCode === 'HSD');
+      const pmgTxns = refetch.transactions.filter(t => t.fuelCode === 'PMG');
+      expect(hsdTxns.length).toBe(2); // 2 HSD, NOT 4
+      expect(pmgTxns.length).toBe(2); // 2 PMG, NOT 0
+    }
+
+    // Step 3: Verify forensic endpoint also shows correct split
+    const forensic = await service.getForensicTransactions(
+      { branchId: navBranchId, businessDate: navDate },
+      testOrganizationId
+    );
+
+    console.log('[NAV TEST] Step 3 - Forensic check:', {
+      checkResult: forensic.consistencyCheckResult,
+      issueCount: forensic.consistencyIssues.length,
+      totals: forensic.totals,
+    });
+
+    // ✅ CRITICAL: Forensic should show PASS (no consistency issues)
+    expect(forensic.consistencyCheckResult).toBe('PASS');
+    expect(forensic.consistencyIssues.length).toBe(0);
+
+    // ✅ Fuel totals must match
+    const hsdTotal = forensic.totals.find(t => t.fuelCode === 'HSD');
+    const pmgTotal = forensic.totals.find(t => t.fuelCode === 'PMG');
+    expect(hsdTotal?.totalLiters).toBe(1100);
+    expect(pmgTotal?.totalLiters).toBe(1250);
+  });
 });

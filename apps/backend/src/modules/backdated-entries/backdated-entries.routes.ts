@@ -17,6 +17,9 @@ router.use(authenticate);
 // GET /api/backdated-entries/daily - Get daily consolidated summary
 router.get('/daily', dailyController.getDailySummary);
 
+// GET /api/backdated-entries/daily/forensic - Forensic transaction inspection (DIAGNOSTIC)
+router.get('/daily/forensic', dailyController.getForensicTransactions);
+
 // POST /api/backdated-entries/daily - Save daily draft (upsert entries + transactions)
 router.post('/daily', dailyController.saveDailyDraft);
 

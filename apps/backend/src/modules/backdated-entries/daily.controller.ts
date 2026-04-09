@@ -185,6 +185,42 @@ export class DailyBackdatedEntriesController {
   };
 
   /**
+   * GET /api/backdated-entries/daily/forensic
+   *
+   * Forensic inspection endpoint (DIAGNOSTIC)
+   * Returns detailed transaction audit trail with consistency checks
+   */
+  getForensicTransactions = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      if (!hasRole(req.user, ['admin', 'manager', 'accountant'])) {
+        return res.status(403).json({ error: 'Insufficient permissions' });
+      }
+
+      const params = getDailySummaryQuerySchema.parse(req.query);
+
+      const forensic = await this.service.getForensicTransactions(
+        {
+          branchId: params.branchId,
+          businessDate: params.businessDate,
+          shiftId: params.shiftId,
+        },
+        req.user.organizationId
+      );
+
+      res.json({
+        success: true,
+        data: forensic,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
    * POST /api/backdated-entries/daily/finalize
    *
    * Mark all entries for the day as finalized and enqueue QB sync
