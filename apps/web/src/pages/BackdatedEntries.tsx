@@ -1192,12 +1192,16 @@ export function BackdatedEntries() {
       console.log('[Finalize] Success:', data);
       setIsDirty(false); // ✅ Reset dirty state after successful finalize
 
+      const alreadyFinalized = data?.alreadyFinalized || false;
+
       // ✅ Show success dialog with details
       const resultPayload: any = {
         type: 'success',
         message: message,
+        alreadyFinalized,
         salesCreated: data?.postedSalesCount || data?.details?.salesCreated || 0,
         transactionsProcessed: data?.details?.transactionsProcessed || 0,
+        paymentBreakdown: data?.paymentBreakdown || null,
       };
 
       // Include cash gap warning if present (no longer a blocker, just audit info)
@@ -1208,8 +1212,10 @@ export function BackdatedEntries() {
       setFinalizeResult(resultPayload);
       setFinalizeDialogOpen(true);
 
-      // Show toast with warning if cash gap exists
-      if (data?.cashGapWarning) {
+      // Show toast based on finalization state
+      if (alreadyFinalized) {
+        toast.info('This day has already been finalized with no changes');
+      } else if (data?.cashGapWarning) {
         toast.success(`Finalized with cash variance warning: PKR ${Math.abs(data.cashGapWarning.amount).toFixed(2)}`);
       } else {
         toast.success('Day finalized successfully!');
@@ -2942,19 +2948,75 @@ export function BackdatedEntries() {
 
       {/* Finalize Result Modal Dialog */}
       <Dialog open={finalizeDialogOpen} onOpenChange={setFinalizeDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md max-h-96 overflow-y-auto">
           {finalizeResult?.type === 'success' ? (
             <>
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2 text-green-600">
                   <CheckCircle className="h-5 w-5" />
-                  Day Finalized Successfully
+                  {finalizeResult.alreadyFinalized
+                    ? 'Day Already Finalized'
+                    : 'Successfully Finalized!'}
                 </DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
                 <div className="text-sm text-muted-foreground">
                   {finalizeResult.message}
                 </div>
+
+                {/* Payment Method Breakdown */}
+                {finalizeResult.paymentBreakdown && !finalizeResult.alreadyFinalized && (
+                  <div className="bg-blue-50 border border-blue-200 rounded p-3 space-y-2 text-sm">
+                    <div className="font-semibold text-blue-900 mb-2">
+                      Payment Method Summary
+                    </div>
+
+                    {finalizeResult.paymentBreakdown.credit.liters > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Credit Sales:</span>
+                        <span className="font-semibold">
+                          {finalizeResult.paymentBreakdown.credit.liters.toFixed(2)} L
+                          {' | '}
+                          PKR {finalizeResult.paymentBreakdown.credit.amount.toFixed(2)}
+                        </span>
+                      </div>
+                    )}
+
+                    {finalizeResult.paymentBreakdown.cash.liters > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Cash Sales:</span>
+                        <span className="font-semibold">
+                          {finalizeResult.paymentBreakdown.cash.liters.toFixed(2)} L
+                          {' | '}
+                          PKR {finalizeResult.paymentBreakdown.cash.amount.toFixed(2)}
+                        </span>
+                      </div>
+                    )}
+
+                    {finalizeResult.paymentBreakdown.bankCard.liters > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Bank Card Sales:</span>
+                        <span className="font-semibold">
+                          {finalizeResult.paymentBreakdown.bankCard.liters.toFixed(2)} L
+                          {' | '}
+                          PKR {finalizeResult.paymentBreakdown.bankCard.amount.toFixed(2)}
+                        </span>
+                      </div>
+                    )}
+
+                    {finalizeResult.paymentBreakdown.psoCard.liters > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">PSO Card Sales:</span>
+                        <span className="font-semibold">
+                          {finalizeResult.paymentBreakdown.psoCard.liters.toFixed(2)} L
+                          {' | '}
+                          PKR {finalizeResult.paymentBreakdown.psoCard.amount.toFixed(2)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="bg-green-50 border border-green-200 rounded p-3 space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Sales Created:</span>
@@ -2973,9 +3035,11 @@ export function BackdatedEntries() {
                     <span className="font-semibold">{branchesData?.find((b: any) => b.id === selectedBranchId)?.name || 'Unknown'}</span>
                   </div>
                 </div>
-                <div className="text-xs text-muted-foreground">
-                  Transactions will be synced to QuickBooks in the background.
-                </div>
+                {!finalizeResult.alreadyFinalized && (
+                  <div className="text-xs text-muted-foreground">
+                    Transactions will be synced to QuickBooks in the background.
+                  </div>
+                )}
               </div>
               <DialogFooter>
                 <Button onClick={() => setFinalizeDialogOpen(false)} className="w-full">
