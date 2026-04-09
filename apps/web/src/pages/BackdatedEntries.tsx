@@ -632,7 +632,6 @@ export function BackdatedEntries() {
   const [isMeterReadingOpen, setIsMeterReadingOpen] = useState(false);
   const [selectedMeterNozzle, setSelectedMeterNozzle] = useState<any>(null);
   const [selectedReadingType, setSelectedReadingType] = useState<'opening' | 'closing'>('opening');
-  const [selectedShiftForReading, setSelectedShiftForReading] = useState<any>(null); // ← NEW: Track which shift this reading belongs to
   const [_editingReadingId, setEditingReadingId] = useState<string | null>(null);
   const [_editingReadingValue, setEditingReadingValue] = useState<number | null>(null);
 
@@ -1222,33 +1221,27 @@ export function BackdatedEntries() {
     }
   };
 
-  // Save backdated meter reading mutation
+  // Save backdated meter reading mutation (no shift required)
   const saveMeterReadingMutation = useMutation({
-    mutationFn: async ({ nozzleId, readingType, meterValue, imageUrl, ocrConfidence, isManual, shiftId, attachmentUrl, ocrManuallyEdited }: {
+    mutationFn: async ({ nozzleId, readingType, meterValue, imageUrl, ocrConfidence, isManual, attachmentUrl, ocrManuallyEdited }: {
       nozzleId: string;
       readingType: 'opening' | 'closing';
       meterValue: number;
       imageUrl?: string;
       ocrConfidence?: number;
       isManual: boolean;
-      shiftId: string; // ← Now REQUIRED, passed from UI
       attachmentUrl?: string;
       ocrManuallyEdited?: boolean;
     }) => {
-      if (!shiftId) {
-        throw new Error('Shift ID is required. Please select a shift.');
-      }
-
-      const res = await apiClient.post('/api/meter-readings', {
+      const res = await apiClient.post('/api/backdated-meter-readings/daily', {
+        branchId: selectedBranch,
+        businessDate,
         nozzleId,
-        shiftId,                     // ← Pass shiftId (template ID), backend will auto-create instance
         readingType,
         meterValue,
-        customTimestamp: `${businessDate}T12:00:00.000Z`, // ← Use customTimestamp for backdated entries
+        source: ocrConfidence ? 'ocr' : 'manual',
         imageUrl,
         ocrConfidence,
-        isManualOverride: isManual,
-        isOcr: !!ocrConfidence,
         attachmentUrl,
         ocrManuallyEdited,
       });
@@ -1256,14 +1249,11 @@ export function BackdatedEntries() {
     },
     onSuccess: (_data, variables) => {
       const { readingType } = variables;
-      const direction = readingType === 'closing' ? 'next day opening' : 'previous day closing';
-      toast.success(`Meter reading saved! Auto-synced to ${direction}.`);
+      toast.success(`Meter reading saved!`);
       setIsMeterReadingOpen(false);
       setSelectedMeterNozzle(null);
-      setSelectedShiftForReading(null);
       refetchMeterReadings(); // Refresh meter readings
       refetchDailySummary(); // Refresh daily summary to update totals
-      refetchShiftInstances(); // Refresh shift instances to show newly created ones
     },
     onError: (error: any) => {
       const errorMsg = error?.response?.data?.error || error.message || 'Failed to save meter reading';
@@ -1274,14 +1264,13 @@ export function BackdatedEntries() {
   // Delete meter reading mutation
   const deleteMeterReadingMutation = useMutation({
     mutationFn: async (readingId: string) => {
-      const res = await apiClient.delete(`/api/meter-readings/${readingId}`);
+      const res = await apiClient.delete(`/api/backdated-meter-readings/daily/${readingId}`);
       return res.data;
     },
     onSuccess: () => {
       toast.success('Meter reading deleted successfully');
       refetchMeterReadings();
       refetchDailySummary();
-      refetchShiftInstances();
     },
     onError: (error: any) => {
       const errorMsg = error?.response?.data?.error || error.message || 'Failed to delete meter reading';
@@ -1297,7 +1286,7 @@ export function BackdatedEntries() {
       attachmentUrl?: string;
       ocrManuallyEdited?: boolean;
     }) => {
-      const res = await apiClient.patch(`/api/meter-readings/${readingId}`, {
+      const res = await apiClient.patch(`/api/backdated-meter-readings/daily/${readingId}`, {
         meterValue,
         attachmentUrl,
         ocrManuallyEdited,
@@ -1318,7 +1307,7 @@ export function BackdatedEntries() {
   });
 
   const handleMeterReadingCapture = async (data: MeterReadingData) => {
-    if (!selectedMeterNozzle || !selectedShiftForReading) return;
+    if (!selectedMeterNozzle) return;
 
     // If editing existing reading, call UPDATE
     if (_editingReadingId) {
@@ -1330,7 +1319,6 @@ export function BackdatedEntries() {
       });
       setIsMeterReadingOpen(false);
       setSelectedMeterNozzle(null);
-      setSelectedShiftForReading(null);
       return;
     }
 
@@ -1342,15 +1330,13 @@ export function BackdatedEntries() {
       imageUrl: data.imageUrl,
       ocrConfidence: data.ocrConfidence,
       isManual: data.isManualReading,
-      shiftId: selectedShiftForReading.id, // ← Pass shift template ID
       attachmentUrl: data.referenceAttachmentUrl,
       ocrManuallyEdited: data.isManualReading && data.ocrConfidence !== undefined,
     });
   };
 
-  const openMeterReadingDialog = (nozzle: any, shift: any, type: 'opening' | 'closing', reading?: any) => {
+  const openMeterReadingDialog = (nozzle: any, type: 'opening' | 'closing', reading?: any) => {
     setSelectedMeterNozzle(nozzle);
-    setSelectedShiftForReading(shift);
     setSelectedReadingType(type);
     if (reading) {
       setEditingReadingId(reading.id);
@@ -1820,7 +1806,7 @@ export function BackdatedEntries() {
                                                 size="sm"
                                                 variant="ghost"
                                                 onClick={() =>
-                                                  openMeterReadingDialog(nozzle, shiftTemplate, 'opening', openingReading)
+                                                  openMeterReadingDialog(nozzle, 'opening', openingReading)
                                                 }
                                                 className="h-7 w-7 p-0"
                                                 title="Edit opening"
@@ -1875,7 +1861,7 @@ export function BackdatedEntries() {
                                           <Button
                                             size="sm"
                                             variant="ghost"
-                                            onClick={() => openMeterReadingDialog(nozzle, shiftTemplate, 'opening')}
+                                            onClick={() => openMeterReadingDialog(nozzle, 'opening')}
                                             className="h-7 w-7 p-0"
                                             title="Edit"
                                           >
@@ -1886,7 +1872,7 @@ export function BackdatedEntries() {
                                         <Button
                                           size="sm"
                                           variant="outline"
-                                          onClick={() => openMeterReadingDialog(nozzle, shiftTemplate, 'opening')}
+                                          onClick={() => openMeterReadingDialog(nozzle, 'opening')}
                                           className="w-full h-11 text-sm border-amber-600 text-amber-700 hover:bg-amber-100"
                                         >
                                           <Camera className="h-4 w-4 mr-1" />
@@ -1935,7 +1921,7 @@ export function BackdatedEntries() {
                                                 size="sm"
                                                 variant="ghost"
                                                 onClick={() =>
-                                                  openMeterReadingDialog(nozzle, shiftTemplate, 'closing', closingReading)
+                                                  openMeterReadingDialog(nozzle, 'closing', closingReading)
                                                 }
                                                 className="h-7 w-7 p-0"
                                                 title="Edit closing"
@@ -1983,7 +1969,7 @@ export function BackdatedEntries() {
                                         <Button
                                           size="sm"
                                           variant="outline"
-                                          onClick={() => openMeterReadingDialog(nozzle, shiftTemplate, 'closing')}
+                                          onClick={() => openMeterReadingDialog(nozzle, 'closing')}
                                           className="w-full h-11 text-sm border-amber-600 text-amber-700 hover:bg-amber-100"
                                         >
                                           <Camera className="h-4 w-4 mr-1" />
@@ -2530,13 +2516,12 @@ export function BackdatedEntries() {
             setIsMeterReadingOpen(open);
             if (!open) {
               setSelectedMeterNozzle(null);
-              setSelectedShiftForReading(null);
             }
           }}>
             <DialogContent className="sm:max-w-2xl">
               <DialogHeader>
                 <DialogTitle>
-                  {selectedShiftForReading?.name || 'Shift'} – {selectedReadingType === 'opening' ? 'Opening' : 'Closing'} Reading
+                  {selectedReadingType === 'opening' ? 'Opening' : 'Closing'} Reading
                 </DialogTitle>
                 <DialogDescription>
                   {selectedMeterNozzle?.name || `Nozzle ${selectedMeterNozzle?.nozzleNumber}`} ({selectedMeterNozzle?.fuelType?.name || 'Unknown'})
@@ -2544,16 +2529,15 @@ export function BackdatedEntries() {
                   Business Date: {businessDate}
                 </DialogDescription>
               </DialogHeader>
-              {selectedMeterNozzle && selectedShiftForReading && (
+              {selectedMeterNozzle && (
                 <MeterReadingCapture
                   nozzleId={selectedMeterNozzle.id}
-                  nozzleName={`${selectedShiftForReading.name} – ${selectedMeterNozzle.name || `Nozzle ${selectedMeterNozzle.nozzleNumber}`} (${selectedMeterNozzle.fuelType?.name || 'Unknown'})`}
-                  previousReading={_editingReadingValue ?? getPreviousReading(selectedMeterNozzle.id, selectedReadingType, selectedShiftForReading)}
+                  nozzleName={`${selectedMeterNozzle.name || `Nozzle ${selectedMeterNozzle.nozzleNumber}`} (${selectedMeterNozzle.fuelType?.name || 'Unknown'})`}
+                  previousReading={_editingReadingValue ?? null}
                   onCapture={handleMeterReadingCapture}
                   onCancel={() => {
                     setIsMeterReadingOpen(false);
                     setSelectedMeterNozzle(null);
-                    setSelectedShiftForReading(null);
                     setEditingReadingId(null);
                     setEditingReadingValue(null);
                   }}

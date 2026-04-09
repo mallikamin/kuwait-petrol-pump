@@ -9,23 +9,62 @@ const controller = new BackdatedMeterReadingsDailyController();
 router.use(authenticate);
 
 /**
- * Backdated Meter Readings Daily Route
- *
- * Provides shift-segregated view of meter readings for backdated entry workflow.
- * Sources data from meter_readings + shift_instances (single source of truth).
- *
  * GET /api/backdated-meter-readings/daily
+ *
+ * Fetch meter readings for a specific business date (no shift segregation).
+ * Sources data from backdated_meter_readings table only.
  *
  * Query params:
  * - branchId (required): UUID
  * - businessDate (required): YYYY-MM-DD
  *
- * Returns shift-segregated matrix with derivation status:
- * - entered: explicit meter reading exists
- * - derived_from_prev_shift: computed from previous shift's closing
- * - derived_from_next_shift: computed from next shift's opening
- * - missing: no data available
+ * Returns:
+ * - nozzles: array of meter reading statuses (opening/closing)
+ * - summary: completion stats
  */
 router.get('/daily', controller.getDailyMeterReadings.bind(controller));
+
+/**
+ * POST /api/backdated-meter-readings/daily
+ *
+ * Save a single meter reading for backdated entry.
+ * No shift required - uses businessDate only.
+ *
+ * Request body:
+ * {
+ *   branchId: string
+ *   businessDate: string (YYYY-MM-DD)
+ *   nozzleId: string
+ *   readingType: 'opening' | 'closing'
+ *   meterValue: number
+ *   source?: 'manual' | 'ocr'
+ *   imageUrl?: string
+ *   attachmentUrl?: string
+ *   ocrConfidence?: number
+ *   ocrManuallyEdited?: boolean
+ * }
+ */
+router.post('/daily', controller.saveMeterReading.bind(controller));
+
+/**
+ * PATCH /api/backdated-meter-readings/daily/:readingId
+ *
+ * Update a meter reading (partial update).
+ *
+ * Request body:
+ * {
+ *   meterValue?: number
+ *   attachmentUrl?: string
+ *   ocrManuallyEdited?: boolean
+ * }
+ */
+router.patch('/daily/:readingId', controller.updateMeterReading.bind(controller));
+
+/**
+ * DELETE /api/backdated-meter-readings/daily/:readingId
+ *
+ * Delete a specific meter reading by ID.
+ */
+router.delete('/daily/:readingId', controller.deleteMeterReading.bind(controller));
 
 export default router;

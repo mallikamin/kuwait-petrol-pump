@@ -94,4 +94,186 @@ export class BackdatedMeterReadingsDailyController {
       next(error);
     }
   }
+
+  /**
+   * POST /api/backdated-meter-readings/daily
+   *
+   * Save a single meter reading for a backdated entry.
+   * No shift required - uses businessDate only.
+   *
+   * Request body:
+   * {
+   *   branchId: string (UUID)
+   *   businessDate: string (YYYY-MM-DD)
+   *   nozzleId: string (UUID)
+   *   readingType: 'opening' | 'closing'
+   *   meterValue: number
+   *   source?: 'manual' | 'ocr'
+   *   imageUrl?: string
+   *   attachmentUrl?: string
+   *   ocrConfidence?: number
+   *   ocrManuallyEdited?: boolean
+   * }
+   *
+   * Response:
+   * {
+   *   success: true,
+   *   data: {
+   *     id: string,
+   *     nozzleId: string,
+   *     readingType: string,
+   *     meterValue: number
+   *   }
+   * }
+   */
+  async saveMeterReading(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { branchId, businessDate, nozzleId, readingType, meterValue, source, imageUrl, attachmentUrl, ocrConfidence, ocrManuallyEdited } = req.body;
+
+      // Validation
+      if (!branchId || typeof branchId !== 'string') {
+        throw new AppError(400, 'branchId is required');
+      }
+
+      if (!businessDate || typeof businessDate !== 'string') {
+        throw new AppError(400, 'businessDate is required (format: YYYY-MM-DD)');
+      }
+
+      if (!nozzleId || typeof nozzleId !== 'string') {
+        throw new AppError(400, 'nozzleId is required');
+      }
+
+      if (!readingType || !['opening', 'closing'].includes(readingType)) {
+        throw new AppError(400, 'readingType must be "opening" or "closing"');
+      }
+
+      if (typeof meterValue !== 'number' || meterValue < 0) {
+        throw new AppError(400, 'meterValue must be a non-negative number');
+      }
+
+      const organizationId = (req as any).user?.organizationId;
+      const userId = (req as any).user?.id;
+
+      if (!organizationId || !userId) {
+        throw new AppError(401, 'User organization/id not found');
+      }
+
+      const data = await service.saveSingleMeterReading(
+        branchId,
+        businessDate,
+        organizationId,
+        {
+          nozzleId,
+          readingType,
+          meterValue,
+          source: source as 'manual' | 'ocr' | undefined,
+          imageUrl,
+          attachmentUrl,
+          ocrConfidence,
+          ocrManuallyEdited,
+        },
+        userId
+      );
+
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * PATCH /api/backdated-meter-readings/daily/:readingId
+   *
+   * Update a meter reading (partial update).
+   *
+   * Request body:
+   * {
+   *   meterValue?: number
+   *   attachmentUrl?: string
+   *   ocrManuallyEdited?: boolean
+   * }
+   *
+   * Response:
+   * {
+   *   success: true,
+   *   data: {
+   *     id: string,
+   *     meterValue: number
+   *   }
+   * }
+   */
+  async updateMeterReading(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { readingId } = req.params;
+      const { meterValue, attachmentUrl, ocrManuallyEdited } = req.body;
+
+      if (!readingId || typeof readingId !== 'string') {
+        throw new AppError(400, 'readingId is required');
+      }
+
+      const organizationId = (req as any).user?.organizationId;
+      const userId = (req as any).user?.id;
+
+      if (!organizationId || !userId) {
+        throw new AppError(401, 'User organization/id not found');
+      }
+
+      const data = await service.updateMeterReading(
+        readingId,
+        organizationId,
+        {
+          meterValue: typeof meterValue === 'number' ? meterValue : undefined,
+          attachmentUrl,
+          ocrManuallyEdited,
+        },
+        userId
+      );
+
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * DELETE /api/backdated-meter-readings/daily/:readingId
+   *
+   * Delete a single meter reading.
+   *
+   * Response:
+   * {
+   *   success: true,
+   *   message: "Meter reading deleted"
+   * }
+   */
+  async deleteMeterReading(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { readingId } = req.params;
+
+      if (!readingId || typeof readingId !== 'string') {
+        throw new AppError(400, 'readingId is required');
+      }
+
+      const organizationId = (req as any).user?.organizationId;
+
+      if (!organizationId) {
+        throw new AppError(401, 'User organization not found');
+      }
+
+      await service.deleteMeterReading(readingId, organizationId);
+
+      res.json({
+        success: true,
+        message: 'Meter reading deleted',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }

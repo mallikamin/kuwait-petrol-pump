@@ -310,4 +310,159 @@ export class BackdatedMeterReadingsDailyService {
 
     return { saved, errors };
   }
+
+  /**
+   * Save a single meter reading (no shift required, uses businessDate only)
+   */
+  async saveSingleMeterReading(
+    branchId: string,
+    businessDate: string,
+    organizationId: string,
+    input: SaveMeterReadingInput,
+    userId: string
+  ): Promise<{ id: string; nozzleId: string; readingType: string; meterValue: number }> {
+    console.log('[BackdatedMeterReadings] saveSingleMeterReading:', {
+      branchId,
+      businessDate,
+      nozzleId: input.nozzleId,
+      readingType: input.readingType,
+      meterValue: input.meterValue,
+    });
+
+    // Validate branch
+    const branch = await prisma.branch.findFirst({
+      where: { id: branchId, organizationId },
+    });
+
+    if (!branch) {
+      throw new AppError(404, 'Branch not found');
+    }
+
+    // Validate nozzle exists and belongs to branch
+    const nozzle = await prisma.nozzle.findFirst({
+      where: {
+        id: input.nozzleId,
+        dispensingUnit: {
+          branchId,
+        },
+      },
+    });
+
+    if (!nozzle) {
+      throw new AppError(404, 'Nozzle not found in this branch');
+    }
+
+    const businessDateObj = new Date(businessDate);
+    businessDateObj.setUTCHours(0, 0, 0, 0);
+
+    const reading = await prisma.backdatedMeterReading.upsert({
+      where: {
+        unique_branch_date_nozzle_type: {
+          branchId,
+          businessDate: businessDateObj,
+          nozzleId: input.nozzleId,
+          readingType: input.readingType,
+        },
+      },
+      create: {
+        organizationId,
+        branchId,
+        businessDate: businessDateObj,
+        nozzleId: input.nozzleId,
+        readingType: input.readingType,
+        meterValue: input.meterValue,
+        source: input.source || 'manual',
+        imageUrl: input.imageUrl,
+        attachmentUrl: input.attachmentUrl,
+        ocrConfidence: input.ocrConfidence,
+        ocrManuallyEdited: input.ocrManuallyEdited || false,
+        createdBy: userId,
+        submittedBy: userId,
+        submittedAt: new Date(),
+      },
+      update: {
+        meterValue: input.meterValue,
+        source: input.source || 'manual',
+        imageUrl: input.imageUrl,
+        attachmentUrl: input.attachmentUrl,
+        ocrConfidence: input.ocrConfidence,
+        ocrManuallyEdited: input.ocrManuallyEdited || false,
+        updatedBy: userId,
+        submittedAt: new Date(),
+      },
+    });
+
+    return {
+      id: reading.id,
+      nozzleId: reading.nozzleId,
+      readingType: reading.readingType,
+      meterValue: Number(reading.meterValue),
+    };
+  }
+
+  /**
+   * Update a meter reading by ID (partial update)
+   */
+  async updateMeterReading(
+    readingId: string,
+    organizationId: string,
+    updates: {
+      meterValue?: number;
+      attachmentUrl?: string;
+      ocrManuallyEdited?: boolean;
+    },
+    userId: string
+  ): Promise<{ id: string; meterValue: number }> {
+    console.log('[BackdatedMeterReadings] updateMeterReading:', { readingId });
+
+    // Verify reading exists and belongs to organization
+    const reading = await prisma.backdatedMeterReading.findFirst({
+      where: {
+        id: readingId,
+        organizationId,
+      },
+    });
+
+    if (!reading) {
+      throw new AppError(404, 'Meter reading not found');
+    }
+
+    const updated = await prisma.backdatedMeterReading.update({
+      where: { id: readingId },
+      data: {
+        meterValue: updates.meterValue !== undefined ? updates.meterValue : reading.meterValue,
+        attachmentUrl: updates.attachmentUrl !== undefined ? updates.attachmentUrl : reading.attachmentUrl,
+        ocrManuallyEdited: updates.ocrManuallyEdited !== undefined ? updates.ocrManuallyEdited : reading.ocrManuallyEdited,
+        updatedBy: userId,
+      },
+    });
+
+    return {
+      id: updated.id,
+      meterValue: Number(updated.meterValue),
+    };
+  }
+
+  /**
+   * Delete a meter reading by ID
+   */
+  async deleteMeterReading(readingId: string, organizationId: string): Promise<void> {
+    console.log('[BackdatedMeterReadings] deleteMeterReading:', { readingId });
+
+    // Verify reading exists and belongs to organization
+    const reading = await prisma.backdatedMeterReading.findFirst({
+      where: {
+        id: readingId,
+        organizationId,
+      },
+    });
+
+    if (!reading) {
+      throw new AppError(404, 'Meter reading not found');
+    }
+
+    await prisma.backdatedMeterReading.delete({
+      where: { id: readingId },
+    });
+  }
 }
