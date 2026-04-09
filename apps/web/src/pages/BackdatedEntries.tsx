@@ -824,13 +824,13 @@ export function BackdatedEntries() {
       // ✅ IMMUTABLE HYDRATION: Create exact copies of API data WITHOUT mutations
       // Do NOT auto-fill product names or prices during hydration - keep API values as-is
       // Only user field edits (via updateTransaction) should trigger auto-fill logic
-      const hydratedTransactions = dailySummaryData.transactions.map((txn: any) => {
-        const mapped = {
+      const hydratedTransactions = dailySummaryData.transactions.map((txn: any): Transaction => {
+        const mapped: Transaction = {
           id: txn.id,
           nozzleId: txn.nozzle?.id || '',
           customerId: txn.customer?.id || '',
           customerName: txn.customer?.name || '',
-          fuelCode: txn.fuelCode || '', // ✅ CRITICAL: Use exact API value (NEVER fall back to nozzle fuel type)
+          fuelCode: (txn.fuelCode || '') as any, // ✅ CRITICAL: Use exact API value (NEVER fall back to nozzle fuel type)
           vehicleNumber: txn.vehicleNumber || '',
           slipNumber: txn.slipNumber || '',
           productName: txn.productName || 'Fuel', // Keep exact API value
