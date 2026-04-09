@@ -1116,7 +1116,14 @@ export function BackdatedEntries() {
           shiftId: selectedShiftId || undefined,
         },
       });
+      console.log('[Finalize] Server summary received:', latestSummaryRes.data);
       const serverSummary = latestSummaryRes.data?.data;
+
+      if (!serverSummary) {
+        console.error('[Finalize] ERROR: serverSummary is undefined', latestSummaryRes.data);
+        toast.error('Failed to fetch validation data from server', { duration: 7000 });
+        return;
+      }
 
       // ✅ Step 2: Validate using server truth (not local state)
       const litersTolerance = 0.01;
@@ -1149,12 +1156,15 @@ export function BackdatedEntries() {
       }
 
       if (errors.length > 0) {
+        console.log('[Finalize] Server validation failed:', errors);
         toast.error(`Finalize blocked: ${errors.join(' | ')}`, { duration: 7000 });
         return;
       }
 
       // ✅ Step 3: Proceed with finalize (with try/catch for uncaught promise rejection)
-      await finalizeDayMutation.mutateAsync();
+      console.log('[Finalize] Validation passed, calling mutation...');
+      const result = await finalizeDayMutation.mutateAsync();
+      console.log('[Finalize] Mutation returned:', result);
     } catch (error: any) {
       // ✅ Catch uncaught promise rejections from refetch or mutation
       console.error('[Finalize] Uncaught error:', error);
