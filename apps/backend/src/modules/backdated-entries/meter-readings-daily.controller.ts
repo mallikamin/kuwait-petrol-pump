@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { BackdatedMeterReadingsDailyService } from './meter-readings-daily.service';
 import { AppError } from '../../middleware/error.middleware';
+import { hasRole } from '../../middleware/auth.middleware';
 
 const service = new BackdatedMeterReadingsDailyService();
 
@@ -128,6 +129,11 @@ export class BackdatedMeterReadingsDailyController {
    */
   async saveMeterReading(req: Request, res: Response, next: NextFunction) {
     try {
+      // Role check: only admin, manager, accountant can save backdated meter readings
+      if (!req.user || !hasRole(req.user, ['admin', 'manager', 'accountant'])) {
+        throw new AppError(403, 'Insufficient permissions. Only admin, manager, or accountant can save meter readings.');
+      }
+
       const { branchId, businessDate, nozzleId, readingType, meterValue, source, imageUrl, attachmentUrl, ocrConfidence, ocrManuallyEdited } = req.body;
 
       // Validation
@@ -151,8 +157,8 @@ export class BackdatedMeterReadingsDailyController {
         throw new AppError(400, 'meterValue must be a non-negative number');
       }
 
-      const organizationId = (req as any).user?.organizationId;
-      const userId = (req as any).user?.id;
+      const organizationId = req.user.organizationId;
+      const userId = req.user.userId;
 
       if (!organizationId || !userId) {
         throw new AppError(401, 'User organization/id not found');
@@ -207,6 +213,11 @@ export class BackdatedMeterReadingsDailyController {
    */
   async updateMeterReading(req: Request, res: Response, next: NextFunction) {
     try {
+      // Role check: only admin, manager, accountant can update backdated meter readings
+      if (!req.user || !hasRole(req.user, ['admin', 'manager', 'accountant'])) {
+        throw new AppError(403, 'Insufficient permissions. Only admin, manager, or accountant can update meter readings.');
+      }
+
       const { readingId } = req.params;
       const { meterValue, attachmentUrl, ocrManuallyEdited } = req.body;
 
@@ -214,8 +225,8 @@ export class BackdatedMeterReadingsDailyController {
         throw new AppError(400, 'readingId is required');
       }
 
-      const organizationId = (req as any).user?.organizationId;
-      const userId = (req as any).user?.id;
+      const organizationId = req.user.organizationId;
+      const userId = req.user.userId;
 
       if (!organizationId || !userId) {
         throw new AppError(401, 'User organization/id not found');
@@ -254,13 +265,18 @@ export class BackdatedMeterReadingsDailyController {
    */
   async deleteMeterReading(req: Request, res: Response, next: NextFunction) {
     try {
+      // Role check: only admin, manager, accountant can delete backdated meter readings
+      if (!req.user || !hasRole(req.user, ['admin', 'manager', 'accountant'])) {
+        throw new AppError(403, 'Insufficient permissions. Only admin, manager, or accountant can delete meter readings.');
+      }
+
       const { readingId } = req.params;
 
       if (!readingId || typeof readingId !== 'string') {
         throw new AppError(400, 'readingId is required');
       }
 
-      const organizationId = (req as any).user?.organizationId;
+      const organizationId = req.user.organizationId;
 
       if (!organizationId) {
         throw new AppError(401, 'User organization not found');
