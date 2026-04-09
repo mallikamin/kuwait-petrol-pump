@@ -139,6 +139,17 @@ export function BackdatedEntries() {
   const [isContextCollapsed, setIsContextCollapsed] = useState(true);
   const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
 
+  // Finalize modal dialog state
+  const [finalizeDialogOpen, setFinalizeDialogOpen] = useState(false);
+  const [finalizeResult, setFinalizeResult] = useState<{
+    type: 'success' | 'error';
+    message?: string;
+    blockers?: Array<{ message: string }>;
+    metrics?: { hsdGap?: number; pmgGap?: number; cashGap?: number };
+    salesCreated?: number;
+    transactionsProcessed?: number;
+  } | null>(null);
+
   // Use sessionStorage for loadedKey to persist across tab navigation
   const setLoadedKey = (key: string) => sessionStorage.setItem('backdated_loaded_key', key);
 
@@ -1110,9 +1121,20 @@ export function BackdatedEntries() {
     },
     onSuccess: (data: any) => {
       const message = data?.message || `Day finalized! ${data?.transactionsCount || 0} transactions queued for QuickBooks sync. ${data?.salesCount || 0} sales created.`;
-      toast.success(message);
       console.log('[Finalize] Success:', data);
       setIsDirty(false); // ✅ Reset dirty state after successful finalize
+
+      // ✅ Show success dialog with details
+      setFinalizeResult({
+        type: 'success',
+        message: message,
+        salesCreated: data?.salesCount || 0,
+        transactionsProcessed: data?.transactionsCount || 0,
+      });
+      setFinalizeDialogOpen(true);
+
+      // Also show brief toast
+      toast.success('Day finalized successfully!');
       refetchDailySummary();
     },
     onError: (error: any) => {
@@ -1124,37 +1146,26 @@ export function BackdatedEntries() {
       console.error('[Finalize] Metrics:', payload?.metrics);
 
       // ✅ Extract blocker messages from structured error response
-      let blockerMessages: string[] = [];
-      let mainMsg = '';
+      let blockers: Array<{ message: string }> = [];
 
       if (Array.isArray(payload?.details) && payload.details.length > 0) {
-        // Server returned structured blockers (new format) - show each one
-        blockerMessages = payload.details
-          .map((d: any) => {
-            const msg = d?.message || '';
-            const metrics = d?.data ? ` (${JSON.stringify(d.data)})` : '';
-            return msg + metrics;
-          })
-          .filter(Boolean);
-        mainMsg = blockerMessages.join('\n• ');
-      } else if (typeof payload?.error === 'string' && payload.error) {
-        // Fall back to error field
-        mainMsg = payload.error;
-      } else if (typeof payload?.message === 'string' && payload.message) {
-        // Or message field
-        mainMsg = payload.message;
-      } else {
-        // Or generic error message
-        mainMsg = error?.message || 'Failed to finalize day';
+        // Server returned structured blockers (new format)
+        blockers = payload.details.map((d: any) => ({
+          message: d?.message || 'Unknown blocker',
+        }));
       }
 
-      // ✅ Surface blockers in toast with clear formatting
-      const finalMsg = blockerMessages.length > 0
-        ? `Finalize blocked:\n• ${mainMsg}`
-        : `Finalize blocked: ${mainMsg}`;
+      // ✅ Show error dialog with blockers and metrics
+      setFinalizeResult({
+        type: 'error',
+        message: payload?.error || payload?.message || 'Failed to finalize day',
+        blockers: blockers.length > 0 ? blockers : undefined,
+        metrics: payload?.metrics,
+      });
+      setFinalizeDialogOpen(true);
 
-      console.log('[Finalize] Showing error to user:', finalMsg);
-      toast.error(finalMsg, { duration: 9000 });
+      // Also show brief toast
+      toast.error('Finalize blocked - see dialog for details', { duration: 5000 });
     },
   });
 
@@ -2014,7 +2025,7 @@ export function BackdatedEntries() {
           {/* HSD/PMG Dashboard Cards */}
           {selectedBranchId && businessDate && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* HSD Card */}
+              {/* HSD Card - USE SAME DATA SOURCE AS FINALIZE (dailySummaryData) */}
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">HSD (Diesel)</CardTitle>
@@ -2022,31 +2033,31 @@ export function BackdatedEntries() {
                 <CardContent className="space-y-3">
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Meter Total:</span>
-                    <span className="font-mono font-semibold">{fuelTotals.HSD.toFixed(3)} L</span>
+                    <span className="font-mono font-semibold">{(dailySummaryData?.meterTotals?.hsdLiters || 0).toFixed(3)} L</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Posted:</span>
-                    <span className="font-mono text-blue-600">{postedByFuel.HSD.toFixed(3)} L</span>
+                    <span className="font-mono text-blue-600">{(dailySummaryData?.postedTotals?.hsdLiters || 0).toFixed(3)} L</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Remaining:</span>
-                    <span className="font-mono font-semibold text-orange-600">{(fuelTotals.HSD - postedByFuel.HSD).toFixed(3)} L</span>
+                    <span className="font-mono font-semibold text-orange-600">{(dailySummaryData?.remainingLiters?.hsd || 0).toFixed(3)} L</span>
                   </div>
                   <div className="space-y-1">
                     <div className="flex justify-between text-sm font-medium text-muted-foreground">
-                      <span>{fuelTotals.HSD > 0 ? Math.round((postedByFuel.HSD / fuelTotals.HSD) * 100) : 0}% Reconciled</span>
+                      <span>{(dailySummaryData?.meterTotals?.hsdLiters || 0) > 0 ? Math.round(((dailySummaryData?.postedTotals?.hsdLiters || 0) / (dailySummaryData?.meterTotals?.hsdLiters || 1)) * 100) : 0}% Reconciled</span>
                     </div>
                     <div className="h-2 bg-muted rounded-full overflow-hidden">
                       <div
                         className="h-full bg-blue-600 transition-all"
-                        style={{ width: `${fuelTotals.HSD > 0 ? Math.min((postedByFuel.HSD / fuelTotals.HSD) * 100, 100) : 0}%` }}
+                        style={{ width: `${(dailySummaryData?.meterTotals?.hsdLiters || 0) > 0 ? Math.min(((dailySummaryData?.postedTotals?.hsdLiters || 0) / (dailySummaryData?.meterTotals?.hsdLiters || 1)) * 100, 100) : 0}%` }}
                       />
                     </div>
                   </div>
                 </CardContent>
               </Card>
 
-              {/* PMG Card */}
+              {/* PMG Card - USE SAME DATA SOURCE AS FINALIZE (dailySummaryData) */}
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">PMG (Petrol)</CardTitle>
@@ -2054,24 +2065,24 @@ export function BackdatedEntries() {
                 <CardContent className="space-y-3">
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Meter Total:</span>
-                    <span className="font-mono font-semibold">{fuelTotals.PMG.toFixed(3)} L</span>
+                    <span className="font-mono font-semibold">{(dailySummaryData?.meterTotals?.pmgLiters || 0).toFixed(3)} L</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Posted:</span>
-                    <span className="font-mono text-blue-600">{postedByFuel.PMG.toFixed(3)} L</span>
+                    <span className="font-mono text-blue-600">{(dailySummaryData?.postedTotals?.pmgLiters || 0).toFixed(3)} L</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Remaining:</span>
-                    <span className="font-mono font-semibold text-orange-600">{(fuelTotals.PMG - postedByFuel.PMG).toFixed(3)} L</span>
+                    <span className="font-mono font-semibold text-orange-600">{(dailySummaryData?.remainingLiters?.pmg || 0).toFixed(3)} L</span>
                   </div>
                   <div className="space-y-1">
                     <div className="flex justify-between text-sm font-medium text-muted-foreground">
-                      <span>{fuelTotals.PMG > 0 ? Math.round((postedByFuel.PMG / fuelTotals.PMG) * 100) : 0}% Reconciled</span>
+                      <span>{(dailySummaryData?.meterTotals?.pmgLiters || 0) > 0 ? Math.round(((dailySummaryData?.postedTotals?.pmgLiters || 0) / (dailySummaryData?.meterTotals?.pmgLiters || 1)) * 100) : 0}% Reconciled</span>
                     </div>
                     <div className="h-2 bg-muted rounded-full overflow-hidden">
                       <div
                         className="h-full bg-blue-600 transition-all"
-                        style={{ width: `${fuelTotals.PMG > 0 ? Math.min((postedByFuel.PMG / fuelTotals.PMG) * 100, 100) : 0}%` }}
+                        style={{ width: `${(dailySummaryData?.meterTotals?.pmgLiters || 0) > 0 ? Math.min(((dailySummaryData?.postedTotals?.pmgLiters || 0) / (dailySummaryData?.meterTotals?.pmgLiters || 1)) * 100, 100) : 0}%` }}
                       />
                     </div>
                   </div>
@@ -2894,6 +2905,122 @@ export function BackdatedEntries() {
           </div>
         </div>
       </div>
+
+      {/* Finalize Result Modal Dialog */}
+      <Dialog open={finalizeDialogOpen} onOpenChange={setFinalizeDialogOpen}>
+        <DialogContent className="max-w-md">
+          {finalizeResult?.type === 'success' ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 text-green-600">
+                  <CheckCircle className="h-5 w-5" />
+                  Day Finalized Successfully
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="text-sm text-muted-foreground">
+                  {finalizeResult.message}
+                </div>
+                <div className="bg-green-50 border border-green-200 rounded p-3 space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Sales Created:</span>
+                    <span className="font-semibold">{finalizeResult.salesCreated || 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Transactions Queued:</span>
+                    <span className="font-semibold">{finalizeResult.transactionsProcessed || 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Date:</span>
+                    <span className="font-semibold">{businessDate}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Branch:</span>
+                    <span className="font-semibold">{branchesData?.find((b: any) => b.id === selectedBranchId)?.name || 'Unknown'}</span>
+                  </div>
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Transactions will be synced to QuickBooks in the background.
+                </div>
+              </div>
+              <DialogFooter>
+                <Button onClick={() => setFinalizeDialogOpen(false)} className="w-full">
+                  Done
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 text-orange-600">
+                  <AlertCircle className="h-5 w-5" />
+                  Finalize Blocked
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="text-sm text-muted-foreground">
+                  {finalizeResult?.message}
+                </div>
+
+                {/* Blockers List */}
+                {finalizeResult?.blockers && finalizeResult.blockers.length > 0 && (
+                  <div className="bg-orange-50 border border-orange-200 rounded p-3 space-y-2 text-sm">
+                    <div className="font-semibold text-orange-900">Blockers:</div>
+                    {finalizeResult.blockers.map((blocker, idx) => (
+                      <div key={idx} className="flex gap-2 text-orange-800">
+                        <span className="mt-0.5">•</span>
+                        <span>{blocker.message}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Metrics Display */}
+                {finalizeResult?.metrics && (
+                  <div className="bg-slate-50 border border-slate-200 rounded p-3 space-y-2 text-sm">
+                    <div className="font-semibold text-slate-900">Gaps:</div>
+                    <div className="space-y-1">
+                      {finalizeResult.metrics.hsdGap !== undefined && (
+                        <div className="flex justify-between text-slate-700">
+                          <span className="text-muted-foreground">HSD Gap:</span>
+                          <span className={`font-mono font-semibold ${Math.abs(finalizeResult.metrics.hsdGap) > 0.01 ? 'text-orange-600' : 'text-green-600'}`}>
+                            {finalizeResult.metrics.hsdGap.toFixed(3)} L
+                          </span>
+                        </div>
+                      )}
+                      {finalizeResult.metrics.pmgGap !== undefined && (
+                        <div className="flex justify-between text-slate-700">
+                          <span className="text-muted-foreground">PMG Gap:</span>
+                          <span className={`font-mono font-semibold ${Math.abs(finalizeResult.metrics.pmgGap) > 0.01 ? 'text-orange-600' : 'text-green-600'}`}>
+                            {finalizeResult.metrics.pmgGap.toFixed(3)} L
+                          </span>
+                        </div>
+                      )}
+                      {finalizeResult.metrics.cashGap !== undefined && (
+                        <div className="flex justify-between text-slate-700">
+                          <span className="text-muted-foreground">Cash Gap:</span>
+                          <span className={`font-mono font-semibold ${Math.abs(finalizeResult.metrics.cashGap) > 0.01 ? 'text-orange-600' : 'text-green-600'}`}>
+                            {finalizeResult.metrics.cashGap.toFixed(2)} PKR
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div className="text-xs text-muted-foreground">
+                  Fix the blockers above and save your draft again before finalizing.
+                </div>
+              </div>
+              <DialogFooter>
+                <Button onClick={() => setFinalizeDialogOpen(false)} variant="outline" className="w-full">
+                  Close
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
