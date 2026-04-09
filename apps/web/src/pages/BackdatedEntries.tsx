@@ -276,7 +276,7 @@ export function BackdatedEntries() {
   });
 
   // Fetch daily summary from new consolidated API
-  const { data: dailySummaryData, refetch: refetchDailySummary } = useQuery({
+  const { data: dailySummaryData, refetch: refetchDailySummary, isLoading: isDailySummaryLoading } = useQuery({
     queryKey: ['backdated-entries-daily', selectedBranchId, businessDate, selectedShiftId],
     enabled: !!selectedBranchId && !!businessDate,
     queryFn: async () => {
@@ -775,57 +775,35 @@ export function BackdatedEntries() {
 
     const currentKey = `${selectedBranchId}_${businessDate}_${selectedShiftId || 'all'}`;
     const previousKey = sessionStorage.getItem('backdated_loaded_key');
+    const dateChanged = previousKey && previousKey !== currentKey;
 
-    // ✅ FIX: If businessDate changed, clear in-memory staged rows for previous key
-    if (previousKey && previousKey !== currentKey) {
+    // ✅ CRITICAL FIX: If businessDate changed, clear in-memory staged rows AND force API refetch
+    if (dateChanged) {
       const oldSessionKey = `backdated_transactions_${previousKey}`;
       console.log('[Date Change] Clearing previous date data:', { previousKey, currentKey });
       sessionStorage.removeItem(oldSessionKey);
+      // Force fresh refetch from API (bypass cache) when date changes
+      refetchDailySummary();
     }
 
     console.log('[Transactions] Loading key:', {
       currentKey,
       previousKey,
-      dateChanged: previousKey !== currentKey,
+      dateChanged,
       hasAPIData: !!dailySummaryData?.transactions,
       apiCount: dailySummaryData?.transactions?.length || 0,
     });
 
-    const hasServerTransactions = !!(dailySummaryData?.transactions && dailySummaryData.transactions.length > 0);
-
-    // Try loading from sessionStorage first only when server has no transactions.
-    // This prevents stale local drafts from overriding cleaned server data.
-    const sessionKey = `backdated_transactions_${currentKey}`;
-    const sessionData = sessionStorage.getItem(sessionKey);
-    if (sessionData && !hasServerTransactions) {
-      try {
-        const { transactions: sessionTxns, timestamp } = JSON.parse(sessionData);
-        const ageMinutes = (Date.now() - timestamp) / 1000 / 60;
-
-        // ✅ FIX: NEVER auto-discard unsaved work - always restore regardless of age
-        // User can manually discard if they want fresh start
-        if (sessionTxns.length > 0) {
-          const ageHours = Math.floor(ageMinutes / 60);
-          const ageDisplay = ageHours > 0
-            ? `${ageHours}h ${Math.round(ageMinutes % 60)}min`
-            : `${Math.round(ageMinutes)} min`;
-
-          console.log('[Transactions] Loading from sessionStorage:', sessionTxns.length, '(age:', ageDisplay, ')');
-          hydratingTransactionsRef.current = true;
-          setTransactions(sessionTxns);
-          setSyncMessage(`⚠️ Restored ${sessionTxns.length} UNSAVED transactions from ${ageDisplay} ago. Click "Save Draft" to persist to server.`);
-          setIsDirty(true); // Mark as dirty to trigger save reminder
-          setLoadedKey(currentKey);
-          return;
-        }
-      } catch (e) {
-        console.error('[SessionStorage] Parse error:', e);
-      }
+    // ✅ CRITICAL FIX: Only clear transactions if API has FINISHED loading
+    // If API is still loading (undefined), don't update state - wait for data
+    if (isDailySummaryLoading) {
+      console.log('[Transactions] Waiting for API data to load...');
+      return; // Don't update state until API data arrives
     }
 
-    // Load from API (server-saved data)
+    // ✅ PRIORITY: Always load from API first (server is source of truth)
     if (dailySummaryData?.transactions && dailySummaryData.transactions.length > 0) {
-      console.log('[Transactions] Loading from API:', dailySummaryData.transactions.length);
+      console.log('[Transactions] Loading from API (server truth):', dailySummaryData.transactions.length);
       hydratingTransactionsRef.current = true;
       setTransactions(
         dailySummaryData.transactions.map((txn: any) => ({
@@ -854,9 +832,11 @@ export function BackdatedEntries() {
       setSyncMessage(`Loaded ${dailySummaryData.transactions.length} existing transactions.`);
       setLoadedKey(currentKey);
       // Clear sessionStorage since server is now source of truth for this key.
+      const sessionKey = `backdated_transactions_${currentKey}`;
       sessionStorage.removeItem(sessionKey);
     } else {
-      console.log('[Transactions] No API data, clearing');
+      // API finished loading but returned no transactions (user may have cleared them)
+      console.log('[Transactions] API loaded: no transactions found');
       hydratingTransactionsRef.current = true;
       setTransactions([]);
       setSyncMessage('No existing transactions. Start adding customer groups.');
@@ -867,6 +847,7 @@ export function BackdatedEntries() {
     businessDate,
     selectedShiftId,
     dailySummaryData,
+    isDailySummaryLoading,
   ]);
 
 
