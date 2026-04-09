@@ -1871,7 +1871,11 @@ export function BackdatedEntries() {
                                         size="sm"
                                         variant="ghost"
                                         onClick={() => {
-                                          if (nozzle.opening?.id && confirm('Delete this opening reading?')) {
+                                          if (!nozzle.opening?.id) {
+                                            toast.error('Reading ID missing. Please refresh and try again.');
+                                            return;
+                                          }
+                                          if (confirm('Delete this opening reading?')) {
                                             deleteMeterReadingMutation.mutate(nozzle.opening.id);
                                           }
                                         }}
@@ -1968,7 +1972,11 @@ export function BackdatedEntries() {
                                         size="sm"
                                         variant="ghost"
                                         onClick={() => {
-                                          if (nozzle.closing?.id && confirm('Delete this closing reading?')) {
+                                          if (!nozzle.closing?.id) {
+                                            toast.error('Reading ID missing. Please refresh and try again.');
+                                            return;
+                                          }
+                                          if (confirm('Delete this closing reading?')) {
                                             deleteMeterReadingMutation.mutate(nozzle.closing.id);
                                           }
                                         }}

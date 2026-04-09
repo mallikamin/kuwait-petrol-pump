@@ -177,6 +177,7 @@ export class BackdatedMeterReadingsDailyService {
         fuelTypeName: nozzle.fuelType.name,
         opening: openingReading
           ? {
+              id: openingReading.id,
               value: Number(openingReading.meterValue),
               status: 'entered' as const,
               recordedBy: openingReading.createdBy || undefined,
@@ -194,6 +195,7 @@ export class BackdatedMeterReadingsDailyService {
             },
         closing: closingReading
           ? {
+              id: closingReading.id,
               value: Number(closingReading.meterValue),
               status: 'entered' as const,
               recordedBy: closingReading.createdBy || undefined,
