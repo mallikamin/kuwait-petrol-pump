@@ -278,7 +278,7 @@ export function BackdatedEntries() {
   });
 
   // Fetch or create shift instances for selected business date (for meter reading assignments)
-  const { data: shiftInstancesData, refetch: refetchShiftInstances } = useQuery({
+  const { data: shiftInstancesData } = useQuery({
     queryKey: ['shift-instances-for-date', selectedBranchId, businessDate],
     enabled: !!selectedBranchId && !!businessDate,
     queryFn: async () => {
@@ -1223,18 +1223,17 @@ export function BackdatedEntries() {
 
   // Save backdated meter reading mutation (no shift required)
   const saveMeterReadingMutation = useMutation({
-    mutationFn: async ({ nozzleId, readingType, meterValue, imageUrl, ocrConfidence, isManual, attachmentUrl, ocrManuallyEdited }: {
+    mutationFn: async ({ nozzleId, readingType, meterValue, imageUrl, ocrConfidence, attachmentUrl, ocrManuallyEdited }: {
       nozzleId: string;
       readingType: 'opening' | 'closing';
       meterValue: number;
       imageUrl?: string;
       ocrConfidence?: number;
-      isManual: boolean;
       attachmentUrl?: string;
       ocrManuallyEdited?: boolean;
     }) => {
       const res = await apiClient.post('/api/backdated-meter-readings/daily', {
-        branchId: selectedBranch,
+        branchId: selectedBranchId,
         businessDate,
         nozzleId,
         readingType,
@@ -1247,8 +1246,7 @@ export function BackdatedEntries() {
       });
       return res.data;
     },
-    onSuccess: (_data, variables) => {
-      const { readingType } = variables;
+    onSuccess: () => {
       toast.success(`Meter reading saved!`);
       setIsMeterReadingOpen(false);
       setSelectedMeterNozzle(null);
@@ -2533,7 +2531,7 @@ export function BackdatedEntries() {
                 <MeterReadingCapture
                   nozzleId={selectedMeterNozzle.id}
                   nozzleName={`${selectedMeterNozzle.name || `Nozzle ${selectedMeterNozzle.nozzleNumber}`} (${selectedMeterNozzle.fuelType?.name || 'Unknown'})`}
-                  previousReading={_editingReadingValue ?? null}
+                  previousReading={_editingReadingValue ?? undefined}
                   onCapture={handleMeterReadingCapture}
                   onCancel={() => {
                     setIsMeterReadingOpen(false);
