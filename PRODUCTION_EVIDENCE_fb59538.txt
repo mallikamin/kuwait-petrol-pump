@@ -1,0 +1,1166 @@
+======================================================================
+PRODUCTION EVIDENCE CAPTURE - fb59538
+Date: 2026-04-09 16:09:28 UTC
+Commit: fb59538 (P0: Remove shift dependency from backdated meter readings)
+======================================================================
+
+======================================================================
+TEST 1: GET /api/backdated-entries/daily (April 2)
+======================================================================
+{
+    "success": true,
+    "data": {
+        "branchId": "9bcb8674-9d93-4d93-b0fc-270305dcbe50",
+        "businessDate": "2026-04-02",
+        "shiftId": null,
+        "nozzleStatuses": [
+            {
+                "nozzleId": "6412462b-19d8-4168-8cbd-d1274990f6c7",
+                "nozzleName": "D1N1-HSD",
+                "fuelType": "HSD",
+                "fuelTypeName": "High Speed Diesel",
+                "openingReadingExists": true,
+                "closingReadingExists": true,
+                "openingReading": 0,
+                "closingReading": 0,
+                "meterLiters": 400,
+                "isFinalized": true
+            },
+            {
+                "nozzleId": "9e0f58dd-0f4f-4ad7-bbf3-1cb742792426",
+                "nozzleName": "D1N2-HSD",
+                "fuelType": "HSD",
+                "fuelTypeName": "High Speed Diesel",
+                "openingReadingExists": true,
+                "closingReadingExists": true,
+                "openingReading": 0,
+                "closingReading": 0,
+                "meterLiters": 350,
+                "isFinalized": true
+            },
+            {
+                "nozzleId": "f1e5e5cf-2d7e-4770-9330-078517d99eae",
+                "nozzleName": "D2N1-HSD",
+                "fuelType": "HSD",
+                "fuelTypeName": "High Speed Diesel",
+                "openingReadingExists": true,
+                "closingReadingExists": true,
+                "openingReading": 0,
+                "closingReading": 0,
+                "meterLiters": 350,
+                "isFinalized": true
+            },
+            {
+                "nozzleId": "834c1f12-ab71-431f-b0fd-cb536444335d",
+                "nozzleName": "D3N1-PMG",
+                "fuelType": "PMG",
+                "fuelTypeName": "Premium Gasoline",
+                "openingReadingExists": true,
+                "closingReadingExists": true,
+                "openingReading": 0,
+                "closingReading": 0,
+                "meterLiters": 500,
+                "isFinalized": true
+            },
+            {
+                "nozzleId": "5c5360cf-0ffa-44a6-9890-53fee1205f49",
+                "nozzleName": "D4N1-PMG",
+                "fuelType": "PMG",
+                "fuelTypeName": "Premium Gasoline",
+                "openingReadingExists": true,
+                "closingReadingExists": true,
+                "openingReading": 0,
+                "closingReading": 0,
+                "meterLiters": 450,
+                "isFinalized": true
+            },
+            {
+                "nozzleId": "5022dc79-f077-4f4c-acf2-5a436c9bad79",
+                "nozzleName": "D4N2-PMG",
+                "fuelType": "PMG",
+                "fuelTypeName": "Premium Gasoline",
+                "openingReadingExists": true,
+                "closingReadingExists": true,
+                "openingReading": 0,
+                "closingReading": 0,
+                "meterLiters": 300,
+                "isFinalized": true
+            }
+        ],
+        "meterTotals": {
+            "hsdLiters": 1100,
+            "pmgLiters": 1250,
+            "totalLiters": 2350
+        },
+        "postedTotals": {
+            "hsdLiters": 1100,
+            "pmgLiters": 1250,
+            "totalLiters": 2350
+        },
+        "remainingLiters": {
+            "hsd": 0,
+            "pmg": 0,
+            "total": 0
+        },
+        "transactions": [
+            {
+                "id": "44ff3404-8474-4b1f-bba8-fbc53dfda5fd",
+                "entryId": "da59c564-0381-42f7-badc-85721651eb51",
+                "nozzle": {
+                    "id": "6412462b-19d8-4168-8cbd-d1274990f6c7",
+                    "name": "D1N1-HSD",
+                    "fuelType": "HSD"
+                },
+                "customer": {
+                    "id": "8eaa02be-7797-46ff-a6f0-74bb2aba7493",
+                    "name": "ABC"
+                },
+                "fuelCode": "HSD",
+                "vehicleNumber": null,
+                "slipNumber": null,
+                "productName": "High Speed Diesel",
+                "quantity": 200,
+                "unitPrice": 300,
+                "lineTotal": 60000,
+                "paymentMethod": "cash",
+                "bankId": "",
+                "transactionDateTime": "2026-04-02T08:00:00.000Z",
+                "qbSyncStatus": "pending",
+                "qbId": null,
+                "notes": null,
+                "createdBy": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                "createdByUser": {
+                    "id": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                    "fullName": "BPO World Team",
+                    "username": "BPOTeam"
+                },
+                "updatedBy": null,
+                "updatedByUser": null,
+                "createdAt": "2026-04-09T14:21:56.964Z",
+                "updatedAt": "2026-04-09T14:21:56.964Z"
+            },
+            {
+                "id": "8c407a01-735b-4a33-bbae-ffa624ba9a4b",
+                "entryId": "da59c564-0381-42f7-badc-85721651eb51",
+                "nozzle": {
+                    "id": "6412462b-19d8-4168-8cbd-d1274990f6c7",
+                    "name": "D1N1-HSD",
+                    "fuelType": "HSD"
+                },
+                "customer": {
+                    "id": "a2fd4706-f92a-4b36-b3c3-501cd95cabbe",
+                    "name": "ABDULLAH FLOUR MILLS PVT LTD"
+                },
+                "fuelCode": "HSD",
+                "vehicleNumber": null,
+                "slipNumber": null,
+                "productName": "High Speed Diesel",
+                "quantity": 150,
+                "unitPrice": 300,
+                "lineTotal": 45000,
+                "paymentMethod": "credit_customer",
+                "bankId": "",
+                "transactionDateTime": "2026-04-02T09:00:00.000Z",
+                "qbSyncStatus": "pending",
+                "qbId": null,
+                "notes": null,
+                "createdBy": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                "createdByUser": {
+                    "id": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                    "fullName": "BPO World Team",
+                    "username": "BPOTeam"
+                },
+                "updatedBy": null,
+                "updatedByUser": null,
+                "createdAt": "2026-04-09T14:21:56.964Z",
+                "updatedAt": "2026-04-09T14:21:56.964Z"
+            },
+            {
+                "id": "4430eb1c-301d-4223-83ff-574550025312",
+                "entryId": "da59c564-0381-42f7-badc-85721651eb51",
+                "nozzle": {
+                    "id": "6412462b-19d8-4168-8cbd-d1274990f6c7",
+                    "name": "D1N1-HSD",
+                    "fuelType": "HSD"
+                },
+                "customer": null,
+                "fuelCode": "HSD",
+                "vehicleNumber": null,
+                "slipNumber": null,
+                "productName": "High Speed Diesel",
+                "quantity": 50,
+                "unitPrice": 300,
+                "lineTotal": 15000,
+                "paymentMethod": "cash",
+                "bankId": "",
+                "transactionDateTime": "2026-04-02T10:00:00.000Z",
+                "qbSyncStatus": "pending",
+                "qbId": null,
+                "notes": null,
+                "createdBy": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                "createdByUser": {
+                    "id": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                    "fullName": "BPO World Team",
+                    "username": "BPOTeam"
+                },
+                "updatedBy": null,
+                "updatedByUser": null,
+                "createdAt": "2026-04-09T14:21:56.964Z",
+                "updatedAt": "2026-04-09T14:21:56.964Z"
+            },
+            {
+                "id": "e8e73668-eb3b-4aba-9ac0-f03982231098",
+                "entryId": "d1205bbf-935a-4433-b976-45a7250adcdd",
+                "nozzle": {
+                    "id": "9e0f58dd-0f4f-4ad7-bbf3-1cb742792426",
+                    "name": "D1N2-HSD",
+                    "fuelType": "HSD"
+                },
+                "customer": {
+                    "id": "ffee5460-62a1-4dd4-89cd-14144dea2384",
+                    "name": "TestCreation"
+                },
+                "fuelCode": "HSD",
+                "vehicleNumber": null,
+                "slipNumber": null,
+                "productName": "High Speed Diesel",
+                "quantity": 350,
+                "unitPrice": 300,
+                "lineTotal": 105000,
+                "paymentMethod": "bank_card",
+                "bankId": "",
+                "transactionDateTime": "2026-04-02T11:00:00.000Z",
+                "qbSyncStatus": "pending",
+                "qbId": null,
+                "notes": null,
+                "createdBy": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                "createdByUser": {
+                    "id": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                    "fullName": "BPO World Team",
+                    "username": "BPOTeam"
+                },
+                "updatedBy": null,
+                "updatedByUser": null,
+                "createdAt": "2026-04-09T14:21:56.964Z",
+                "updatedAt": "2026-04-09T14:21:56.964Z"
+            },
+            {
+                "id": "e051f628-aff5-42a9-a042-ce45291fb497",
+                "entryId": "2c918036-da3b-4ce6-b6a2-4cbdbae8bba6",
+                "nozzle": {
+                    "id": "f1e5e5cf-2d7e-4770-9330-078517d99eae",
+                    "name": "D2N1-HSD",
+                    "fuelType": "HSD"
+                },
+                "customer": {
+                    "id": "3d88482e-f4ff-4959-ba6a-562df6a9f256",
+                    "name": "Test"
+                },
+                "fuelCode": "HSD",
+                "vehicleNumber": null,
+                "slipNumber": null,
+                "productName": "High Speed Diesel",
+                "quantity": 350,
+                "unitPrice": 300,
+                "lineTotal": 105000,
+                "paymentMethod": "cash",
+                "bankId": "",
+                "transactionDateTime": "2026-04-02T12:00:00.000Z",
+                "qbSyncStatus": "pending",
+                "qbId": null,
+                "notes": null,
+                "createdBy": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                "createdByUser": {
+                    "id": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                    "fullName": "BPO World Team",
+                    "username": "BPOTeam"
+                },
+                "updatedBy": null,
+                "updatedByUser": null,
+                "createdAt": "2026-04-09T14:21:56.964Z",
+                "updatedAt": "2026-04-09T14:21:56.964Z"
+            },
+            {
+                "id": "0eac1510-1998-4ccf-9624-447e012f24cd",
+                "entryId": "11ace2bf-10e5-4412-84ff-c379607ab074",
+                "nozzle": {
+                    "id": "834c1f12-ab71-431f-b0fd-cb536444335d",
+                    "name": "D3N1-PMG",
+                    "fuelType": "PMG"
+                },
+                "customer": {
+                    "id": "8eaa02be-7797-46ff-a6f0-74bb2aba7493",
+                    "name": "ABC"
+                },
+                "fuelCode": "PMG",
+                "vehicleNumber": null,
+                "slipNumber": null,
+                "productName": "Premium Motor Gasoline",
+                "quantity": 300,
+                "unitPrice": 321.17,
+                "lineTotal": 96351,
+                "paymentMethod": "credit_customer",
+                "bankId": "",
+                "transactionDateTime": "2026-04-02T13:00:00.000Z",
+                "qbSyncStatus": "pending",
+                "qbId": null,
+                "notes": null,
+                "createdBy": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                "createdByUser": {
+                    "id": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                    "fullName": "BPO World Team",
+                    "username": "BPOTeam"
+                },
+                "updatedBy": null,
+                "updatedByUser": null,
+                "createdAt": "2026-04-09T14:21:56.964Z",
+                "updatedAt": "2026-04-09T14:21:56.964Z"
+            },
+            {
+                "id": "fb53251a-91fb-499d-b0ef-3d2f1d852544",
+                "entryId": "11ace2bf-10e5-4412-84ff-c379607ab074",
+                "nozzle": {
+                    "id": "834c1f12-ab71-431f-b0fd-cb536444335d",
+                    "name": "D3N1-PMG",
+                    "fuelType": "PMG"
+                },
+                "customer": {
+                    "id": "a2fd4706-f92a-4b36-b3c3-501cd95cabbe",
+                    "name": "ABDULLAH FLOUR MILLS PVT LTD"
+                },
+                "fuelCode": "PMG",
+                "vehicleNumber": null,
+                "slipNumber": null,
+                "productName": "Premium Motor Gasoline",
+                "quantity": 200,
+                "unitPrice": 321.17,
+                "lineTotal": 64234,
+                "paymentMethod": "cash",
+                "bankId": "",
+                "transactionDateTime": "2026-04-02T14:00:00.000Z",
+                "qbSyncStatus": "pending",
+                "qbId": null,
+                "notes": null,
+                "createdBy": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                "createdByUser": {
+                    "id": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                    "fullName": "BPO World Team",
+                    "username": "BPOTeam"
+                },
+                "updatedBy": null,
+                "updatedByUser": null,
+                "createdAt": "2026-04-09T14:21:56.964Z",
+                "updatedAt": "2026-04-09T14:21:56.964Z"
+            },
+            {
+                "id": "494f363e-92b9-4d41-a0ad-d48aeb6ec554",
+                "entryId": "f0f45fd9-73fd-4aac-acd7-9aafc2288cd4",
+                "nozzle": {
+                    "id": "5c5360cf-0ffa-44a6-9890-53fee1205f49",
+                    "name": "D4N1-PMG",
+                    "fuelType": "PMG"
+                },
+                "customer": {
+                    "id": "ffee5460-62a1-4dd4-89cd-14144dea2384",
+                    "name": "TestCreation"
+                },
+                "fuelCode": "PMG",
+                "vehicleNumber": null,
+                "slipNumber": null,
+                "productName": "Premium Motor Gasoline",
+                "quantity": 450,
+                "unitPrice": 321.17,
+                "lineTotal": 144526.5,
+                "paymentMethod": "bank_card",
+                "bankId": "",
+                "transactionDateTime": "2026-04-02T15:00:00.000Z",
+                "qbSyncStatus": "pending",
+                "qbId": null,
+                "notes": null,
+                "createdBy": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                "createdByUser": {
+                    "id": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                    "fullName": "BPO World Team",
+                    "username": "BPOTeam"
+                },
+                "updatedBy": null,
+                "updatedByUser": null,
+                "createdAt": "2026-04-09T14:21:56.964Z",
+                "updatedAt": "2026-04-09T14:21:56.964Z"
+            },
+            {
+                "id": "ebc3e8c2-26e8-41d7-b60e-7c25f39ee6b4",
+                "entryId": "c1fc2152-27d3-446d-afc8-52cb46b439fa",
+                "nozzle": {
+                    "id": "5022dc79-f077-4f4c-acf2-5a436c9bad79",
+                    "name": "D4N2-PMG",
+                    "fuelType": "PMG"
+                },
+                "customer": null,
+                "fuelCode": "PMG",
+                "vehicleNumber": null,
+                "slipNumber": null,
+                "productName": "Premium Motor Gasoline",
+                "quantity": 150,
+                "unitPrice": 321.17,
+                "lineTotal": 48175.5,
+                "paymentMethod": "cash",
+                "bankId": "",
+                "transactionDateTime": "2026-04-02T16:00:00.000Z",
+                "qbSyncStatus": "pending",
+                "qbId": null,
+                "notes": null,
+                "createdBy": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                "createdByUser": {
+                    "id": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                    "fullName": "BPO World Team",
+                    "username": "BPOTeam"
+                },
+                "updatedBy": null,
+                "updatedByUser": null,
+                "createdAt": "2026-04-09T14:21:56.964Z",
+                "updatedAt": "2026-04-09T14:21:56.964Z"
+            },
+            {
+                "id": "e621a2d1-16c5-48d0-b68a-68927b65ba1a",
+                "entryId": "c1fc2152-27d3-446d-afc8-52cb46b439fa",
+                "nozzle": {
+                    "id": "5022dc79-f077-4f4c-acf2-5a436c9bad79",
+                    "name": "D4N2-PMG",
+                    "fuelType": "PMG"
+                },
+                "customer": {
+                    "id": "6fcddde0-3621-41b1-89f7-fce8ae665489",
+                    "name": "Test Customer"
+                },
+                "fuelCode": "PMG",
+                "vehicleNumber": null,
+                "slipNumber": null,
+                "productName": "Premium Motor Gasoline",
+                "quantity": 150,
+                "unitPrice": 321.17,
+                "lineTotal": 48175.5,
+                "paymentMethod": "credit_customer",
+                "bankId": "",
+                "transactionDateTime": "2026-04-02T17:00:00.000Z",
+                "qbSyncStatus": "pending",
+                "qbId": null,
+                "notes": null,
+                "createdBy": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                "createdByUser": {
+                    "id": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                    "fullName": "BPO World Team",
+                    "username": "BPOTeam"
+                },
+                "updatedBy": null,
+                "updatedByUser": null,
+                "createdAt": "2026-04-09T14:21:56.964Z",
+                "updatedAt": "2026-04-09T14:21:56.964Z"
+            }
+        ],
+        "paymentBreakdown": {
+            "cash": 292409.5,
+            "creditCard": 0,
+            "bankCard": 249526.5,
+            "psoCard": 0,
+            "creditCustomer": 189526.5,
+            "total": 731462.5
+        },
+        "backTracedCash": {
+            "meterSalesPkr": 731462.5,
+            "nonCashTotal": 439053,
+            "expectedCash": 292409.5,
+            "postedCash": 292409.5,
+            "cashGap": 0
+        }
+    }
+}
+
+
+======================================================================
+TEST 2: GET /api/backdated-entries/daily/forensic (April 2)
+======================================================================
+{
+    "success": true,
+    "data": {
+        "branchId": "9bcb8674-9d93-4d93-b0fc-270305dcbe50",
+        "businessDate": "2026-04-02",
+        "shiftId": null,
+        "transactionCount": 10,
+        "totals": [
+            {
+                "fuelCode": "HSD",
+                "count": 5,
+                "totalLiters": 1100,
+                "totalAmount": 330000
+            },
+            {
+                "fuelCode": "PMG",
+                "count": 5,
+                "totalLiters": 1250,
+                "totalAmount": 401462.5
+            }
+        ],
+        "consistencyCheckResult": "PASS",
+        "transactions": [
+            {
+                "id": "44ff3404-8474-4b1f-bba8-fbc53dfda5fd",
+                "transactionDateTime": "2026-04-02T08:00:00.000Z",
+                "nozzleId": "6412462b-19d8-4168-8cbd-d1274990f6c7",
+                "nozzleName": "D1N1-HSD",
+                "entryNozzleFuelCode": "HSD",
+                "txnFuelTypeCode": "HSD",
+                "consistencyIssue": "OK",
+                "fuelTypeId": "a2222222-2222-2222-2222-222222222222",
+                "quantity": 200,
+                "unitPrice": 300,
+                "lineTotal": 60000,
+                "productName": "High Speed Diesel",
+                "paymentMethod": "cash",
+                "customerName": "ABC",
+                "createdBy": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                "createdByUser": {
+                    "id": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                    "fullName": "BPO World Team",
+                    "username": "BPOTeam"
+                },
+                "createdAt": "2026-04-09T14:21:56.964Z",
+                "updatedBy": null,
+                "updatedByUser": null,
+                "updatedAt": "2026-04-09T14:21:56.964Z"
+            },
+            {
+                "id": "8c407a01-735b-4a33-bbae-ffa624ba9a4b",
+                "transactionDateTime": "2026-04-02T09:00:00.000Z",
+                "nozzleId": "6412462b-19d8-4168-8cbd-d1274990f6c7",
+                "nozzleName": "D1N1-HSD",
+                "entryNozzleFuelCode": "HSD",
+                "txnFuelTypeCode": "HSD",
+                "consistencyIssue": "OK",
+                "fuelTypeId": "a2222222-2222-2222-2222-222222222222",
+                "quantity": 150,
+                "unitPrice": 300,
+                "lineTotal": 45000,
+                "productName": "High Speed Diesel",
+                "paymentMethod": "credit_customer",
+                "customerName": "ABDULLAH FLOUR MILLS PVT LTD",
+                "createdBy": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                "createdByUser": {
+                    "id": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                    "fullName": "BPO World Team",
+                    "username": "BPOTeam"
+                },
+                "createdAt": "2026-04-09T14:21:56.964Z",
+                "updatedBy": null,
+                "updatedByUser": null,
+                "updatedAt": "2026-04-09T14:21:56.964Z"
+            },
+            {
+                "id": "4430eb1c-301d-4223-83ff-574550025312",
+                "transactionDateTime": "2026-04-02T10:00:00.000Z",
+                "nozzleId": "6412462b-19d8-4168-8cbd-d1274990f6c7",
+                "nozzleName": "D1N1-HSD",
+                "entryNozzleFuelCode": "HSD",
+                "txnFuelTypeCode": "HSD",
+                "consistencyIssue": "OK",
+                "fuelTypeId": "a2222222-2222-2222-2222-222222222222",
+                "quantity": 50,
+                "unitPrice": 300,
+                "lineTotal": 15000,
+                "productName": "High Speed Diesel",
+                "paymentMethod": "cash",
+                "customerName": null,
+                "createdBy": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                "createdByUser": {
+                    "id": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                    "fullName": "BPO World Team",
+                    "username": "BPOTeam"
+                },
+                "createdAt": "2026-04-09T14:21:56.964Z",
+                "updatedBy": null,
+                "updatedByUser": null,
+                "updatedAt": "2026-04-09T14:21:56.964Z"
+            },
+            {
+                "id": "e8e73668-eb3b-4aba-9ac0-f03982231098",
+                "transactionDateTime": "2026-04-02T11:00:00.000Z",
+                "nozzleId": "9e0f58dd-0f4f-4ad7-bbf3-1cb742792426",
+                "nozzleName": "D1N2-HSD",
+                "entryNozzleFuelCode": "HSD",
+                "txnFuelTypeCode": "HSD",
+                "consistencyIssue": "OK",
+                "fuelTypeId": "a2222222-2222-2222-2222-222222222222",
+                "quantity": 350,
+                "unitPrice": 300,
+                "lineTotal": 105000,
+                "productName": "High Speed Diesel",
+                "paymentMethod": "bank_card",
+                "customerName": "TestCreation",
+                "createdBy": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                "createdByUser": {
+                    "id": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                    "fullName": "BPO World Team",
+                    "username": "BPOTeam"
+                },
+                "createdAt": "2026-04-09T14:21:56.964Z",
+                "updatedBy": null,
+                "updatedByUser": null,
+                "updatedAt": "2026-04-09T14:21:56.964Z"
+            },
+            {
+                "id": "e051f628-aff5-42a9-a042-ce45291fb497",
+                "transactionDateTime": "2026-04-02T12:00:00.000Z",
+                "nozzleId": "f1e5e5cf-2d7e-4770-9330-078517d99eae",
+                "nozzleName": "D2N1-HSD",
+                "entryNozzleFuelCode": "HSD",
+                "txnFuelTypeCode": "HSD",
+                "consistencyIssue": "OK",
+                "fuelTypeId": "a2222222-2222-2222-2222-222222222222",
+                "quantity": 350,
+                "unitPrice": 300,
+                "lineTotal": 105000,
+                "productName": "High Speed Diesel",
+                "paymentMethod": "cash",
+                "customerName": "Test",
+                "createdBy": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                "createdByUser": {
+                    "id": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                    "fullName": "BPO World Team",
+                    "username": "BPOTeam"
+                },
+                "createdAt": "2026-04-09T14:21:56.964Z",
+                "updatedBy": null,
+                "updatedByUser": null,
+                "updatedAt": "2026-04-09T14:21:56.964Z"
+            },
+            {
+                "id": "0eac1510-1998-4ccf-9624-447e012f24cd",
+                "transactionDateTime": "2026-04-02T13:00:00.000Z",
+                "nozzleId": "834c1f12-ab71-431f-b0fd-cb536444335d",
+                "nozzleName": "D3N1-PMG",
+                "entryNozzleFuelCode": "PMG",
+                "txnFuelTypeCode": "PMG",
+                "consistencyIssue": "OK",
+                "fuelTypeId": "a1111111-1111-1111-1111-111111111111",
+                "quantity": 300,
+                "unitPrice": 321.17,
+                "lineTotal": 96351,
+                "productName": "Premium Motor Gasoline",
+                "paymentMethod": "credit_customer",
+                "customerName": "ABC",
+                "createdBy": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                "createdByUser": {
+                    "id": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                    "fullName": "BPO World Team",
+                    "username": "BPOTeam"
+                },
+                "createdAt": "2026-04-09T14:21:56.964Z",
+                "updatedBy": null,
+                "updatedByUser": null,
+                "updatedAt": "2026-04-09T14:21:56.964Z"
+            },
+            {
+                "id": "fb53251a-91fb-499d-b0ef-3d2f1d852544",
+                "transactionDateTime": "2026-04-02T14:00:00.000Z",
+                "nozzleId": "834c1f12-ab71-431f-b0fd-cb536444335d",
+                "nozzleName": "D3N1-PMG",
+                "entryNozzleFuelCode": "PMG",
+                "txnFuelTypeCode": "PMG",
+                "consistencyIssue": "OK",
+                "fuelTypeId": "a1111111-1111-1111-1111-111111111111",
+                "quantity": 200,
+                "unitPrice": 321.17,
+                "lineTotal": 64234,
+                "productName": "Premium Motor Gasoline",
+                "paymentMethod": "cash",
+                "customerName": "ABDULLAH FLOUR MILLS PVT LTD",
+                "createdBy": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                "createdByUser": {
+                    "id": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                    "fullName": "BPO World Team",
+                    "username": "BPOTeam"
+                },
+                "createdAt": "2026-04-09T14:21:56.964Z",
+                "updatedBy": null,
+                "updatedByUser": null,
+                "updatedAt": "2026-04-09T14:21:56.964Z"
+            },
+            {
+                "id": "494f363e-92b9-4d41-a0ad-d48aeb6ec554",
+                "transactionDateTime": "2026-04-02T15:00:00.000Z",
+                "nozzleId": "5c5360cf-0ffa-44a6-9890-53fee1205f49",
+                "nozzleName": "D4N1-PMG",
+                "entryNozzleFuelCode": "PMG",
+                "txnFuelTypeCode": "PMG",
+                "consistencyIssue": "OK",
+                "fuelTypeId": "a1111111-1111-1111-1111-111111111111",
+                "quantity": 450,
+                "unitPrice": 321.17,
+                "lineTotal": 144526.5,
+                "productName": "Premium Motor Gasoline",
+                "paymentMethod": "bank_card",
+                "customerName": "TestCreation",
+                "createdBy": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                "createdByUser": {
+                    "id": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                    "fullName": "BPO World Team",
+                    "username": "BPOTeam"
+                },
+                "createdAt": "2026-04-09T14:21:56.964Z",
+                "updatedBy": null,
+                "updatedByUser": null,
+                "updatedAt": "2026-04-09T14:21:56.964Z"
+            },
+            {
+                "id": "ebc3e8c2-26e8-41d7-b60e-7c25f39ee6b4",
+                "transactionDateTime": "2026-04-02T16:00:00.000Z",
+                "nozzleId": "5022dc79-f077-4f4c-acf2-5a436c9bad79",
+                "nozzleName": "D4N2-PMG",
+                "entryNozzleFuelCode": "PMG",
+                "txnFuelTypeCode": "PMG",
+                "consistencyIssue": "OK",
+                "fuelTypeId": "a1111111-1111-1111-1111-111111111111",
+                "quantity": 150,
+                "unitPrice": 321.17,
+                "lineTotal": 48175.5,
+                "productName": "Premium Motor Gasoline",
+                "paymentMethod": "cash",
+                "customerName": null,
+                "createdBy": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                "createdByUser": {
+                    "id": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                    "fullName": "BPO World Team",
+                    "username": "BPOTeam"
+                },
+                "createdAt": "2026-04-09T14:21:56.964Z",
+                "updatedBy": null,
+                "updatedByUser": null,
+                "updatedAt": "2026-04-09T14:21:56.964Z"
+            },
+            {
+                "id": "e621a2d1-16c5-48d0-b68a-68927b65ba1a",
+                "transactionDateTime": "2026-04-02T17:00:00.000Z",
+                "nozzleId": "5022dc79-f077-4f4c-acf2-5a436c9bad79",
+                "nozzleName": "D4N2-PMG",
+                "entryNozzleFuelCode": "PMG",
+                "txnFuelTypeCode": "PMG",
+                "consistencyIssue": "OK",
+                "fuelTypeId": "a1111111-1111-1111-1111-111111111111",
+                "quantity": 150,
+                "unitPrice": 321.17,
+                "lineTotal": 48175.5,
+                "productName": "Premium Motor Gasoline",
+                "paymentMethod": "credit_customer",
+                "customerName": "Test Customer",
+                "createdBy": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                "createdByUser": {
+                    "id": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                    "fullName": "BPO World Team",
+                    "username": "BPOTeam"
+                },
+                "createdAt": "2026-04-09T14:21:56.964Z",
+                "updatedBy": null,
+                "updatedByUser": null,
+                "updatedAt": "2026-04-09T14:21:56.964Z"
+            }
+        ],
+        "consistencyIssues": []
+    }
+}
+
+
+======================================================================
+TEST 3: POST /api/backdated-entries/daily/finalize (April 7 - Fresh)
+======================================================================
+{
+    "success": true,
+    "message": "Day finalized successfully",
+    "data": {
+        "success": true,
+        "message": "Day finalized successfully",
+        "postedSalesCount": 2,
+        "inventoryUpdatesCount": 0,
+        "reportSyncStatus": "completed",
+        "details": {
+            "entriesFinalized": 2,
+            "transactionsProcessed": 2,
+            "salesCreated": 2,
+            "qbSyncQueued": "pending",
+            "saleIds": [
+                "e2693f9a-05ac-4543-a4fe-130ca856d78a",
+                "5b8ca06c-91bf-4003-b452-686b3d7a54f6"
+            ]
+        }
+    }
+}
+
+
+======================================================================
+TEST 4a: GET /api/sales (April 7)
+======================================================================
+{
+    "sales": [
+        {
+            "id": "5b8ca06c-91bf-4003-b452-686b3d7a54f6",
+            "branchId": "9bcb8674-9d93-4d93-b0fc-270305dcbe50",
+            "shiftInstanceId": null,
+            "saleDate": "2026-04-07T11:00:00.000Z",
+            "saleType": "fuel",
+            "totalAmount": "48175.5",
+            "taxAmount": "0",
+            "discountAmount": "0",
+            "paymentMethod": "bank_card",
+            "bankId": null,
+            "customerId": null,
+            "vehicleNumber": null,
+            "slipNumber": null,
+            "cashierId": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+            "qbSynced": false,
+            "qbInvoiceId": null,
+            "qbSyncedAt": null,
+            "syncStatus": "synced",
+            "offlineQueueId": null,
+            "syncAttempts": 0,
+            "lastSyncAttempt": null,
+            "syncError": null,
+            "createdAt": "2026-04-09T16:09:28.821Z",
+            "updatedAt": "2026-04-09T16:09:28.821Z",
+            "fuelSales": [
+                {
+                    "id": "1f3c58e9-0413-46b4-ada7-3be48d4134b3",
+                    "saleId": "5b8ca06c-91bf-4003-b452-686b3d7a54f6",
+                    "nozzleId": null,
+                    "fuelTypeId": "a1111111-1111-1111-1111-111111111111",
+                    "quantityLiters": "150",
+                    "pricePerLiter": "321.17",
+                    "totalAmount": "48175.5",
+                    "previousReading": null,
+                    "currentReading": null,
+                    "calculatedLiters": null,
+                    "imageUrl": null,
+                    "ocrConfidence": null,
+                    "isManualReading": true,
+                    "createdAt": "2026-04-09T16:09:28.821Z",
+                    "nozzle": null,
+                    "fuelType": {
+                        "id": "a1111111-1111-1111-1111-111111111111",
+                        "code": "PMG",
+                        "name": "Premium Gasoline",
+                        "unit": "liters",
+                        "createdAt": "2026-04-01T20:23:23.235Z"
+                    }
+                }
+            ],
+            "nonFuelSales": [],
+            "customer": null,
+            "cashier": {
+                "id": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                "fullName": "BPO World Team",
+                "username": "BPOTeam"
+            }
+        },
+        {
+            "id": "e2693f9a-05ac-4543-a4fe-130ca856d78a",
+            "branchId": "9bcb8674-9d93-4d93-b0fc-270305dcbe50",
+            "shiftInstanceId": null,
+            "saleDate": "2026-04-07T10:00:00.000Z",
+            "saleType": "fuel",
+            "totalAmount": "60000",
+            "taxAmount": "0",
+            "discountAmount": "0",
+            "paymentMethod": "cash",
+            "bankId": null,
+            "customerId": null,
+            "vehicleNumber": null,
+            "slipNumber": null,
+            "cashierId": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+            "qbSynced": false,
+            "qbInvoiceId": null,
+            "qbSyncedAt": null,
+            "syncStatus": "synced",
+            "offlineQueueId": null,
+            "syncAttempts": 0,
+            "lastSyncAttempt": null,
+            "syncError": null,
+            "createdAt": "2026-04-09T16:09:28.802Z",
+            "updatedAt": "2026-04-09T16:09:28.802Z",
+            "fuelSales": [
+                {
+                    "id": "7b2e1aaa-86e1-4d03-90b3-b6c90c9df810",
+                    "saleId": "e2693f9a-05ac-4543-a4fe-130ca856d78a",
+                    "nozzleId": null,
+                    "fuelTypeId": "a2222222-2222-2222-2222-222222222222",
+                    "quantityLiters": "200",
+                    "pricePerLiter": "300",
+                    "totalAmount": "60000",
+                    "previousReading": null,
+                    "currentReading": null,
+                    "calculatedLiters": null,
+                    "imageUrl": null,
+                    "ocrConfidence": null,
+                    "isManualReading": true,
+                    "createdAt": "2026-04-09T16:09:28.802Z",
+                    "nozzle": null,
+                    "fuelType": {
+                        "id": "a2222222-2222-2222-2222-222222222222",
+                        "code": "HSD",
+                        "name": "High Speed Diesel",
+                        "unit": "liters",
+                        "createdAt": "2026-04-01T20:23:23.235Z"
+                    }
+                }
+            ],
+            "nonFuelSales": [],
+            "customer": null,
+            "cashier": {
+                "id": "a89d3495-8e8d-4eaf-8c03-2ea2de600c0f",
+                "fullName": "BPO World Team",
+                "username": "BPOTeam"
+            }
+        },
+        {
+            "id": "d67559da-a1ab-40f3-86eb-fd96cd8d676b",
+            "branchId": "9bcb8674-9d93-4d93-b0fc-270305dcbe50",
+            "shiftInstanceId": null,
+            "saleDate": "2026-04-07T00:00:00.000Z",
+            "saleType": "fuel",
+            "totalAmount": "15000",
+            "taxAmount": "0",
+            "discountAmount": "0",
+            "paymentMethod": "card",
+            "bankId": null,
+            "customerId": "83e0a56d-e33d-4357-bf65-1e3c3abe4e2c",
+            "vehicleNumber": null,
+            "slipNumber": "SL-V002",
+            "cashierId": "9a9f2d10-e908-4a50-8e24-410352d66766",
+            "qbSynced": false,
+            "qbInvoiceId": null,
+            "qbSyncedAt": null,
+            "syncStatus": "synced",
+            "offlineQueueId": "verify-002",
+            "syncAttempts": 1,
+            "lastSyncAttempt": "2026-04-06T22:01:52.935Z",
+            "syncError": null,
+            "createdAt": "2026-04-06T22:01:52.937Z",
+            "updatedAt": "2026-04-06T22:01:52.937Z",
+            "fuelSales": [
+                {
+                    "id": "04e04578-8a56-41e6-b47f-60fba2838a9e",
+                    "saleId": "d67559da-a1ab-40f3-86eb-fd96cd8d676b",
+                    "nozzleId": null,
+                    "fuelTypeId": "a1111111-1111-1111-1111-111111111111",
+                    "quantityLiters": "50",
+                    "pricePerLiter": "300",
+                    "totalAmount": "15000",
+                    "previousReading": null,
+                    "currentReading": null,
+                    "calculatedLiters": null,
+                    "imageUrl": null,
+                    "ocrConfidence": null,
+                    "isManualReading": false,
+                    "createdAt": "2026-04-06T22:01:52.952Z",
+                    "nozzle": null,
+                    "fuelType": {
+                        "id": "a1111111-1111-1111-1111-111111111111",
+                        "code": "PMG",
+                        "name": "Premium Gasoline",
+                        "unit": "liters",
+                        "createdAt": "2026-04-01T20:23:23.235Z"
+                    }
+                }
+            ],
+            "nonFuelSales": [],
+            "customer": {
+                "id": "83e0a56d-e33d-4357-bf65-1e3c3abe4e2c",
+                "organizationId": "feab5ef7-74f5-44f3-9f60-5fb1b65a84bf",
+                "name": "Test",
+                "phone": "0311-UAT-TEST",
+                "email": null,
+                "address": null,
+                "vehicleNumbers": [],
+                "creditLimit": null,
+                "creditDays": null,
+                "isActive": true,
+                "createdAt": "2026-04-02T21:04:19.875Z",
+                "updatedAt": "2026-04-05T16:18:03.617Z"
+            },
+            "cashier": {
+                "id": "9a9f2d10-e908-4a50-8e24-410352d66766",
+                "fullName": "System Administrator",
+                "username": "admin"
+            }
+        },
+        {
+            "id": "1701bf3c-08bd-446a-9e8a-ff88797dca95",
+            "branchId": "9bcb8674-9d93-4d93-b0fc-270305dcbe50",
+            "shiftInstanceId": null,
+            "saleDate": "2026-04-07T00:00:00.000Z",
+            "saleType": "fuel",
+            "totalAmount": "22500",
+            "taxAmount": "0",
+            "discountAmount": "0",
+            "paymentMethod": "card",
+            "bankId": "dc9da278-23f7-4204-9a86-78afdcaaf3d3",
+            "customerId": "83e0a56d-e33d-4357-bf65-1e3c3abe4e2c",
+            "vehicleNumber": null,
+            "slipNumber": "SL-FINAL-003",
+            "cashierId": "9a9f2d10-e908-4a50-8e24-410352d66766",
+            "qbSynced": false,
+            "qbInvoiceId": null,
+            "qbSyncedAt": null,
+            "syncStatus": "synced",
+            "offlineQueueId": "final-003",
+            "syncAttempts": 1,
+            "lastSyncAttempt": "2026-04-06T22:26:03.909Z",
+            "syncError": null,
+            "createdAt": "2026-04-06T22:26:03.911Z",
+            "updatedAt": "2026-04-06T22:26:03.911Z",
+            "fuelSales": [
+                {
+                    "id": "a50526b0-afbb-4a3b-81d4-e50e506a82ef",
+                    "saleId": "1701bf3c-08bd-446a-9e8a-ff88797dca95",
+                    "nozzleId": null,
+                    "fuelTypeId": "a1111111-1111-1111-1111-111111111111",
+                    "quantityLiters": "75",
+                    "pricePerLiter": "300",
+                    "totalAmount": "22500",
+                    "previousReading": null,
+                    "currentReading": null,
+                    "calculatedLiters": null,
+                    "imageUrl": null,
+                    "ocrConfidence": null,
+                    "isManualReading": false,
+                    "createdAt": "2026-04-06T22:26:03.934Z",
+                    "nozzle": null,
+                    "fuelType": {
+                        "id": "a1111111-1111-1111-1111-111111111111",
+                        "code": "PMG",
+                        "name": "Premium Gasoline",
+                        "unit": "liters",
+                        "createdAt": "2026-04-01T20:23:23.235Z"
+                    }
+                }
+            ],
+            "nonFuelSales": [],
+            "customer": {
+                "id": "83e0a56d-e33d-4357-bf65-1e3c3abe4e2c",
+                "organizationId": "feab5ef7-74f5-44f3-9f60-5fb1b65a84bf",
+                "name": "Test",
+                "phone": "0311-UAT-TEST",
+                "email": null,
+                "address": null,
+                "vehicleNumbers": [],
+                "creditLimit": null,
+                "creditDays": null,
+                "isActive": true,
+                "createdAt": "2026-04-02T21:04:19.875Z",
+                "updatedAt": "2026-04-05T16:18:03.617Z"
+            },
+            "cashier": {
+                "id": "9a9f2d10-e908-4a50-8e24-410352d66766",
+                "fullName": "System Administrator",
+                "username": "admin"
+            }
+        }
+    ],
+    "pagination": {
+        "total": 4,
+        "limit": 100,
+        "offset": 0,
+        "pages": 1
+    }
+}
+
+
+======================================================================
+TEST 4b: GET /api/reports/daily-sales (April 7)
+======================================================================
+{
+    "report": {
+        "date": "2026-04-07T00:00:00.000Z",
+        "branch": {
+            "id": "9bcb8674-9d93-4d93-b0fc-270305dcbe50",
+            "name": "Main Branch"
+        },
+        "totalSales": 4,
+        "summary": {
+            "totalAmount": 145675.5,
+            "totalTransactions": 4,
+            "fuel": {
+                "amount": 145675.5,
+                "count": 4,
+                "byType": {
+                    "Premium Gasoline": {
+                        "liters": 275,
+                        "amount": 85675.5
+                    },
+                    "High Speed Diesel": {
+                        "liters": 200,
+                        "amount": 60000
+                    }
+                }
+            },
+            "nonFuel": {
+                "amount": 0,
+                "count": 0
+            }
+        },
+        "paymentMethodBreakdown": [
+            {
+                "paymentMethod": "card",
+                "count": 2,
+                "amount": 37500
+            },
+            {
+                "paymentMethod": "cash",
+                "count": 1,
+                "amount": 60000
+            },
+            {
+                "paymentMethod": "bank_card",
+                "count": 1,
+                "amount": 48175.5
+            }
+        ],
+        "shiftBreakdown": [],
+        "variantPaymentBreakdown": [
+            {
+                "variant": "Premium Gasoline",
+                "paymentMethod": "card",
+                "count": 2,
+                "amount": 37500,
+                "liters": 125
+            },
+            {
+                "variant": "High Speed Diesel",
+                "paymentMethod": "cash",
+                "count": 1,
+                "amount": 60000,
+                "liters": 200
+            },
+            {
+                "variant": "Premium Gasoline",
+                "paymentMethod": "bank_card",
+                "count": 1,
+                "amount": 48175.5,
+                "liters": 150
+            }
+        ]
+    },
+    "message": "Daily sales report retrieved successfully"
+}
+
+
+======================================================================
+STABILITY TEST: 3× Reload (April 7)
+======================================================================
+--- Reload 1 ---
+Meter: HSD 200L, PMG 150L | Posted: HSD 200L, PMG 150L | Remaining: 0L
+--- Reload 2 ---
+Meter: HSD 200L, PMG 150L | Posted: HSD 200L, PMG 150L | Remaining: 0L
+--- Reload 3 ---
+Meter: HSD 200L, PMG 150L | Posted: HSD 200L, PMG 150L | Remaining: 0L
+
+======================================================================
+END OF EVIDENCE CAPTURE
+======================================================================
