@@ -318,19 +318,61 @@ export function BackdatedEntries() {
     },
   });
 
-  // Fetch ALL meter readings for selected date (all nozzles)
-  const { data: meterReadingsData, refetch: refetchMeterReadings } = useQuery({
-    queryKey: ['meter-readings-all', selectedBranchId, businessDate, selectedShiftId],
+  // ✅ FIXED: Fetch meter readings from backdated endpoint (shift-independent, day-level)
+  const { data: backdatedMeterReadingsData, refetch: refetchMeterReadings } = useQuery({
+    queryKey: ['backdated-meter-readings-daily', selectedBranchId, businessDate],
     enabled: !!selectedBranchId && !!businessDate,
     queryFn: async () => {
-      if (!selectedBranchId || !businessDate) return [];
-      const res = await meterReadingsApi.getAll({
-        size: 500,
-        date: businessDate, // Business date filter (YYYY-MM-DD)
+      if (!selectedBranchId || !businessDate) return null;
+      return await meterReadingsApi.getDailyBackdatedReadings({
+        branchId: selectedBranchId,
+        businessDate: businessDate,
       });
-      return (res.items || []) as MeterReadingRow[];
     },
   });
+
+  // Transform backdated response to flat list matching legacy structure (for getPreviousReading compatibility)
+  const meterReadingsData = useMemo(() => {
+    if (!backdatedMeterReadingsData?.nozzles) return [];
+
+    return backdatedMeterReadingsData.nozzles.flatMap(nozzle => {
+      const readings = [];
+
+      // Opening reading
+      if (nozzle.opening.status === 'entered') {
+        readings.push({
+          id: nozzle.opening.id, // ✅ Backdated ID for edit/delete
+          nozzle_id: nozzle.nozzleId,
+          nozzle_name: nozzle.nozzleName,
+          fuel_type: nozzle.fuelType,
+          reading_type: 'opening' as const,
+          meter_value: nozzle.opening.value,
+          reading_value: nozzle.opening.value,
+          recorded_at: nozzle.opening.recordedAt,
+          recorded_by: nozzle.opening.recordedBy,
+          created_at: nozzle.opening.submittedAt,
+        });
+      }
+
+      // Closing reading
+      if (nozzle.closing.status === 'entered') {
+        readings.push({
+          id: nozzle.closing.id, // ✅ Backdated ID for edit/delete
+          nozzle_id: nozzle.nozzleId,
+          nozzle_name: nozzle.nozzleName,
+          fuel_type: nozzle.fuelType,
+          reading_type: 'closing' as const,
+          meter_value: nozzle.closing.value,
+          reading_value: nozzle.closing.value,
+          recorded_at: nozzle.closing.recordedAt,
+          recorded_by: nozzle.closing.recordedBy,
+          created_at: nozzle.closing.submittedAt,
+        });
+      }
+
+      return readings;
+    });
+  }, [backdatedMeterReadingsData]);
 
   // Get previous reading for a nozzle (shift-aware) - MUST be defined before useMemo hooks that call it
   const getPreviousReading = (nozzleId: string, type: 'opening' | 'closing', currentShift?: any): number => {
@@ -1262,6 +1304,11 @@ export function BackdatedEntries() {
   // Delete meter reading mutation
   const deleteMeterReadingMutation = useMutation({
     mutationFn: async (readingId: string) => {
+      // ✅ GUARD: Prevent 404 if no valid ID
+      if (!readingId || readingId.length < 10) {
+        throw new Error('Invalid reading ID. Cannot delete meter reading without a valid database ID.');
+      }
+
       const res = await apiClient.delete(`/api/backdated-meter-readings/daily/${readingId}`);
       return res.data;
     },
@@ -1271,7 +1318,11 @@ export function BackdatedEntries() {
       refetchDailySummary();
     },
     onError: (error: any) => {
-      const errorMsg = error?.response?.data?.error || error.message || 'Failed to delete meter reading';
+      // ✅ USER-FRIENDLY ERROR: Don't show raw 404
+      let errorMsg = error?.response?.data?.error || error.message || 'Failed to delete meter reading';
+      if (error?.response?.status === 404) {
+        errorMsg = 'Meter reading not found. It may have been already deleted.';
+      }
       toast.error(errorMsg);
     },
   });
@@ -1284,6 +1335,11 @@ export function BackdatedEntries() {
       attachmentUrl?: string;
       ocrManuallyEdited?: boolean;
     }) => {
+      // ✅ GUARD: Prevent 404 if no valid ID
+      if (!readingId || readingId.length < 10) {
+        throw new Error('Invalid reading ID. Cannot update meter reading without a valid database ID.');
+      }
+
       const res = await apiClient.patch(`/api/backdated-meter-readings/daily/${readingId}`, {
         meterValue,
         attachmentUrl,
@@ -1299,7 +1355,11 @@ export function BackdatedEntries() {
       refetchDailySummary();
     },
     onError: (error: any) => {
-      const errorMsg = error?.response?.data?.error || error.message || 'Failed to update meter reading';
+      // ✅ USER-FRIENDLY ERROR: Don't show raw 404
+      let errorMsg = error?.response?.data?.error || error.message || 'Failed to update meter reading';
+      if (error?.response?.status === 404) {
+        errorMsg = 'Meter reading not found. Please refresh the page and try again.';
+      }
       toast.error(errorMsg);
     },
   });

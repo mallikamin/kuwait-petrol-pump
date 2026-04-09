@@ -60,4 +60,60 @@ export const meterReadingsApi = {
     const response = await apiClient.get(`/api/meter-readings/variance-report/${shiftId}`);
     return response.data;
   },
+
+  // ✅ Backdated meter readings (shift-independent, day-level)
+  getDailyBackdatedReadings: async (params: {
+    branchId: string;
+    businessDate: string; // YYYY-MM-DD
+  }): Promise<{
+    businessDate: string;
+    branchId: string;
+    nozzles: Array<{
+      nozzleId: string;
+      nozzleName: string;
+      fuelType: string;
+      fuelTypeName: string;
+      opening: {
+        id?: string; // Database ID for edit/delete
+        value: number | null;
+        status: 'entered' | 'missing';
+        recordedBy?: string;
+        recordedAt?: string;
+        submittedBy?: string;
+        submittedByName?: string;
+        submittedAt?: string;
+        imageUrl?: string;
+        attachmentUrl?: string;
+        ocrManuallyEdited?: boolean;
+      };
+      closing: {
+        id?: string; // Database ID for edit/delete
+        value: number | null;
+        status: 'entered' | 'missing';
+        recordedBy?: string;
+        recordedAt?: string;
+        submittedBy?: string;
+        submittedByName?: string;
+        submittedAt?: string;
+        imageUrl?: string;
+        attachmentUrl?: string;
+        ocrManuallyEdited?: boolean;
+      };
+    }>;
+    summary: {
+      totalNozzles: number;
+      totalReadingsExpected: number;
+      totalReadingsEntered: number;
+      totalReadingsMissing: number;
+      completionPercent: number;
+    };
+  }> => {
+    const response = await apiClient.get('/api/backdated-meter-readings/daily', {
+      params: {
+        branchId: params.branchId,
+        businessDate: params.businessDate,
+      },
+    });
+    return response.data;
+  },
 };
