@@ -50,33 +50,34 @@ interface Transaction {
   updatedAt?: string;
 }
 
-interface MeterReadingRow {
-  id: string;
-  nozzle_id?: string;
-  shift_id?: string;
-  reading_type: 'opening' | 'closing';
-  meter_value?: number;
-  reading_value?: number;
-  created_at?: string;
-  recorded_at?: string;
-  image_url?: string;
-  imageUrl?: string;
-  attachment_url?: string;
-  attachmentUrl?: string;
-  is_manual?: boolean;
-  isManual?: boolean;
-  ocr_manually_edited?: boolean;
-  ocrManuallyEdited?: boolean;
-  submitted_by_name?: string;
-  submittedByName?: string;
-  submitted_at?: string;
-  submittedAt?: string;
-  shift_instance?: {
-    shift?: {
-      name?: string;
-    };
-  };
-}
+// Meter reading structure is now transformed from backdated API response
+// interface MeterReadingRow {
+//   id: string;
+//   nozzle_id?: string;
+//   shift_id?: string;
+//   reading_type: 'opening' | 'closing';
+//   meter_value?: number;
+//   reading_value?: number;
+//   created_at?: string;
+//   recorded_at?: string;
+//   image_url?: string;
+//   imageUrl?: string;
+//   attachment_url?: string;
+//   attachmentUrl?: string;
+//   is_manual?: boolean;
+//   isManual?: boolean;
+//   ocr_manually_edited?: boolean;
+//   ocrManuallyEdited?: boolean;
+//   submitted_by_name?: string;
+//   submittedByName?: string;
+//   submitted_at?: string;
+//   submittedAt?: string;
+//   shift_instance?: {
+//     shift?: {
+//       name?: string;
+//     };
+//   };
+// }
 
 const toNumber = (value: unknown): number => {
   if (typeof value === 'number') return value;
