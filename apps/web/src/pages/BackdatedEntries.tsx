@@ -1063,16 +1063,26 @@ export function BackdatedEntries() {
     },
     onError: (error: any) => {
       const payload = error?.response?.data;
-      const errorMsg =
-        (typeof payload?.error === 'string' && payload.error) ||
-        (typeof payload?.message === 'string' && payload.message) ||
-        (Array.isArray(payload?.details) && payload.details.length > 0
-          ? payload.details.map((d: any) => d?.message || JSON.stringify(d)).join(' | ')
-          : null) ||
-        error?.message ||
-        'Failed to finalize day';
 
-      console.error('[Finalize] Error:', payload || error);
+      // ✅ Extract blocker messages from structured error response
+      let errorMsg = '';
+
+      if (Array.isArray(payload?.details) && payload.details.length > 0) {
+        // Server returned structured blockers (new format)
+        errorMsg = payload.details.map((d: any) => d?.message || JSON.stringify(d)).join(' | ');
+      } else if (typeof payload?.error === 'string' && payload.error) {
+        // Fall back to error field
+        errorMsg = payload.error;
+      } else if (typeof payload?.message === 'string' && payload.message) {
+        // Or message field
+        errorMsg = payload.message;
+      } else {
+        // Or generic error message
+        errorMsg = error?.message || 'Failed to finalize day';
+      }
+
+      console.error('[Finalize] Error response:', payload);
+      console.error('[Finalize] Metrics:', payload?.metrics);
       toast.error(`Finalize blocked: ${errorMsg}`, { duration: 9000 });
     },
   });
@@ -1096,34 +1106,65 @@ export function BackdatedEntries() {
       return;
     }
 
-    const litersTolerance = 0.01;
-    const cashTolerance = 1.0;
-    const hsdGap = fuelTotals.HSD - postedByFuel.HSD;
-    const pmgGap = fuelTotals.PMG - postedByFuel.PMG;
-    const walkInCashLiters = transactions
-      .filter((txn) => !txn.customerId && txn.paymentMethod === 'cash')
-      .reduce((sum, txn) => sum + toNumber(txn.quantity), 0);
+    try {
+      // ✅ Step 1: Force fresh refetch of daily summary from server (trust server truth, not stale local state)
+      console.log('[Finalize] Force-fetching latest server summary for validation...');
+      const latestSummaryRes = await apiClient.get('/api/backdated-entries/daily', {
+        params: {
+          branchId: selectedBranchId,
+          businessDate,
+          shiftId: selectedShiftId || undefined,
+        },
+      });
+      const serverSummary = latestSummaryRes.data?.data;
 
-    const errors: string[] = [];
-    if (Math.abs(hsdGap) > litersTolerance) {
-      errors.push(`HSD not reconciled: ${Math.abs(hsdGap).toFixed(3)} L ${hsdGap > 0 ? 'pending' : 'over-posted'}`);
-    }
-    if (Math.abs(pmgGap) > litersTolerance) {
-      errors.push(`PMG not reconciled: ${Math.abs(pmgGap).toFixed(3)} L ${pmgGap > 0 ? 'pending' : 'over-posted'}`);
-    }
-    if (Math.abs(cashGapAmount) > cashTolerance) {
-      errors.push(`Cash reconciliation gap: PKR ${Math.abs(cashGapAmount).toFixed(2)}`);
-    }
-    if ((Math.abs(hsdGap) > litersTolerance || Math.abs(pmgGap) > litersTolerance) && walkInCashLiters <= litersTolerance) {
-      errors.push('Cash/Walk-in customers not posted yet');
-    }
+      // ✅ Step 2: Validate using server truth (not local state)
+      const litersTolerance = 0.01;
+      const cashTolerancePkr = 1.0;
 
-    if (errors.length > 0) {
-      toast.error(`Finalize blocked: ${errors.join(' | ')}`, { duration: 7000 });
-      return;
-    }
+      const hsdGap = serverSummary.meterTotals.hsdLiters - serverSummary.postedTotals.hsdLiters;
+      const pmgGap = serverSummary.meterTotals.pmgLiters - serverSummary.postedTotals.pmgLiters;
+      const cashGap = serverSummary.backTracedCash?.cashGap || 0;
 
-    await finalizeDayMutation.mutateAsync();
+      const errors: string[] = [];
+      if (Math.abs(hsdGap) > litersTolerance) {
+        errors.push(`HSD not reconciled: ${Math.abs(hsdGap).toFixed(3)} L ${hsdGap > 0 ? 'pending to post' : 'over-posted'}`);
+      }
+      if (Math.abs(pmgGap) > litersTolerance) {
+        errors.push(`PMG not reconciled: ${Math.abs(pmgGap).toFixed(3)} L ${pmgGap > 0 ? 'pending to post' : 'over-posted'}`);
+      }
+      if (Math.abs(cashGap) > cashTolerancePkr) {
+        errors.push(`Cash reconciliation gap: PKR ${Math.abs(cashGap).toFixed(2)} ${cashGap > 0 ? 'short' : 'excess'}`);
+      }
+
+      const walkInCashLiters = serverSummary.transactions
+        .filter((t: any) => !t.customer && t.paymentMethod === 'cash')
+        .reduce((sum: number, t: any) => sum + (t.quantity || 0), 0);
+
+      if (
+        (Math.abs(hsdGap) > litersTolerance || Math.abs(pmgGap) > litersTolerance) &&
+        walkInCashLiters <= litersTolerance
+      ) {
+        errors.push(`Cash/Walk-in customers not fully posted yet (${serverSummary.remainingLiters.total.toFixed(3)} L pending)`);
+      }
+
+      if (errors.length > 0) {
+        toast.error(`Finalize blocked: ${errors.join(' | ')}`, { duration: 7000 });
+        return;
+      }
+
+      // ✅ Step 3: Proceed with finalize (with try/catch for uncaught promise rejection)
+      await finalizeDayMutation.mutateAsync();
+    } catch (error: any) {
+      // ✅ Catch uncaught promise rejections from refetch or mutation
+      console.error('[Finalize] Uncaught error:', error);
+
+      // If it's a network/API error from the mutation, the onError handler will show a toast
+      // This catch block handles unexpected errors
+      if (!error?.response?.status) {
+        toast.error(error?.message || 'An unexpected error occurred during finalization', { duration: 7000 });
+      }
+    }
   };
 
   // Save backdated meter reading mutation

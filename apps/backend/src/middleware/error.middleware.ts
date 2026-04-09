@@ -52,9 +52,19 @@ export function errorHandler(
 
   // App error
   if (err instanceof AppError) {
-    return res.status(err.statusCode).json({
+    const response: any = {
       error: err.message,
-    });
+    };
+
+    // Include additional details if present (for structured errors like finalize blockers)
+    if ((err as any).details) {
+      response.details = (err as any).details;
+    }
+    if ((err as any).metrics) {
+      response.metrics = (err as any).metrics;
+    }
+
+    return res.status(err.statusCode).json(response);
   }
 
   // Default error

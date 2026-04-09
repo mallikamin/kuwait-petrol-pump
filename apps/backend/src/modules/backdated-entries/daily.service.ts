@@ -942,28 +942,28 @@ export class DailyBackdatedEntriesService {
     const summary = await this.getDailySummary({ branchId, businessDate }, organizationId);
     const litersTolerance = 0.01;
     const cashTolerancePkr = 1.0;
-    const reconciliationErrors: string[] = [];
+    const reconciliationErrors: Array<{ message: string }> = [];
 
     const hsdGap = summary.meterTotals.hsdLiters - summary.postedTotals.hsdLiters;
     const pmgGap = summary.meterTotals.pmgLiters - summary.postedTotals.pmgLiters;
     const cashGap = summary.backTracedCash.cashGap;
 
     if (Math.abs(hsdGap) > litersTolerance) {
-      reconciliationErrors.push(
-        `HSD not reconciled: ${Math.abs(hsdGap).toFixed(3)} L ${hsdGap > 0 ? 'pending to post' : 'over-posted'}`
-      );
+      reconciliationErrors.push({
+        message: `HSD not reconciled: ${Math.abs(hsdGap).toFixed(3)} L ${hsdGap > 0 ? 'pending to post' : 'over-posted'}`
+      });
     }
 
     if (Math.abs(pmgGap) > litersTolerance) {
-      reconciliationErrors.push(
-        `PMG not reconciled: ${Math.abs(pmgGap).toFixed(3)} L ${pmgGap > 0 ? 'pending to post' : 'over-posted'}`
-      );
+      reconciliationErrors.push({
+        message: `PMG not reconciled: ${Math.abs(pmgGap).toFixed(3)} L ${pmgGap > 0 ? 'pending to post' : 'over-posted'}`
+      });
     }
 
     if (Math.abs(cashGap) > cashTolerancePkr) {
-      reconciliationErrors.push(
-        `Cash reconciliation gap: PKR ${Math.abs(cashGap).toFixed(2)} ${cashGap > 0 ? 'short' : 'excess'}`
-      );
+      reconciliationErrors.push({
+        message: `Cash reconciliation gap: PKR ${Math.abs(cashGap).toFixed(2)} ${cashGap > 0 ? 'short' : 'excess'}`
+      });
     }
 
     // Legacy per-entry isReconciled flags are not maintained by the current daily workflow.
@@ -976,16 +976,23 @@ export class DailyBackdatedEntriesService {
       (Math.abs(hsdGap) > litersTolerance || Math.abs(pmgGap) > litersTolerance) &&
       walkInCashLiters <= litersTolerance
     ) {
-      reconciliationErrors.push(
-        `Cash/Walk-in customers not fully posted yet (${summary.remainingLiters.total.toFixed(3)} L pending)`
-      );
+      reconciliationErrors.push({
+        message: `Cash/Walk-in customers not fully posted yet (${summary.remainingLiters.total.toFixed(3)} L pending)`
+      });
     }
 
     if (reconciliationErrors.length > 0) {
-      throw new AppError(
-        400,
-        `Finalize blocked: ${reconciliationErrors.join('; ')}`
-      );
+      // Return structured error response instead of one long string
+      const error = new AppError(400, 'Finalize blocked');
+      (error as any).details = reconciliationErrors;
+      (error as any).metrics = {
+        hsdGap: parseFloat(hsdGap.toFixed(3)),
+        pmgGap: parseFloat(pmgGap.toFixed(3)),
+        cashGap: parseFloat(cashGap.toFixed(2)),
+        remainingLitersTotal: parseFloat(summary.remainingLiters.total.toFixed(3)),
+        walkInCashLiters: parseFloat(walkInCashLiters.toFixed(3)),
+      };
+      throw error;
     }
 
     // Mark all entries as finalized
