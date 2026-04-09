@@ -965,37 +965,49 @@ export function BackdatedEntries() {
         }
       }
 
+      // Build outbound payload with detailed tracking
+      const outboundTransactions = transactions.map(txn => ({
+        id: txn.id || undefined,
+        nozzleId: txn.nozzleId || undefined,
+        customerId: txn.customerId || undefined,
+        fuelCode: txn.fuelCode || undefined,
+        vehicleNumber: txn.vehicleNumber || undefined,
+        slipNumber: txn.slipNumber || undefined,
+        productName: txn.productName,
+        quantity: toNumber(txn.quantity),
+        unitPrice: toNumber(txn.unitPrice),
+        lineTotal: toNumber(txn.lineTotal),
+        paymentMethod: txn.paymentMethod,
+        bankId: txn.bankId || undefined,
+      }));
+
+      const withNozzleIds = outboundTransactions.filter(t => t.nozzleId).length;
+      const withoutNozzleIds = outboundTransactions.filter(t => !t.nozzleId).length;
+      const totalLiters = outboundTransactions.reduce((sum, t) => sum + (t.quantity || 0), 0);
+
       console.log('[Save Draft] Sending to API:', {
         endpoint: '/api/backdated-entries/daily',
-        payload: {
-          branchId: selectedBranchId,
-          businessDate,
-          shiftId: selectedShiftId || undefined,
-          transactionCount: transactions.length,
-        },
+        totalTransactions: outboundTransactions.length,
+        withNozzleIds,
+        withoutNozzleIds,
+        totalLiters,
+        branchId: selectedBranchId,
+        businessDate,
+        shiftId: selectedShiftId || undefined,
       });
 
       const res = await apiClient.post('/api/backdated-entries/daily', {
         branchId: selectedBranchId,
         businessDate,
         shiftId: selectedShiftId || undefined,
-        transactions: transactions.map(txn => ({
-          id: txn.id || undefined,
-          nozzleId: txn.nozzleId || undefined,
-          customerId: txn.customerId || undefined,
-          fuelCode: txn.fuelCode || undefined,
-          vehicleNumber: txn.vehicleNumber || undefined,
-          slipNumber: txn.slipNumber || undefined,
-          productName: txn.productName,
-          quantity: toNumber(txn.quantity),
-          unitPrice: toNumber(txn.unitPrice),
-          lineTotal: toNumber(txn.lineTotal),
-          paymentMethod: txn.paymentMethod,
-          bankId: txn.bankId || undefined,
-        })),
+        transactions: outboundTransactions,
       });
 
-      console.log('[Save Draft] API response:', res.data);
+      console.log('[Save Draft] API response:', {
+        status: res.status,
+        transactionsSaved: res.data?.data?.totalTransactions,
+        postedLiters: res.data?.data?.postedTotals,
+      });
       return res.data.data;
     },
     onSuccess: () => {

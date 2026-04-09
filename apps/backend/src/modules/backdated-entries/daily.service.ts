@@ -587,13 +587,26 @@ export class DailyBackdatedEntriesService {
             upsertedCount++;
           }
 
-          // ✅ FIX #1: Only delete when payload is fully ID-qualified.
-          // Partial payloads (new rows without IDs) must never trigger delete.
+          // ✅ FIX #1: CRITICAL - Prevent data loss from partial saves
+          // Only delete if ALL conditions are met:
+          // 1. All incoming rows have stable IDs (can't delete if there are new rows without IDs)
+          // 2. Incoming transaction count >= existing count (no partial payload that drops data)
+          // 3. No gap between existing and incoming (prevents accidental deletion)
           let deletedCount = 0;
-          const canDeleteMissing = nozzleTxns.length > 0 && nozzleTxns.every((txn) => !!txn.id);
+          const allIncomingHaveIds = nozzleTxns.length > 0 && nozzleTxns.every((txn) => !!txn.id);
+          const incomingCountGreaterOrEqual = nozzleTxns.length >= existingTxnIds.size;
+          const canDeleteMissing = allIncomingHaveIds && incomingCountGreaterOrEqual;
+
           if (canDeleteMissing) {
             const txnsToDelete = Array.from(existingTxnIds).filter(id => !incomingTxnIds.has(id));
             if (txnsToDelete.length > 0) {
+              console.log('[BackdatedEntries] Safe deletion check:', {
+                entryId,
+                nozzleId,
+                existingCount: existingTxnIds.size,
+                incomingCount: nozzleTxns.length,
+                toDeleteCount: txnsToDelete.length,
+              });
               await prisma.backdatedTransaction.deleteMany({
                 where: {
                   id: { in: txnsToDelete },
@@ -604,11 +617,14 @@ export class DailyBackdatedEntriesService {
               console.log('[BackdatedEntries] Deleted removed transactions:', deletedCount);
             }
           } else {
-            console.log('[BackdatedEntries] Skip delete for partial payload (non-id-qualified rows present)', {
+            console.log('[BackdatedEntries] Skip delete - unsafe to delete (prevents partial-save data loss)', {
               entryId,
               nozzleId,
               existingCount: existingTxnIds.size,
               incomingCount: nozzleTxns.length,
+              allIncomingHaveIds,
+              incomingCountGreaterOrEqual,
+              reason: !allIncomingHaveIds ? 'incoming has rows without IDs' : 'incoming count < existing count (partial save)',
             });
           }
 
@@ -827,12 +843,25 @@ export class DailyBackdatedEntriesService {
           upsertedCount++;
         }
 
-        // ✅ FIX #1: Only delete when payload is fully ID-qualified.
+        // ✅ FIX #1: CRITICAL - Prevent data loss from partial saves (walk-in version)
+        // Only delete if ALL conditions are met:
+        // 1. All incoming rows have stable IDs (can't delete if there are new rows without IDs)
+        // 2. Incoming transaction count >= existing count (no partial payload that drops data)
+        // 3. No gap between existing and incoming (prevents accidental deletion)
         let deletedCount = 0;
-        const canDeleteMissing = txnsWithoutNozzle.length > 0 && txnsWithoutNozzle.every((txn) => !!txn.id);
+        const allWalkinIncomingHaveIds = txnsWithoutNozzle.length > 0 && txnsWithoutNozzle.every((txn) => !!txn.id);
+        const walkinIncomingCountGreaterOrEqual = txnsWithoutNozzle.length >= existingTxnIds.size;
+        const canDeleteMissing = allWalkinIncomingHaveIds && walkinIncomingCountGreaterOrEqual;
+
         if (canDeleteMissing) {
           const txnsToDelete = Array.from(existingTxnIds).filter(id => !incomingTxnIds.has(id));
           if (txnsToDelete.length > 0) {
+            console.log('[BackdatedEntries] Safe walk-in deletion check:', {
+              walkInEntryId,
+              existingCount: existingTxnIds.size,
+              incomingCount: txnsWithoutNozzle.length,
+              toDeleteCount: txnsToDelete.length,
+            });
             await prisma.backdatedTransaction.deleteMany({
               where: {
                 id: { in: txnsToDelete },
@@ -842,10 +871,13 @@ export class DailyBackdatedEntriesService {
             deletedCount = txnsToDelete.length;
           }
         } else {
-          console.log('[BackdatedEntries] Skip walk-in delete for partial payload (non-id-qualified rows present)', {
+          console.log('[BackdatedEntries] Skip walk-in delete - unsafe to delete (prevents partial-save data loss)', {
             walkInEntryId,
             existingCount: existingTxnIds.size,
             incomingCount: txnsWithoutNozzle.length,
+            allWalkinIncomingHaveIds,
+            walkinIncomingCountGreaterOrEqual,
+            reason: !allWalkinIncomingHaveIds ? 'incoming has rows without IDs' : 'incoming count < existing count (partial save)',
           });
         }
 
