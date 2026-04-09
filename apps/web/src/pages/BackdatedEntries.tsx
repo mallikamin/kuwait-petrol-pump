@@ -1196,8 +1196,8 @@ export function BackdatedEntries() {
       const resultPayload: any = {
         type: 'success',
         message: message,
-        salesCreated: data?.salesCount || 0,
-        transactionsProcessed: data?.transactionsCount || 0,
+        salesCreated: data?.postedSalesCount || data?.details?.salesCreated || 0,
+        transactionsProcessed: data?.details?.transactionsProcessed || 0,
       };
 
       // Include cash gap warning if present (no longer a blocker, just audit info)
