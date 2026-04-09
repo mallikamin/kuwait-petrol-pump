@@ -423,6 +423,44 @@ export class DailyBackdatedEntriesService {
 
     console.log('[BackdatedEntries] Normalized date:', businessDateObj.toISOString());
 
+    // ✅ CRITICAL FIX: Build global fuelTypesMap from all transactions BEFORE processing
+    // This ensures walk-in + nozzle paths use consistent fuel type resolution
+    const allFuelCodes = new Set<string>();
+    transactions.forEach(txn => {
+      if (txn.fuelCode) {
+        allFuelCodes.add((txn.fuelCode || '').toUpperCase());
+      }
+    });
+
+    const fuelTypesMap = new Map<string, string>();
+    if (allFuelCodes.size > 0) {
+      const fuelTypes = await prisma.fuelType.findMany({
+        where: {
+          code: { in: Array.from(allFuelCodes) },
+        },
+      });
+      fuelTypes.forEach(ft => {
+        fuelTypesMap.set(ft.code, ft.id);
+      });
+    }
+
+    // ✅ VALIDATION: Every transaction MUST have a valid fuel code
+    for (const txn of transactions) {
+      const fuelCode = (txn.fuelCode || '').toUpperCase();
+      if (!fuelCode || !fuelTypesMap.has(fuelCode)) {
+        throw new AppError(
+          400,
+          `Transaction with ${txn.quantity}L and product "${txn.productName}" has invalid/missing fuel code: "${txn.fuelCode}". ` +
+          `Valid codes are: ${Array.from(fuelTypesMap.keys()).join(', ')}`
+        );
+      }
+    }
+
+    console.log('[BackdatedEntries] Fuel types resolved:', {
+      uniqueFuelCodes: Array.from(fuelTypesMap.keys()),
+      totalTransactions: transactions.length,
+    });
+
     // Group transactions by nozzle (skip those without nozzleId)
     const txnsByNozzle = new Map<string, DailyTransactionInput[]>();
     const txnsWithoutNozzle: DailyTransactionInput[] = [];
@@ -505,6 +543,14 @@ export class DailyBackdatedEntriesService {
           let updatedCount = 0;
 
           for (const txn of nozzleTxns) {
+            // ✅ CRITICAL FIX: Resolve fuel type from txn.fuelCode, NOT nozzle.fuelTypeId
+            const fuelCode = (txn.fuelCode || '').toUpperCase();
+            const resolvedFuelTypeId = fuelTypesMap.get(fuelCode);
+
+            if (!resolvedFuelTypeId) {
+              throw new AppError(400, `Cannot resolve fuel type for code: ${txn.fuelCode}`);
+            }
+
             const txnData = {
               backdatedEntryId: entryId,
               customerId: txn.customerId,
@@ -516,7 +562,7 @@ export class DailyBackdatedEntriesService {
               lineTotal: new Prisma.Decimal(txn.lineTotal),
               paymentMethod: txn.paymentMethod,
               bankId: txn.bankId || null,
-              fuelTypeId: nozzle.fuelTypeId,
+              fuelTypeId: resolvedFuelTypeId,
               transactionDateTime: businessDateObj,
               updatedBy: userId || null,
             };
@@ -662,6 +708,14 @@ export class DailyBackdatedEntriesService {
           // Create all transactions for new entry
           let createdCount = 0;
           for (const txn of nozzleTxns) {
+            // ✅ CRITICAL FIX: Resolve fuel type from txn.fuelCode, NOT nozzle.fuelTypeId
+            const fuelCode = (txn.fuelCode || '').toUpperCase();
+            const resolvedFuelTypeId = fuelTypesMap.get(fuelCode);
+
+            if (!resolvedFuelTypeId) {
+              throw new AppError(400, `Cannot resolve fuel type for code: ${txn.fuelCode}`);
+            }
+
             await prisma.backdatedTransaction.create({
               data: {
                 id: txn.id, // Use client-provided ID if available
@@ -675,7 +729,7 @@ export class DailyBackdatedEntriesService {
                 lineTotal: new Prisma.Decimal(txn.lineTotal),
                 paymentMethod: txn.paymentMethod,
                 bankId: txn.bankId || null,
-                fuelTypeId: nozzle.fuelTypeId,
+                fuelTypeId: resolvedFuelTypeId,
                 transactionDateTime: businessDateObj,
                 createdBy: userId || null,
                 updatedBy: userId || null,
@@ -744,26 +798,20 @@ export class DailyBackdatedEntriesService {
         const incomingTxnIds = new Set(txnsWithoutNozzle.filter(t => t.id).map(t => t.id!));
 
         // ✅ FIX #1: Safety check for walk-in transactions
-
-        // Lookup fuelTypeIds for walk-in transactions by fuelCode
-        const fuelTypesMap = new Map<string, string>();
-        const uniqueFuelCodes = [...new Set(txnsWithoutNozzle.map(t => t.fuelCode).filter(Boolean))];
-
-        if (uniqueFuelCodes.length > 0) {
-          const fuelTypes = await prisma.fuelType.findMany({
-            where: {
-              code: { in: uniqueFuelCodes as string[] },
-            },
-          });
-          fuelTypes.forEach(ft => fuelTypesMap.set(ft.code, ft.id));
-        }
-
         // Upsert each walk-in transaction
         let upsertedCount = 0;
         let createdCount = 0;
         let updatedCount = 0;
 
         for (const txn of txnsWithoutNozzle) {
+          // ✅ CRITICAL FIX: Use global fuelTypesMap (already validated)
+          const fuelCode = (txn.fuelCode || '').toUpperCase();
+          const resolvedFuelTypeId = fuelTypesMap.get(fuelCode);
+
+          if (!resolvedFuelTypeId) {
+            throw new AppError(400, `Cannot resolve fuel type for walk-in code: ${txn.fuelCode}`);
+          }
+
           const txnData = {
             backdatedEntryId: walkInEntryId,
             customerId: txn.customerId,
@@ -775,7 +823,7 @@ export class DailyBackdatedEntriesService {
             lineTotal: new Prisma.Decimal(txn.lineTotal),
             paymentMethod: txn.paymentMethod,
             bankId: txn.bankId || null,
-            fuelTypeId: txn.fuelCode ? (fuelTypesMap.get(txn.fuelCode) || null) : null,
+            fuelTypeId: resolvedFuelTypeId,
             transactionDateTime: businessDateObj,
             updatedBy: userId || null,
           };
@@ -904,22 +952,16 @@ export class DailyBackdatedEntriesService {
 
         walkInEntryId = walkInEntry.id;
 
-        // Lookup fuelTypeIds
-        const fuelTypesMap = new Map<string, string>();
-        const uniqueFuelCodes = [...new Set(txnsWithoutNozzle.map(t => t.fuelCode).filter(Boolean))];
-
-        if (uniqueFuelCodes.length > 0) {
-          const fuelTypes = await prisma.fuelType.findMany({
-            where: {
-              code: { in: uniqueFuelCodes as string[] },
-            },
-          });
-          fuelTypes.forEach(ft => fuelTypesMap.set(ft.code, ft.id));
-        }
-
-        // Create all walk-in transactions
+        // ✅ CRITICAL FIX: Create all walk-in transactions using global fuelTypesMap (already validated)
         let createdCount = 0;
         for (const txn of txnsWithoutNozzle) {
+          const fuelCode = (txn.fuelCode || '').toUpperCase();
+          const resolvedFuelTypeId = fuelTypesMap.get(fuelCode);
+
+          if (!resolvedFuelTypeId) {
+            throw new AppError(400, `Cannot resolve fuel type for walk-in code: ${txn.fuelCode}`);
+          }
+
           await prisma.backdatedTransaction.create({
             data: {
               id: txn.id,
@@ -933,7 +975,7 @@ export class DailyBackdatedEntriesService {
               lineTotal: new Prisma.Decimal(txn.lineTotal),
               paymentMethod: txn.paymentMethod,
               bankId: txn.bankId || null,
-              fuelTypeId: txn.fuelCode ? (fuelTypesMap.get(txn.fuelCode) || null) : null,
+              fuelTypeId: resolvedFuelTypeId,
               transactionDateTime: businessDateObj,
               createdBy: userId || null,
               updatedBy: userId || null,
