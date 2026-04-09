@@ -129,6 +129,8 @@ export function BackdatedEntries() {
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const justSavedRef = useRef(false); // Track if we just saved to prevent useEffect from overwriting
+  const hydratingTransactionsRef = useRef(false);
+  const transactionsInitializedRef = useRef(false);
 
   // UX redesign state
   const [isContextCollapsed, setIsContextCollapsed] = useState(true);
@@ -136,6 +138,38 @@ export function BackdatedEntries() {
 
   // Use sessionStorage for loadedKey to persist across tab navigation
   const setLoadedKey = (key: string) => sessionStorage.setItem('backdated_loaded_key', key);
+
+  // Restore context from URL query (supports navigation from reconciliation screens)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const dateParam = params.get('date');
+    const branchParam = params.get('branchId');
+    const shiftParam = params.get('shiftId');
+
+    if (dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+      setBusinessDate(dateParam);
+    }
+    if (branchParam) {
+      setSelectedBranchId(branchParam);
+    }
+    if (shiftParam) {
+      setSelectedShiftId(shiftParam);
+    }
+  }, []);
+
+  // Keep URL in sync with selected context to avoid date/branch/shift persistence loss.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (businessDate) params.set('date', businessDate);
+    if (selectedBranchId) params.set('branchId', selectedBranchId);
+    else params.delete('branchId');
+    if (selectedShiftId) params.set('shiftId', selectedShiftId);
+    else params.delete('shiftId');
+
+    const nextQuery = params.toString();
+    const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}`;
+    window.history.replaceState({}, '', nextUrl);
+  }, [businessDate, selectedBranchId, selectedShiftId]);
 
   // Fetch branches
   const { data: branchesData } = useQuery({
@@ -695,9 +729,17 @@ export function BackdatedEntries() {
 
   // REMOVED: Duplicate useEffect that was overwriting transactions after save.
 
-  // Auto-save effect (mark dirty on transaction changes)
+  // Mark dirty only on user edits, not when hydrating from API/session.
   useEffect(() => {
-    if (transactions.length > 0) setIsDirty(true);
+    if (!transactionsInitializedRef.current) {
+      transactionsInitializedRef.current = true;
+      return;
+    }
+    if (hydratingTransactionsRef.current) {
+      hydratingTransactionsRef.current = false;
+      return;
+    }
+    setIsDirty(true);
   }, [transactions]);
 
   // Save transactions to sessionStorage on every change (prevents data loss on navigation)
@@ -724,6 +766,7 @@ export function BackdatedEntries() {
 
     if (!selectedBranchId || !businessDate) {
       console.log('[Transactions] Clearing (no branch/date selected)');
+      hydratingTransactionsRef.current = true;
       setTransactions([]);
       setSyncMessage('');
       setLoadedKey('');
@@ -768,6 +811,7 @@ export function BackdatedEntries() {
             : `${Math.round(ageMinutes)} min`;
 
           console.log('[Transactions] Loading from sessionStorage:', sessionTxns.length, '(age:', ageDisplay, ')');
+          hydratingTransactionsRef.current = true;
           setTransactions(sessionTxns);
           setSyncMessage(`⚠️ Restored ${sessionTxns.length} UNSAVED transactions from ${ageDisplay} ago. Click "Save Draft" to persist to server.`);
           setIsDirty(true); // Mark as dirty to trigger save reminder
@@ -782,6 +826,7 @@ export function BackdatedEntries() {
     // Load from API (server-saved data)
     if (dailySummaryData?.transactions && dailySummaryData.transactions.length > 0) {
       console.log('[Transactions] Loading from API:', dailySummaryData.transactions.length);
+      hydratingTransactionsRef.current = true;
       setTransactions(
         dailySummaryData.transactions.map((txn: any) => ({
           id: txn.id,
@@ -812,6 +857,7 @@ export function BackdatedEntries() {
       sessionStorage.removeItem(sessionKey);
     } else {
       console.log('[Transactions] No API data, clearing');
+      hydratingTransactionsRef.current = true;
       setTransactions([]);
       setSyncMessage('No existing transactions. Start adding customer groups.');
       setLoadedKey(currentKey); // Mark as loaded even if empty
@@ -1224,6 +1270,7 @@ export function BackdatedEntries() {
     setBusinessDate(format(new Date(), 'yyyy-MM-dd'));
     setSelectedBranchId('');
     setSelectedShiftId('');
+    hydratingTransactionsRef.current = true;
     setTransactions([]);
     setSyncMessage('');
   };

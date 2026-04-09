@@ -45,6 +45,13 @@ interface FinalizeDayInput {
 
 export class DailyBackdatedEntriesService {
   private readonly meterReadingsDailyService = new BackdatedMeterReadingsDailyService();
+  private normalizeBusinessDate(businessDate: string): Date {
+    const [year, month, day] = businessDate.split('-').map((value) => parseInt(value, 10));
+    if (!year || !month || !day) {
+      throw new AppError(400, `Invalid businessDate: ${businessDate}`);
+    }
+    return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+  }
 
   /**
    * GET /api/backdated-entries/daily
@@ -81,8 +88,7 @@ export class DailyBackdatedEntriesService {
     }
 
     // Normalize date to midnight UTC for consistent queries
-    const businessDateObj = new Date(businessDate);
-    businessDateObj.setUTCHours(0, 0, 0, 0);
+    const businessDateObj = this.normalizeBusinessDate(businessDate);
 
     console.log('[BackdatedEntries] Querying with normalized date:', businessDateObj.toISOString());
 
@@ -389,8 +395,7 @@ export class DailyBackdatedEntriesService {
     }
 
     // Normalize date to midnight UTC for consistent queries
-    const businessDateObj = new Date(businessDate);
-    businessDateObj.setUTCHours(0, 0, 0, 0);
+    const businessDateObj = this.normalizeBusinessDate(businessDate);
 
     console.log('[BackdatedEntries] Normalized date:', businessDateObj.toISOString());
 
@@ -558,18 +563,29 @@ export class DailyBackdatedEntriesService {
             upsertedCount++;
           }
 
-          // ✅ FIX #1: Only delete if ALL incoming rows are ID-qualified
+          // ✅ FIX #1: Only delete when payload is fully ID-qualified.
+          // Partial payloads (new rows without IDs) must never trigger delete.
           let deletedCount = 0;
-          const txnsToDelete = Array.from(existingTxnIds).filter(id => !incomingTxnIds.has(id));
-          if (txnsToDelete.length > 0) {
-            await prisma.backdatedTransaction.deleteMany({
-              where: {
-                id: { in: txnsToDelete },
-                backdatedEntryId: entryId, // Extra safety: scope to entry
-              },
+          const canDeleteMissing = nozzleTxns.length > 0 && nozzleTxns.every((txn) => !!txn.id);
+          if (canDeleteMissing) {
+            const txnsToDelete = Array.from(existingTxnIds).filter(id => !incomingTxnIds.has(id));
+            if (txnsToDelete.length > 0) {
+              await prisma.backdatedTransaction.deleteMany({
+                where: {
+                  id: { in: txnsToDelete },
+                  backdatedEntryId: entryId, // Extra safety: scope to entry
+                },
+              });
+              deletedCount = txnsToDelete.length;
+              console.log('[BackdatedEntries] Deleted removed transactions:', deletedCount);
+            }
+          } else {
+            console.log('[BackdatedEntries] Skip delete for partial payload (non-id-qualified rows present)', {
+              entryId,
+              nozzleId,
+              existingCount: existingTxnIds.size,
+              incomingCount: nozzleTxns.length,
             });
-            deletedCount = txnsToDelete.length;
-            console.log('[BackdatedEntries] Deleted removed transactions:', deletedCount);
           }
 
           console.log('[BackdatedEntries] Upserted transactions:', {
@@ -787,17 +803,26 @@ export class DailyBackdatedEntriesService {
           upsertedCount++;
         }
 
-        // ✅ FIX #1: Only delete if all walk-in transactions are ID-qualified
+        // ✅ FIX #1: Only delete when payload is fully ID-qualified.
         let deletedCount = 0;
-        const txnsToDelete = Array.from(existingTxnIds).filter(id => !incomingTxnIds.has(id));
-        if (txnsToDelete.length > 0) {
-          await prisma.backdatedTransaction.deleteMany({
-            where: {
-              id: { in: txnsToDelete },
-              backdatedEntryId: walkInEntryId, // Extra safety: scope to entry
-            },
+        const canDeleteMissing = txnsWithoutNozzle.length > 0 && txnsWithoutNozzle.every((txn) => !!txn.id);
+        if (canDeleteMissing) {
+          const txnsToDelete = Array.from(existingTxnIds).filter(id => !incomingTxnIds.has(id));
+          if (txnsToDelete.length > 0) {
+            await prisma.backdatedTransaction.deleteMany({
+              where: {
+                id: { in: txnsToDelete },
+                backdatedEntryId: walkInEntryId, // Extra safety: scope to entry
+              },
+            });
+            deletedCount = txnsToDelete.length;
+          }
+        } else {
+          console.log('[BackdatedEntries] Skip walk-in delete for partial payload (non-id-qualified rows present)', {
+            walkInEntryId,
+            existingCount: existingTxnIds.size,
+            incomingCount: txnsWithoutNozzle.length,
           });
-          deletedCount = txnsToDelete.length;
         }
 
         console.log('[BackdatedEntries] Upserted walk-in transactions:', {
@@ -896,7 +921,7 @@ export class DailyBackdatedEntriesService {
       throw new AppError(404, 'Branch not found or does not belong to organization');
     }
 
-    const businessDateObj = new Date(businessDate);
+    const businessDateObj = this.normalizeBusinessDate(businessDate);
 
     // Get all entries for the date
     const entries = await prisma.backdatedEntry.findMany({
@@ -941,12 +966,8 @@ export class DailyBackdatedEntriesService {
       );
     }
 
-    const unreconciledEntriesCount = entries.filter((e) => !(e as any).isReconciled).length;
-    if (unreconciledEntriesCount > 0) {
-      reconciliationErrors.push(
-        `${unreconciledEntriesCount} nozzle entries are still marked unreconciled`
-      );
-    }
+    // Legacy per-entry isReconciled flags are not maintained by the current daily workflow.
+    // Quantitative gates above (liters + cash) are the source of truth for finalization.
 
     const walkInCashLiters = summary.transactions
       .filter((t) => !t.customer && t.paymentMethod === 'cash')
