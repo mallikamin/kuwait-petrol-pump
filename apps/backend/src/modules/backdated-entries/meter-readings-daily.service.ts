@@ -260,12 +260,12 @@ export class BackdatedMeterReadingsDailyService {
           }
         }
 
-        // Calculate sales only if both readings MANUALLY ENTERED (not propagated)
+        // ✅ CRITICAL FIX: Calculate sales if both readings EXIST (entered OR propagated)
+        // Opening can be propagated from previous shift closing - that's valid!
+        // Closing is manually entered. Both having values = complete reading pair.
         let salesLiters: number | undefined;
         if (
-          openingStatus.status === 'entered' && // ✅ FIX: Only count ENTERED, not propagated
-          closingStatus.status === 'entered' && // ✅ FIX: Only count ENTERED, not propagated
-          openingStatus.value !== null &&
+          openingStatus.value !== null &&  // ✅ FIX: Count propagated + entered openings
           openingStatus.value > 0 &&
           closingStatus.value !== null &&
           closingStatus.value > 0
@@ -311,10 +311,12 @@ export class BackdatedMeterReadingsDailyService {
       totalMissing += totalMissingShift;
       totalSalesLiters += shiftTotalSales;
 
-      // ✅ FIX: Completion % only counts MANUALLY ENTERED readings, not propagated
+      // ✅ CRITICAL FIX: Completion % counts readings that EXIST (entered OR propagated)
+      // A propagated opening from previous closing IS a complete reading, not incomplete
+      const filledReadings = shiftEntered + shiftOpeningPropagated;
       const completionPercent =
         nozzles.length * 2 > 0
-          ? (shiftEntered / (nozzles.length * 2)) * 100
+          ? (filledReadings / (nozzles.length * 2)) * 100
           : 0;
 
       shiftSummaries.push({
@@ -343,11 +345,10 @@ export class BackdatedMeterReadingsDailyService {
 
     // Aggregate summary
     const totalExpected = nozzles.length * shifts.length * 2;
-    // ✅ FIX: Completion % only counts MANUALLY ENTERED readings, not propagated
-    const aggregateCompletion =
-      totalExpected > 0 ? (totalEntered / totalExpected) * 100 : 0;
-
     const totalFilled = totalEntered + totalOpeningPropagated;
+    // ✅ CRITICAL FIX: Completion % counts readings that EXIST (entered OR propagated)
+    const aggregateCompletion =
+      totalExpected > 0 ? (totalFilled / totalExpected) * 100 : 0;
 
     // ✅ NEW: Calculate aggregate product-wise sales from all shifts
     const aggregateHsdSales = shiftSummaries.reduce(
