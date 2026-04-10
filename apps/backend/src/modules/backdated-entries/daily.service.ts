@@ -577,684 +577,218 @@ export class DailyBackdatedEntriesService {
       totalTransactions: transactions.length,
     });
 
-    // Group transactions by nozzle (skip those without nozzleId)
-    const txnsByNozzle = new Map<string, DailyTransactionInput[]>();
-    const txnsWithoutNozzle: DailyTransactionInput[] = [];
+    // ✅ NO NOZZLE GROUPING - Process all transactions as single daily entry per (branchId, businessDate, shiftId)
+    // Rule: Transactions are NOT nozzle-linked (see WORKFLOW_CANONICAL_NO_DRIFT.md)
+    // Reconciliation is fuel-type based only (HSD vs PMG), not per-nozzle
 
-    transactions.forEach((txn) => {
-      if (!txn.nozzleId) {
-        console.warn('[BackdatedEntries] Transaction without nozzleId:', txn);
-        txnsWithoutNozzle.push(txn);
-        return;
+    console.log('[BackdatedEntries] Processing all transactions for daily entry:', {
+      branchId,
+      businessDate,
+      shiftId,
+      transactionCount: transactions.length,
+    });
+
+    // Get or create single daily entry for this (branchId, businessDate, shiftId)
+    const existingDailyEntry = await prisma.backdatedEntry.findFirst({
+      where: {
+        branchId,
+        businessDate: businessDateObj,
+        shiftId: shiftId || null,
+        notes: { isSet: false }, // Nozzle-based entries; daily entries have no notes
+      },
+      include: {
+        transactions: {
+          select: { id: true },
+        },
+      },
+    });
+
+    let entryId: string;
+
+    if (existingDailyEntry) {
+      console.log('[BackdatedEntries] Using existing daily entry:', existingDailyEntry.id);
+      entryId = existingDailyEntry.id;
+    } else {
+      // ✅ Create single daily entry (no nozzle assignment - transactions are not nozzle-linked)
+      console.log('[BackdatedEntries] Creating new daily entry for branch:', branchId);
+
+      const newDailyEntry = await prisma.backdatedEntry.create({
+        data: {
+          branchId,
+          businessDate: businessDateObj,
+          shiftId: shiftId || null,
+          nozzleId: null, // ✅ Daily entry has NO nozzle (transactions are independent)
+          openingReading: new Prisma.Decimal(0),
+          closingReading: new Prisma.Decimal(0),
+          // NO notes prefix - this distinguishes it from legacy walk-in entries
+        },
+      });
+
+      console.log('[BackdatedEntries] Created new daily entry:', newDailyEntry.id);
+      entryId = newDailyEntry.id;
+    }
+
+    // ✅ Upsert ALL transactions into this single daily entry
+    const existingTxns = await prisma.backdatedTransaction.findMany({
+      where: { backdatedEntryId: entryId },
+    });
+
+    const existingTxnIds = new Set(existingTxns.map(t => t.id));
+    const incomingTxnIds = new Set(transactions.filter(t => t.id).map(t => t.id!));
+
+    let upsertedCount = 0;
+    let createdCount = 0;
+    let updatedCount = 0;
+
+    for (const txn of transactions) {
+      // ✅ Resolve fuel type from txn.fuelCode only (no nozzle fallback)
+      const fuelCode = (txn.fuelCode || '').toUpperCase();
+      const resolvedFuelTypeId = fuelTypesMap.get(fuelCode);
+
+      if (!resolvedFuelTypeId) {
+        throw new AppError(400, `Cannot resolve fuel type for code: ${txn.fuelCode}`);
       }
 
-      const list = txnsByNozzle.get(txn.nozzleId) || [];
-      list.push(txn);
-      txnsByNozzle.set(txn.nozzleId, list);
-    });
+      const txnData = {
+        backdatedEntryId: entryId,
+        customerId: txn.customerId,
+        vehicleNumber: txn.vehicleNumber,
+        slipNumber: txn.slipNumber,
+        productName: txn.productName,
+        quantity: new Prisma.Decimal(txn.quantity),
+        unitPrice: new Prisma.Decimal(txn.unitPrice),
+        lineTotal: new Prisma.Decimal(txn.lineTotal),
+        paymentMethod: txn.paymentMethod,
+        bankId: txn.bankId || null,
+        fuelTypeId: resolvedFuelTypeId,
+        transactionDateTime: businessDateObj,
+        updatedBy: userId || null,
+      };
 
-    console.log('[BackdatedEntries] Grouped transactions:', {
-      nozzleCount: txnsByNozzle.size,
-      withoutNozzleCount: txnsWithoutNozzle.length,
-    });
-
-    // For each nozzle, create/update entry and transactions
-    const results = await Promise.all(
-      Array.from(txnsByNozzle.entries()).map(async ([nozzleId, nozzleTxns]) => {
-        console.log('[BackdatedEntries] Processing nozzle:', {
-          nozzleId,
-          transactionCount: nozzleTxns.length,
-        });
-
-        // Fetch nozzle with fuel type to determine meter readings
-        const nozzle = await prisma.nozzle.findFirst({
+      if (txn.id && existingTxnIds.has(txn.id)) {
+        // Update existing transaction
+        const updateResult = await prisma.backdatedTransaction.updateMany({
           where: {
-            id: nozzleId,
-            dispensingUnit: {
-              branch: {
-                organizationId,
-              },
-            },
+            id: txn.id,
+            backdatedEntryId: entryId,
           },
-          include: {
-            fuelType: true,
-          },
+          data: txnData,
         });
 
-        if (!nozzle) {
-          console.error('[BackdatedEntries] Nozzle not found:', nozzleId);
-          throw new AppError(404, `Nozzle ${nozzleId} not found`);
-        }
-
-        // ✅ NOZZLE-FUEL CONSISTENCY CHECK
-        // Validate ALL transactions for this nozzle have matching fuel codes
-        const nozzleFuelCode = nozzle.fuelType.code;
-        const mismatchedTxns = nozzleTxns.filter(txn => {
-          const txnFuelCode = (txn.fuelCode || '').toUpperCase();
-          return txnFuelCode && txnFuelCode !== nozzleFuelCode;
-        });
-
-        if (mismatchedTxns.length > 0) {
-          const details = mismatchedTxns.map(txn => ({
-            txnId: txn.id || 'new',
-            nozzleName: nozzle.name,
-            nozzleFuelCode,
-            txnFuelCode: txn.fuelCode,
-            quantity: txn.quantity,
-          }));
-
-          throw new AppError(
-            409,
-            `Fuel type mismatch: Cannot save transactions with fuel type different from nozzle. ` +
-            `Nozzle ${nozzle.name} is ${nozzleFuelCode}, but ${mismatchedTxns.length} transaction(s) have different fuel codes. ` +
-            `Details: ${JSON.stringify(details)}`,
-          );
-        }
-
-        // Check if entry already exists
-        const existingEntry = await prisma.backdatedEntry.findFirst({
-          where: {
-            nozzleId,
-            businessDate: businessDateObj,
-            shiftId: shiftId || null,
-          },
-        });
-
-        let entryId: string;
-
-        if (existingEntry) {
-          console.log('[BackdatedEntries] Updating existing entry:', existingEntry.id);
-
-          entryId = existingEntry.id;
-
-          // ✅ FIX: NON-DESTRUCTIVE UPSERT - prevent data loss from partial payloads
-          // Get existing transactions
-          const existingTxns = await prisma.backdatedTransaction.findMany({
-            where: { backdatedEntryId: existingEntry.id },
+        if (updateResult.count === 0) {
+          console.error('[BackdatedEntries] INTEGRITY ERROR: Transaction does not belong to this entry', {
+            txnId: txn.id,
+            entryId,
           });
-
-          const existingTxnIds = new Set(existingTxns.map(t => t.id));
-          const incomingTxnIds = new Set(nozzleTxns.filter(t => t.id).map(t => t.id!));
-
-          // ✅ FIX #1: Safety check - only delete if ALL incoming rows have IDs
-
-          // Upsert each transaction individually
-          let upsertedCount = 0;
-          let createdCount = 0;
-          let updatedCount = 0;
-
-          for (const txn of nozzleTxns) {
-            // ✅ CRITICAL FIX: Resolve fuel type from txn.fuelCode, NOT nozzle.fuelTypeId
-            const fuelCode = (txn.fuelCode || '').toUpperCase();
-            const resolvedFuelTypeId = fuelTypesMap.get(fuelCode);
-
-            if (!resolvedFuelTypeId) {
-              throw new AppError(400, `Cannot resolve fuel type for code: ${txn.fuelCode}`);
-            }
-
-            const txnData = {
+          throw new AppError(400, `Transaction ${txn.id} does not belong to this entry`);
+        }
+        updatedCount++;
+      } else {
+        // Create new transaction
+        // ✅ Duplicate guard: fingerprint check to prevent accidental duplicates
+        if (!txn.id) {
+          const fingerprint = await prisma.backdatedTransaction.findFirst({
+            where: {
               backdatedEntryId: entryId,
-              customerId: txn.customerId,
-              vehicleNumber: txn.vehicleNumber,
-              slipNumber: txn.slipNumber,
+              customerId: txn.customerId || null,
               productName: txn.productName,
               quantity: new Prisma.Decimal(txn.quantity),
               unitPrice: new Prisma.Decimal(txn.unitPrice),
               lineTotal: new Prisma.Decimal(txn.lineTotal),
+              slipNumber: txn.slipNumber || null,
+              vehicleNumber: txn.vehicleNumber || null,
               paymentMethod: txn.paymentMethod,
-              bankId: txn.bankId || null,
-              fuelTypeId: resolvedFuelTypeId,
-              transactionDateTime: businessDateObj,
-              updatedBy: userId || null,
-            };
-
-            if (txn.id && existingTxnIds.has(txn.id)) {
-              // ✅ FIX #2: Scope update to entry for integrity
-              // Update existing transaction (verify ownership first)
-              const updateResult = await prisma.backdatedTransaction.updateMany({
-                where: {
-                  id: txn.id,
-                  backdatedEntryId: entryId, // Scoped: prevent cross-entry pollution
-                },
-                data: txnData,
-              });
-
-              if (updateResult.count === 0) {
-                console.error('[BackdatedEntries] INTEGRITY ERROR: Attempted to update transaction with wrong entry', {
-                  txnId: txn.id,
-                  entryId,
-                });
-                throw new AppError(400, `Transaction ${txn.id} does not belong to this entry`);
-              }
-              updatedCount++;
-            } else {
-              // Create new transaction (with stable ID if provided)
-              // ✅ DUPLICATE GUARD: If no ID provided, check for fingerprint match to prevent accidental duplicates
-              if (!txn.id) {
-                const fingerprint = await prisma.backdatedTransaction.findFirst({
-                  where: {
-                    backdatedEntryId: entryId,
-                    customerId: txn.customerId || null,
-                    productName: txn.productName,
-                    quantity: new Prisma.Decimal(txn.quantity),
-                    unitPrice: new Prisma.Decimal(txn.unitPrice),
-                    lineTotal: new Prisma.Decimal(txn.lineTotal),
-                    slipNumber: txn.slipNumber || null,
-                    vehicleNumber: txn.vehicleNumber || null,
-                    paymentMethod: txn.paymentMethod,
-                    createdAt: {
-                      gte: new Date(Date.now() - 60000), // Within last 60 seconds
-                    },
-                  },
-                  select: { id: true },
-                });
-
-                if (fingerprint) {
-                  console.warn('[BackdatedEntries] Duplicate fingerprint detected, skipping insert:', {
-                    entryId,
-                    productName: txn.productName,
-                    quantity: txn.quantity,
-                    existingId: fingerprint.id,
-                  });
-                  // Skip insert, treat as already saved
-                  upsertedCount++;
-                  continue;
-                }
-              }
-
-              try {
-                await prisma.backdatedTransaction.create({
-                  data: {
-                    id: txn.id, // Use client-provided ID if available
-                    ...txnData,
-                    createdBy: userId || null,
-                  },
-                });
-                createdCount++;
-              } catch (error: any) {
-                // ✅ CRITICAL FIX: Handle UNIQUE constraint violation on transaction ID
-                // If transaction with this ID already exists, update it instead
-                if (error.code === 'P2002' || error.message?.includes('Unique constraint')) {
-                  console.log('[BackdatedEntries] Nozzle transaction UNIQUE constraint violation, updating existing:', txn.id);
-                  await prisma.backdatedTransaction.update({
-                    where: { id: txn.id },
-                    data: {
-                      ...txnData,
-                      updatedBy: userId || null,
-                    },
-                  });
-                  updatedCount++;
-                } else {
-                  throw error;
-                }
-              }
-            }
-            upsertedCount++;
-          }
-
-          // ✅ FIX #1: CRITICAL - Prevent data loss from partial saves
-          // Only delete if ALL conditions are met:
-          // 1. All incoming rows have stable IDs (can't delete if there are new rows without IDs)
-          // 2. Incoming transaction count >= existing count (no partial payload that drops data)
-          // 3. No gap between existing and incoming (prevents accidental deletion)
-          let deletedCount = 0;
-          const allIncomingHaveIds = nozzleTxns.length > 0 && nozzleTxns.every((txn) => !!txn.id);
-          const incomingCountGreaterOrEqual = nozzleTxns.length >= existingTxnIds.size;
-          const canDeleteMissing = allIncomingHaveIds && incomingCountGreaterOrEqual;
-
-          if (canDeleteMissing) {
-            const txnsToDelete = Array.from(existingTxnIds).filter(id => !incomingTxnIds.has(id));
-            if (txnsToDelete.length > 0) {
-              console.log('[BackdatedEntries] Safe deletion check:', {
-                entryId,
-                nozzleId,
-                existingCount: existingTxnIds.size,
-                incomingCount: nozzleTxns.length,
-                toDeleteCount: txnsToDelete.length,
-              });
-              await prisma.backdatedTransaction.deleteMany({
-                where: {
-                  id: { in: txnsToDelete },
-                  backdatedEntryId: entryId, // Extra safety: scope to entry
-                },
-              });
-              deletedCount = txnsToDelete.length;
-              console.log('[BackdatedEntries] Deleted removed transactions:', deletedCount);
-            }
-          } else {
-            console.log('[BackdatedEntries] Skip delete - unsafe to delete (prevents partial-save data loss)', {
-              entryId,
-              nozzleId,
-              existingCount: existingTxnIds.size,
-              incomingCount: nozzleTxns.length,
-              allIncomingHaveIds,
-              incomingCountGreaterOrEqual,
-              reason: !allIncomingHaveIds ? 'incoming has rows without IDs' : 'incoming count < existing count (partial save)',
-            });
-          }
-
-          console.log('[BackdatedEntries] Upserted transactions:', {
-            entryId,
-            nozzleId,
-            total: upsertedCount,
-            created: createdCount,
-            updated: updatedCount,
-            deleted: deletedCount,
-          });
-        } else {
-          console.log('[BackdatedEntries] Creating new entry for nozzle:', nozzleId);
-
-          // Create new entry
-          // Draft entries are transaction containers; meter readings come from meter_readings table.
-          const opening = 0;
-          const closing = 0;
-
-          const newEntry = await prisma.backdatedEntry.create({
-            data: {
-              branchId,
-              businessDate: businessDateObj,
-              nozzleId,
-              shiftId: shiftId || null,
-              openingReading: new Prisma.Decimal(opening),
-              closingReading: new Prisma.Decimal(closing),
+              createdAt: {
+                gte: new Date(Date.now() - 60000), // Within last 60 seconds
+              },
             },
+            select: { id: true },
           });
 
-          console.log('[BackdatedEntries] Created new entry:', newEntry.id);
-
-          entryId = newEntry.id;
-
-          // Create all transactions for new entry
-          let createdCount = 0;
-          let updatedCount = 0;
-          for (const txn of nozzleTxns) {
-            // ✅ CRITICAL FIX: Resolve fuel type from txn.fuelCode, NOT nozzle.fuelTypeId
-            const fuelCode = (txn.fuelCode || '').toUpperCase();
-            const resolvedFuelTypeId = fuelTypesMap.get(fuelCode);
-
-            if (!resolvedFuelTypeId) {
-              throw new AppError(400, `Cannot resolve fuel type for code: ${txn.fuelCode}`);
-            }
-
-            try {
-              await prisma.backdatedTransaction.create({
-                data: {
-                  id: txn.id, // Use client-provided ID if available
-                  backdatedEntryId: entryId,
-                  customerId: txn.customerId,
-                  vehicleNumber: txn.vehicleNumber,
-                  slipNumber: txn.slipNumber,
-                  productName: txn.productName,
-                  quantity: new Prisma.Decimal(txn.quantity),
-                  unitPrice: new Prisma.Decimal(txn.unitPrice),
-                  lineTotal: new Prisma.Decimal(txn.lineTotal),
-                  paymentMethod: txn.paymentMethod,
-                  bankId: txn.bankId || null,
-                  fuelTypeId: resolvedFuelTypeId,
-                  transactionDateTime: businessDateObj,
-                  createdBy: userId || null,
-                  updatedBy: userId || null,
-                },
-              });
-              createdCount++;
-            } catch (error: any) {
-              // ✅ CRITICAL FIX: Handle UNIQUE constraint violation on transaction ID
-              // If transaction with this ID already exists, update it instead
-              if (error.code === 'P2002' || error.message?.includes('Unique constraint')) {
-                console.log('[BackdatedEntries] New entry transaction UNIQUE constraint violation, updating existing:', txn.id);
-                await prisma.backdatedTransaction.update({
-                  where: { id: txn.id },
-                  data: {
-                    backdatedEntryId: entryId,
-                    customerId: txn.customerId,
-                    vehicleNumber: txn.vehicleNumber,
-                    slipNumber: txn.slipNumber,
-                    productName: txn.productName,
-                    quantity: new Prisma.Decimal(txn.quantity),
-                    unitPrice: new Prisma.Decimal(txn.unitPrice),
-                    lineTotal: new Prisma.Decimal(txn.lineTotal),
-                    paymentMethod: txn.paymentMethod,
-                    bankId: txn.bankId || null,
-                    fuelTypeId: resolvedFuelTypeId,
-                    transactionDateTime: businessDateObj,
-                    updatedBy: userId || null,
-                  },
-                });
-                updatedCount++;
-              } else {
-                throw error;
-              }
-            }
-          }
-
-          console.log('[BackdatedEntries] Created transactions:', {
-            entryId,
-            nozzleId,
-            count: createdCount,
-          });
-        }
-
-        return { nozzleId, entryId };
-      })
-    );
-
-    console.log('[BackdatedEntries] Saved all entries:', results.length);
-
-    // Handle walk-in transactions (those without nozzleId)
-    if (txnsWithoutNozzle.length > 0) {
-      console.log('[BackdatedEntries] Processing walk-in transactions:', txnsWithoutNozzle.length);
-
-      // Get first active nozzle from branch as placeholder
-      const placeholderNozzle = await prisma.nozzle.findFirst({
-        where: {
-          dispensingUnit: {
-            branchId,
-          },
-          isActive: true,
-        },
-        include: {
-          fuelType: true,
-        },
-      });
-
-      if (!placeholderNozzle) {
-        throw new AppError(400, 'No active nozzles found in branch. Cannot save walk-in transactions.');
-      }
-
-      // Check if walk-in entry already exists for this date
-      const walkInEntryKey = `WALKIN_${businessDate}`;
-      const existingWalkInEntry = await prisma.backdatedEntry.findFirst({
-        where: {
-          branchId,
-          businessDate: businessDateObj,
-          shiftId: shiftId || null,
-          notes: { startsWith: 'WALK-IN:' }, // Identify walk-in entries by notes prefix
-        },
-      });
-
-      let walkInEntryId: string;
-
-      if (existingWalkInEntry) {
-        console.log('[BackdatedEntries] Using existing walk-in entry:', existingWalkInEntry.id);
-        walkInEntryId = existingWalkInEntry.id;
-
-        // ✅ FIX: NON-DESTRUCTIVE UPSERT for walk-in transactions
-        const existingWalkInTxns = await prisma.backdatedTransaction.findMany({
-          where: { backdatedEntryId: existingWalkInEntry.id },
-        });
-
-        const existingTxnIds = new Set(existingWalkInTxns.map(t => t.id));
-        const incomingTxnIds = new Set(txnsWithoutNozzle.filter(t => t.id).map(t => t.id!));
-
-        // ✅ FIX #1: Safety check for walk-in transactions
-        // Upsert each walk-in transaction
-        let upsertedCount = 0;
-        let createdCount = 0;
-        let updatedCount = 0;
-
-        for (const txn of txnsWithoutNozzle) {
-          // ✅ CRITICAL FIX: Use global fuelTypesMap (already validated)
-          const fuelCode = (txn.fuelCode || '').toUpperCase();
-          const resolvedFuelTypeId = fuelTypesMap.get(fuelCode);
-
-          if (!resolvedFuelTypeId) {
-            throw new AppError(400, `Cannot resolve fuel type for walk-in code: ${txn.fuelCode}`);
-          }
-
-          const txnData = {
-            backdatedEntryId: walkInEntryId,
-            customerId: txn.customerId,
-            vehicleNumber: txn.vehicleNumber,
-            slipNumber: txn.slipNumber,
-            productName: txn.productName,
-            quantity: new Prisma.Decimal(txn.quantity),
-            unitPrice: new Prisma.Decimal(txn.unitPrice),
-            lineTotal: new Prisma.Decimal(txn.lineTotal),
-            paymentMethod: txn.paymentMethod,
-            bankId: txn.bankId || null,
-            fuelTypeId: resolvedFuelTypeId,
-            transactionDateTime: businessDateObj,
-            updatedBy: userId || null,
-          };
-
-          if (txn.id && existingTxnIds.has(txn.id)) {
-            // ✅ FIX #2: Scope update to entry
-            const updateResult = await prisma.backdatedTransaction.updateMany({
-              where: {
-                id: txn.id,
-                backdatedEntryId: walkInEntryId, // Scoped: prevent cross-entry pollution
-              },
-              data: txnData,
+          if (fingerprint) {
+            console.warn('[BackdatedEntries] Duplicate fingerprint detected, skipping insert:', {
+              entryId,
+              productName: txn.productName,
+              quantity: txn.quantity,
+              existingId: fingerprint.id,
             });
-
-            if (updateResult.count === 0) {
-              console.error('[BackdatedEntries] INTEGRITY ERROR: Walk-in transaction with wrong entry', {
-                txnId: txn.id,
-                walkInEntryId,
-              });
-              throw new AppError(400, `Walk-in transaction ${txn.id} does not belong to this entry`);
-            }
-            updatedCount++;
-          } else {
-            // Create new
-            // ✅ DUPLICATE GUARD: Check fingerprint for walk-in transactions too
-            if (!txn.id) {
-              const fingerprint = await prisma.backdatedTransaction.findFirst({
-                where: {
-                  backdatedEntryId: walkInEntryId,
-                  customerId: txn.customerId || null,
-                  productName: txn.productName,
-                  quantity: new Prisma.Decimal(txn.quantity),
-                  unitPrice: new Prisma.Decimal(txn.unitPrice),
-                  lineTotal: new Prisma.Decimal(txn.lineTotal),
-                  slipNumber: txn.slipNumber || null,
-                  vehicleNumber: txn.vehicleNumber || null,
-                  paymentMethod: txn.paymentMethod,
-                  createdAt: {
-                    gte: new Date(Date.now() - 60000), // Within last 60 seconds
-                  },
-                },
-                select: { id: true },
-              });
-
-              if (fingerprint) {
-                console.warn('[BackdatedEntries] Duplicate walk-in fingerprint detected, skipping:', {
-                  walkInEntryId,
-                  productName: txn.productName,
-                  existingId: fingerprint.id,
-                });
-                upsertedCount++;
-                continue;
-              }
-            }
-
-            try {
-              await prisma.backdatedTransaction.create({
-                data: {
-                  id: txn.id,
-                  ...txnData,
-                  createdBy: userId || null,
-                },
-              });
-              createdCount++;
-            } catch (error: any) {
-              // ✅ CRITICAL FIX: Handle UNIQUE constraint violation on transaction ID
-              // If transaction with this ID already exists, update it instead
-              if (error.code === 'P2002' || error.message?.includes('Unique constraint')) {
-                console.log('[BackdatedEntries] Transaction UNIQUE constraint violation, updating existing:', txn.id);
-                await prisma.backdatedTransaction.update({
-                  where: { id: txn.id },
-                  data: {
-                    ...txnData,
-                    updatedBy: userId || null,
-                  },
-                });
-                updatedCount++;
-              } else {
-                throw error;
-              }
-            }
+            upsertedCount++;
+            continue;
           }
-          upsertedCount++;
         }
-
-        // ✅ FIX #1: CRITICAL - Prevent data loss from partial saves (walk-in version)
-        // Only delete if ALL conditions are met:
-        // 1. All incoming rows have stable IDs (can't delete if there are new rows without IDs)
-        // 2. Incoming transaction count >= existing count (no partial payload that drops data)
-        // 3. No gap between existing and incoming (prevents accidental deletion)
-        let deletedCount = 0;
-        const allWalkinIncomingHaveIds = txnsWithoutNozzle.length > 0 && txnsWithoutNozzle.every((txn) => !!txn.id);
-        const walkinIncomingCountGreaterOrEqual = txnsWithoutNozzle.length >= existingTxnIds.size;
-        const canDeleteMissing = allWalkinIncomingHaveIds && walkinIncomingCountGreaterOrEqual;
-
-        if (canDeleteMissing) {
-          const txnsToDelete = Array.from(existingTxnIds).filter(id => !incomingTxnIds.has(id));
-          if (txnsToDelete.length > 0) {
-            console.log('[BackdatedEntries] Safe walk-in deletion check:', {
-              walkInEntryId,
-              existingCount: existingTxnIds.size,
-              incomingCount: txnsWithoutNozzle.length,
-              toDeleteCount: txnsToDelete.length,
-            });
-            await prisma.backdatedTransaction.deleteMany({
-              where: {
-                id: { in: txnsToDelete },
-                backdatedEntryId: walkInEntryId, // Extra safety: scope to entry
-              },
-            });
-            deletedCount = txnsToDelete.length;
-          }
-        } else {
-          console.log('[BackdatedEntries] Skip walk-in delete - unsafe to delete (prevents partial-save data loss)', {
-            walkInEntryId,
-            existingCount: existingTxnIds.size,
-            incomingCount: txnsWithoutNozzle.length,
-            allWalkinIncomingHaveIds,
-            walkinIncomingCountGreaterOrEqual,
-            reason: !allWalkinIncomingHaveIds ? 'incoming has rows without IDs' : 'incoming count < existing count (partial save)',
-          });
-        }
-
-        console.log('[BackdatedEntries] Upserted walk-in transactions:', {
-          total: upsertedCount,
-          created: createdCount,
-          updated: updatedCount,
-          deleted: deletedCount,
-        });
-      } else {
-        // Create walk-in entry (check for collision with existing nozzle-based entries first)
-        console.log('[BackdatedEntries] Creating walk-in entry', {
-          branchId,
-          businessDate: businessDateObj.toISOString().split('T')[0],
-          shiftId: shiftId || null,
-          placeholderNozzleId: placeholderNozzle.id,
-        });
 
         try {
-          const walkInEntry = await prisma.backdatedEntry.create({
+          await prisma.backdatedTransaction.create({
             data: {
-              branchId,
-              businessDate: businessDateObj,
-              nozzleId: placeholderNozzle.id,
-              shiftId: shiftId || null,
-              openingReading: new Prisma.Decimal(0),
-              closingReading: new Prisma.Decimal(0),
-              notes: 'WALK-IN: Non-fuel transactions without nozzle assignment',
+              id: txn.id, // Use client-provided ID if available
+              ...txnData,
+              createdBy: userId || null,
             },
           });
-
-          walkInEntryId = walkInEntry.id;
+          createdCount++;
         } catch (error: any) {
-          // ✅ CRITICAL FIX: Handle UNIQUE constraint violation
-          // If creation fails with 409 (UNIQUE violation), try to find the existing entry
+          // ✅ Handle UNIQUE constraint violation on transaction ID (idempotent upsert)
+          // If transaction already exists, update it instead of failing
           if (error.code === 'P2002' || error.message?.includes('Unique constraint')) {
-            console.log('[BackdatedEntries] Walk-in entry UNIQUE constraint violation, finding existing...');
-            const existingEntry = await prisma.backdatedEntry.findFirst({
-              where: {
-                branchId,
-                businessDate: businessDateObj,
-                nozzleId: placeholderNozzle.id,
-                shiftId: shiftId || null,
+            console.log('[BackdatedEntries] Transaction UNIQUE constraint violation, updating existing:', txn.id);
+            await prisma.backdatedTransaction.update({
+              where: { id: txn.id },
+              data: {
+                ...txnData,
+                updatedBy: userId || null,
               },
             });
-
-            if (existingEntry) {
-              console.log('[BackdatedEntries] Reusing existing walk-in entry:', existingEntry.id);
-              walkInEntryId = existingEntry.id;
-            } else {
-              throw new AppError(409, `Walk-in entry collision detected for ${businessDateObj.toISOString().split('T')[0]}: UNIQUE constraint on nozzle`);
-            }
+            updatedCount++;
           } else {
             throw error;
           }
         }
-
-        // ✅ CRITICAL FIX: Create all walk-in transactions using global fuelTypesMap (already validated)
-        let createdCount = 0;
-        let updatedCount = 0;
-        for (const txn of txnsWithoutNozzle) {
-          const fuelCode = (txn.fuelCode || '').toUpperCase();
-          const resolvedFuelTypeId = fuelTypesMap.get(fuelCode);
-
-          if (!resolvedFuelTypeId) {
-            throw new AppError(400, `Cannot resolve fuel type for walk-in code: ${txn.fuelCode}`);
-          }
-
-          try {
-            await prisma.backdatedTransaction.create({
-              data: {
-                id: txn.id,
-                backdatedEntryId: walkInEntryId,
-                customerId: txn.customerId,
-                vehicleNumber: txn.vehicleNumber,
-                slipNumber: txn.slipNumber,
-                productName: txn.productName,
-                quantity: new Prisma.Decimal(txn.quantity),
-                unitPrice: new Prisma.Decimal(txn.unitPrice),
-                lineTotal: new Prisma.Decimal(txn.lineTotal),
-                paymentMethod: txn.paymentMethod,
-                bankId: txn.bankId || null,
-                fuelTypeId: resolvedFuelTypeId,
-                transactionDateTime: businessDateObj,
-                createdBy: userId || null,
-                updatedBy: userId || null,
-              },
-            });
-            createdCount++;
-          } catch (error: any) {
-            // ✅ CRITICAL FIX: Handle UNIQUE constraint violation on transaction ID
-            // If transaction with this ID already exists, update it instead
-            if (error.code === 'P2002' || error.message?.includes('Unique constraint')) {
-              console.log('[BackdatedEntries] New walk-in transaction UNIQUE constraint violation, updating existing:', txn.id);
-              await prisma.backdatedTransaction.update({
-                where: { id: txn.id },
-                data: {
-                  backdatedEntryId: walkInEntryId,
-                  customerId: txn.customerId,
-                  vehicleNumber: txn.vehicleNumber,
-                  slipNumber: txn.slipNumber,
-                  productName: txn.productName,
-                  quantity: new Prisma.Decimal(txn.quantity),
-                  unitPrice: new Prisma.Decimal(txn.unitPrice),
-                  lineTotal: new Prisma.Decimal(txn.lineTotal),
-                  paymentMethod: txn.paymentMethod,
-                  bankId: txn.bankId || null,
-                  fuelTypeId: resolvedFuelTypeId,
-                  transactionDateTime: businessDateObj,
-                  updatedBy: userId || null,
-                },
-              });
-              updatedCount++;
-            } else {
-              throw error;
-            }
-          }
-        }
-
-        console.log('[BackdatedEntries] Created walk-in transactions:', createdCount);
       }
+      upsertedCount++;
     }
+
+    // ✅ Safe deletion: Only delete missing transactions if all incoming have IDs and count >= existing
+    let deletedCount = 0;
+    const allIncomingHaveIds = transactions.length > 0 && transactions.every((txn) => !!txn.id);
+    const incomingCountGreaterOrEqual = transactions.length >= existingTxnIds.size;
+    const canDeleteMissing = allIncomingHaveIds && incomingCountGreaterOrEqual;
+
+    if (canDeleteMissing) {
+      const txnsToDelete = Array.from(existingTxnIds).filter(id => !incomingTxnIds.has(id));
+      if (txnsToDelete.length > 0) {
+        console.log('[BackdatedEntries] Safe deletion check:', {
+          entryId,
+          existingCount: existingTxnIds.size,
+          incomingCount: transactions.length,
+          toDeleteCount: txnsToDelete.length,
+        });
+        await prisma.backdatedTransaction.deleteMany({
+          where: {
+            id: { in: txnsToDelete },
+            backdatedEntryId: entryId,
+          },
+        });
+        deletedCount = txnsToDelete.length;
+        console.log('[BackdatedEntries] Deleted removed transactions:', deletedCount);
+      }
+    } else {
+      console.log('[BackdatedEntries] Skip delete - unsafe to delete (prevents partial-save data loss)', {
+        entryId,
+        existingCount: existingTxnIds.size,
+        incomingCount: transactions.length,
+        allIncomingHaveIds,
+        incomingCountGreaterOrEqual,
+        reason: !allIncomingHaveIds ? 'incoming has rows without IDs' : 'incoming count < existing count (partial save)',
+      });
+    }
+
+    console.log('[BackdatedEntries] Upserted all daily transactions:', {
+      entryId,
+      total: upsertedCount,
+      created: createdCount,
+      updated: updatedCount,
+      deleted: deletedCount,
+    });
 
     // Return updated summary
     return this.getDailySummary(

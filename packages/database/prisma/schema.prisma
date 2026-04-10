@@ -1092,7 +1092,7 @@ model BackdatedEntry {
   id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   branchId          String   @map("branch_id") @db.Uuid
   businessDate      DateTime @map("business_date") @db.Date
-  nozzleId          String   @map("nozzle_id") @db.Uuid
+  nozzleId          String?  @map("nozzle_id") @db.Uuid // ✅ NULLABLE: Daily entries don't have nozzle assignment (transactions are fuel-type based only)
   shiftId           String?  @map("shift_id") @db.Uuid
   openingReading    Decimal  @map("opening_reading") @db.Decimal(12, 2)
   closingReading    Decimal  @map("closing_reading") @db.Decimal(12, 2)
@@ -1112,11 +1112,12 @@ model BackdatedEntry {
 
   // Relations
   branch            Branch                   @relation(fields: [branchId], references: [id])
-  nozzle            Nozzle                   @relation(fields: [nozzleId], references: [id])
+  nozzle            Nozzle?                  @relation(fields: [nozzleId], references: [id]) // ✅ Optional: for legacy nozzle-based entries only
   shift             Shift?                   @relation(fields: [shiftId], references: [id])
   transactions      BackdatedTransaction[]
 
-  @@unique([nozzleId, businessDate, shiftId], name: "unique_nozzle_date_shift")
+  @@unique([nozzleId, businessDate, shiftId], name: "unique_nozzle_date_shift") // ✅ Allows multiple entries when nozzleId=NULL (daily entries)
+  @@unique([branchId, businessDate, shiftId], name: "unique_daily_entry_per_branch") // ✅ NEW: One daily entry per (branch, date, shift)
   @@index([businessDate], name: "idx_backdated_entries_date")
   @@index([branchId, businessDate], name: "idx_backdated_entries_branch_date")
   @@index([nozzleId], name: "idx_backdated_entries_nozzle")
