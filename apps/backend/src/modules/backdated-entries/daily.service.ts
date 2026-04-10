@@ -589,12 +589,13 @@ export class DailyBackdatedEntriesService {
     });
 
     // Get or create single daily entry for this (branchId, businessDate, shiftId)
+    // Daily entries have nozzleId = NULL (transactions are not nozzle-linked)
     const existingDailyEntry = await prisma.backdatedEntry.findFirst({
       where: {
         branchId,
         businessDate: businessDateObj,
         shiftId: shiftId || null,
-        notes: { isSet: false }, // Nozzle-based entries; daily entries have no notes
+        nozzleId: null, // ✅ Daily entries have no nozzle assignment
       },
       include: {
         transactions: {
