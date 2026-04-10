@@ -313,7 +313,7 @@ export class BackdatedMeterReadingsDailyService {
 
       // ✅ CRITICAL FIX: Completion % counts readings that EXIST (entered OR propagated)
       // A propagated opening from previous closing IS a complete reading, not incomplete
-      const filledReadings = shiftEntered + shiftOpeningPropagated;
+      // filledReadings already calculated above as (shiftEntered + shiftOpeningPropagated)
       const completionPercent =
         nozzles.length * 2 > 0
           ? (filledReadings / (nozzles.length * 2)) * 100
