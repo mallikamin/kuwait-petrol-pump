@@ -2168,6 +2168,9 @@ export function BackdatedEntries() {
                     </AlertDescription>
                   </Alert>
                 )}
+              </CardContent>
+            </Card>
+          ) : null}
 
           {/* HSD/PMG Dashboard Cards */}
           {selectedBranchId && businessDate && (
