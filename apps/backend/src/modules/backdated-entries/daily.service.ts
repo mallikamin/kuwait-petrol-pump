@@ -866,6 +866,7 @@ export class DailyBackdatedEntriesService {
 
           // Create all transactions for new entry
           let createdCount = 0;
+          let updatedCount = 0;
           for (const txn of nozzleTxns) {
             // ✅ CRITICAL FIX: Resolve fuel type from txn.fuelCode, NOT nozzle.fuelTypeId
             const fuelCode = (txn.fuelCode || '').toUpperCase();
@@ -1191,6 +1192,7 @@ export class DailyBackdatedEntriesService {
 
         // ✅ CRITICAL FIX: Create all walk-in transactions using global fuelTypesMap (already validated)
         let createdCount = 0;
+        let updatedCount = 0;
         for (const txn of txnsWithoutNozzle) {
           const fuelCode = (txn.fuelCode || '').toUpperCase();
           const resolvedFuelTypeId = fuelTypesMap.get(fuelCode);
