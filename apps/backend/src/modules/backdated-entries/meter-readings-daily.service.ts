@@ -163,6 +163,8 @@ export class BackdatedMeterReadingsDailyService {
       const shiftReadings = readings.filter((r) => r.shiftId === shift.id);
       const nozzleStatuses: ShiftMeterReadingStatus[] = [];
       let shiftTotalSales = 0;
+      let shiftHsdSales = 0; // ✅ NEW: Product-wise sales breakdown
+      let shiftPmgSales = 0; // ✅ NEW: Product-wise sales breakdown
       let shiftEntered = 0;
       let shiftPropagated = 0;
 
@@ -245,9 +247,11 @@ export class BackdatedMeterReadingsDailyService {
           }
         }
 
-        // Calculate sales only if both readings valid
+        // Calculate sales only if both readings MANUALLY ENTERED (not propagated)
         let salesLiters: number | undefined;
         if (
+          openingStatus.status === 'entered' && // ✅ FIX: Only count ENTERED, not propagated
+          closingStatus.status === 'entered' && // ✅ FIX: Only count ENTERED, not propagated
           openingStatus.value !== null &&
           openingStatus.value > 0 &&
           closingStatus.value !== null &&
@@ -255,6 +259,12 @@ export class BackdatedMeterReadingsDailyService {
         ) {
           salesLiters = Number(closingStatus.value) - Number(openingStatus.value);
           shiftTotalSales += salesLiters;
+          // ✅ NEW: Segregate by fuel type
+          if (nozzle.fuelType.code === 'HSD') {
+            shiftHsdSales += salesLiters;
+          } else if (nozzle.fuelType.code === 'PMG') {
+            shiftPmgSales += salesLiters;
+          }
         }
 
         // Check continuity (warn if gap detected)
@@ -282,9 +292,10 @@ export class BackdatedMeterReadingsDailyService {
       totalMissing += nozzles.length * 2 - shiftEntered - shiftPropagated;
       totalSalesLiters += shiftTotalSales;
 
+      // ✅ FIX: Completion % only counts MANUALLY ENTERED readings, not propagated
       const completionPercent =
         nozzles.length * 2 > 0
-          ? ((shiftEntered + shiftPropagated) / (nozzles.length * 2)) * 100
+          ? (shiftEntered / (nozzles.length * 2)) * 100
           : 0;
 
       shiftSummaries.push({
@@ -302,14 +313,28 @@ export class BackdatedMeterReadingsDailyService {
           totalReadingsMissing: nozzles.length * 2 - shiftEntered - shiftPropagated,
           completionPercent: Math.round(completionPercent * 100) / 100,
           totalSalesLiters: Math.round(shiftTotalSales * 1000) / 1000,
+          // ✅ NEW: Product-wise sales breakdown
+          hsdSalesLiters: Math.round(shiftHsdSales * 1000) / 1000,
+          pmgSalesLiters: Math.round(shiftPmgSales * 1000) / 1000,
         },
       });
     }
 
     // Aggregate summary
     const totalExpected = nozzles.length * shifts.length * 2;
+    // ✅ FIX: Completion % only counts MANUALLY ENTERED readings, not propagated
     const aggregateCompletion =
-      totalExpected > 0 ? ((totalEntered + totalPropagated) / totalExpected) * 100 : 0;
+      totalExpected > 0 ? (totalEntered / totalExpected) * 100 : 0;
+
+    // ✅ NEW: Calculate aggregate product-wise sales from all shifts
+    const aggregateHsdSales = shiftSummaries.reduce(
+      (sum, shift) => sum + (shift.summary.hsdSalesLiters || 0),
+      0
+    );
+    const aggregatePmgSales = shiftSummaries.reduce(
+      (sum, shift) => sum + (shift.summary.pmgSalesLiters || 0),
+      0
+    );
 
     return {
       businessDate,
@@ -324,6 +349,9 @@ export class BackdatedMeterReadingsDailyService {
         totalReadingsMissing: totalMissing,
         completionPercent: Math.round(aggregateCompletion * 100) / 100,
         totalSalesLiters: Math.round(totalSalesLiters * 1000) / 1000,
+        // ✅ NEW: Product-wise sales breakdown for aggregated view
+        hsdSalesLiters: Math.round(aggregateHsdSales * 1000) / 1000,
+        pmgSalesLiters: Math.round(aggregatePmgSales * 1000) / 1000,
       },
     };
   }

@@ -88,6 +88,14 @@ const toNumber = (value: unknown): number => {
   return 0;
 };
 
+// ✅ NEW: Format liters - remove decimals for whole numbers (3000.00L → 3000L)
+const formatLiters = (liters: number): string => {
+  if (liters === 0) return '0';
+  const rounded = Math.round(liters * 1000) / 1000; // Round to 3 decimals
+  const str = rounded.toFixed(3); // Format to 3 decimals
+  return str.replace(/\.?0+$/, ''); // Remove trailing zeros and decimal point if needed
+};
+
 const openAttachmentInNewTab = (rawUrl?: string | null) => {
   if (!rawUrl) return;
 
@@ -1810,7 +1818,7 @@ export function BackdatedEntries() {
                     <div>
                       <div className="text-xs text-muted-foreground">Total Sales (All Shifts)</div>
                       <div className="text-2xl font-bold text-green-600">
-                        {((backdatedMeterReadingsData as any).aggregateSummary.totalSalesLiters || 0).toFixed(3)} L
+                        {formatLiters((backdatedMeterReadingsData as any).aggregateSummary.totalSalesLiters || 0)} L
                       </div>
                     </div>
                     <div>
@@ -1865,7 +1873,10 @@ export function BackdatedEntries() {
                                 {shift.summary.completionPercent.toFixed(0)}% Complete
                               </Badge>
                               <div className="text-sm text-muted-foreground">
-                                Sales: <span className="font-semibold text-green-600">{shift.summary.totalSalesLiters.toFixed(3)} L</span>
+                                {/* ✅ NEW: Product-wise sales breakdown */}
+                                HSD: <span className="font-semibold text-blue-600">{formatLiters(shift.summary.hsdSalesLiters || 0)} L</span>
+                                {' '}| PMG: <span className="font-semibold text-orange-600">{formatLiters(shift.summary.pmgSalesLiters || 0)} L</span>
+                                {' '}| Total: <span className="font-semibold text-green-600">{formatLiters(shift.summary.totalSalesLiters || 0)} L</span>
                               </div>
                             </div>
                           </div>
