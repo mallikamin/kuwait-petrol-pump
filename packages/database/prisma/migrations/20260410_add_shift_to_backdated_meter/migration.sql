@@ -1,5 +1,28 @@
--- Add shift_id column to backdated_meter_readings (clean migration, no existing data)
-ALTER TABLE "backdated_meter_readings" ADD COLUMN "shift_id" UUID NOT NULL;
+-- Add shift_id column (nullable first to handle existing data)
+ALTER TABLE "backdated_meter_readings" ADD COLUMN "shift_id" UUID;
+
+-- Populate shift_id with the first/default Morning shift for each branch
+-- This handles existing meter readings that need a shift context
+UPDATE "backdated_meter_readings" bmr
+SET "shift_id" = (
+    SELECT id FROM "shifts" s
+    WHERE s."branchId" = bmr."branch_id"
+    AND s.name = 'Morning'
+    LIMIT 1
+)
+WHERE bmr."shift_id" IS NULL;
+
+-- For any rows still without a shift (branch has no Morning shift), use any available shift
+UPDATE "backdated_meter_readings" bmr
+SET "shift_id" = (
+    SELECT id FROM "shifts" s
+    WHERE s."branchId" = bmr."branch_id"
+    LIMIT 1
+)
+WHERE bmr."shift_id" IS NULL;
+
+-- Now add the NOT NULL constraint
+ALTER TABLE "backdated_meter_readings" ALTER COLUMN "shift_id" SET NOT NULL;
 
 -- Add foreign key constraint
 ALTER TABLE "backdated_meter_readings"
