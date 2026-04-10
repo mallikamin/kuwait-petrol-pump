@@ -1412,7 +1412,6 @@ export function BackdatedEntries() {
     onSuccess: () => {
       toast.success('Meter reading updated successfully');
       setEditingReadingId(null);
-      setEditingReadingValue(null);
       refetchMeterReadings();
       refetchDailySummary();
     },
