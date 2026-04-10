@@ -173,12 +173,13 @@ export class DailyBackdatedEntriesService {
     // ✅ SHIFT-SEGREGATED: Iterate over shifts, then nozzles
     (dailyMeterReadings as any).shifts?.forEach((shift: any) => {
       shift.nozzles?.forEach((nozzle: any) => {
-        // ✅ CRITICAL FIX: Only use ENTERED readings for meter totals, NOT derived readings
-        const opening = nozzle.opening?.status === 'entered' ? nozzle.opening.value : null;
-        const closing = nozzle.closing?.status === 'entered' ? nozzle.closing.value : null;
+        // ✅ CRITICAL FIX: Accept ANY reading with valid value (entered OR propagated)
+        // Status is informational; meter calculation accepts all valid numeric values
+        const opening = nozzle.opening?.value ?? null;
+        const closing = nozzle.closing?.value ?? null;
 
         if (opening === null || opening === undefined || closing === null || closing === undefined) {
-          return; // Skip if either actual reading is missing
+          return; // Skip if either reading value is missing
         }
 
         const liters = closing - opening;
