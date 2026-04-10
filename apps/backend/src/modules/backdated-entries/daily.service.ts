@@ -170,23 +170,23 @@ export class DailyBackdatedEntriesService {
     let hsdMeterLiters = 0;
     let pmgMeterLiters = 0;
 
-    // ✅ SHIFT-INDEPENDENT: Iterate over nozzles directly (no shift segregation)
-    dailyMeterReadings.nozzles.forEach((nozzle) => {
-      // ✅ CRITICAL FIX: Only use ENTERED readings for meter totals, NOT derived readings
-      // Derived readings no longer exist (backdated is shift-independent)
-      const opening = nozzle.opening?.status === 'entered' ? nozzle.opening.value : null;
-      const closing = nozzle.closing?.status === 'entered' ? nozzle.closing.value : null;
+    // ✅ SHIFT-SEGREGATED: Iterate over shifts, then nozzles
+    (dailyMeterReadings as any).shifts?.forEach((shift: any) => {
+      shift.nozzles?.forEach((nozzle: any) => {
+        // ✅ CRITICAL FIX: Only use ENTERED readings for meter totals, NOT derived readings
+        const opening = nozzle.opening?.status === 'entered' ? nozzle.opening.value : null;
+        const closing = nozzle.closing?.status === 'entered' ? nozzle.closing.value : null;
 
-      if (opening === null || opening === undefined || closing === null || closing === undefined) {
-        return; // Skip if either actual reading is missing
-      }
+        if (opening === null || opening === undefined || closing === null || closing === undefined) {
+          return; // Skip if either actual reading is missing
+        }
 
-      const liters = closing - opening;
-      if (liters < 0) {
-        console.warn('[BackdatedEntries] Negative meter delta ignored', {
-          branchId,
-          businessDate,
-          nozzleId: nozzle.nozzleId,
+        const liters = closing - opening;
+        if (liters < 0) {
+          console.warn('[BackdatedEntries] Negative meter delta ignored', {
+            branchId,
+            businessDate,
+            nozzleId: nozzle.nozzleId,
           opening,
           closing,
           liters,
@@ -202,6 +202,7 @@ export class DailyBackdatedEntriesService {
       } else if (nozzle.fuelType === 'PMG') {
         pmgMeterLiters += liters;
       }
+      });
     });
 
     // Build nozzle status map
