@@ -2160,13 +2160,6 @@ export function BackdatedEntries() {
               </AccordionItem>
             ))}
           </Accordion>
-            ) : (
-              <Alert className="mb-4 border-amber-200 bg-amber-50">
-                <AlertCircle className="h-4 w-4 text-amber-600" />
-                <AlertDescription className="text-sm text-amber-900">
-                  <strong>No nozzle readings found for this date.</strong> Select a date and branch to view meter readings.
-                </AlertDescription>
-              </Alert>
             )}
             </CardContent>
           </Card>
