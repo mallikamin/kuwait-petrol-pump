@@ -142,14 +142,13 @@ export class BackdatedMeterReadingsDailyService {
     console.log(`[BackdatedMeterReadings] Found ${nozzles.length} nozzles`);
 
     // Get all backdated readings for this date (all shifts)
-    const readings = await prisma.backdatedMeterReading.findMany({
-      where: { branchId, businessDate: businessDateObj },
+    const readings = (await prisma.backdatedMeterReading.findMany({
+      where: { branchId, businessDate: businessDateObj } as any,
       include: {
         nozzle: { include: { fuelType: true, dispensingUnit: true } },
-        shift: true,
         submittedByUser: { select: { id: true, fullName: true } },
       },
-    });
+    })) as any[];
 
     console.log(`[BackdatedMeterReadings] Found ${readings.length} readings`);
 
@@ -369,7 +368,7 @@ export class BackdatedMeterReadingsDailyService {
         shiftId: targetShift.id,
         nozzleId,
         readingType: 'closing',
-      },
+      } as any,
     });
 
     if (!previousClosing) return null;
@@ -556,7 +555,7 @@ export class BackdatedMeterReadingsDailyService {
           shiftId,
           nozzleId: input.nozzleId,
           readingType: input.readingType,
-        },
+        } as any,
       },
       create: {
         organizationId,
@@ -574,7 +573,7 @@ export class BackdatedMeterReadingsDailyService {
         createdBy: userId,
         submittedBy: userId,
         submittedAt: new Date(),
-      },
+      } as any,
       update: {
         meterValue: new Decimal(input.meterValue),
         source: input.source || 'manual',
