@@ -322,6 +322,7 @@ export function BackdatedEntries() {
     staleTime: 0, // Never treat data as fresh (forces refetch)
     refetchOnMount: 'always', // Always refetch on component mount
     refetchOnWindowFocus: true, // Refetch when user returns to tab
+    refetchInterval: 15000, // ✅ LIVE UPDATE: Refetch every 15 seconds while page is open (catches posted transactions)
     retry: 1, // Retry once on failure
     queryFn: async () => {
       const res = await apiClient.get('/api/backdated-entries/daily', {
@@ -339,6 +340,7 @@ export function BackdatedEntries() {
   const { data: backdatedMeterReadingsData, refetch: refetchMeterReadings, isError: backdatedReadingsError } = useQuery({
     queryKey: ['backdated-meter-readings-daily', selectedBranchId, businessDate],
     enabled: !!selectedBranchId && !!businessDate,
+    refetchInterval: 15000, // ✅ LIVE UPDATE: Refetch every 15 seconds while page is open
     queryFn: async () => {
       if (!selectedBranchId || !businessDate) return null;
       return await meterReadingsApi.getDailyBackdatedReadings({
@@ -868,11 +870,13 @@ export function BackdatedEntries() {
 
   // Load transactions from API on branch/date/shift change
   useEffect(() => {
-    // Skip if we just saved (prevents overwriting local state after save)
+    // ✅ CRITICAL FIX: Don't skip hydration after save - the refetched API data should be loaded
+    // justSavedRef was blocking hydration of refetched data, causing old transactions to disappear
+    // Only reset the flag but continue to load the new API data
     if (justSavedRef.current) {
-      console.log('[Transactions] Skipping reset after save');
+      console.log('[Transactions] Continuing hydration after save (refetched data)');
       justSavedRef.current = false;
-      return;
+      // DON'T return - continue to load the new API data below
     }
 
     if (!selectedBranchId || !businessDate) {
