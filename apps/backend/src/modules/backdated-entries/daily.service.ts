@@ -1077,21 +1077,52 @@ export class DailyBackdatedEntriesService {
           deleted: deletedCount,
         });
       } else {
-        // Create walk-in entry (use placeholder nozzle, zero meter readings)
-        console.log('[BackdatedEntries] Creating walk-in entry');
-        const walkInEntry = await prisma.backdatedEntry.create({
-          data: {
-            branchId,
-            businessDate: businessDateObj,
-            nozzleId: placeholderNozzle.id, // Placeholder (required by schema)
-            shiftId: shiftId || null,
-            openingReading: new Prisma.Decimal(0),
-            closingReading: new Prisma.Decimal(0),
-            notes: 'WALK-IN: Non-fuel transactions without nozzle assignment',
-          },
+        // Create walk-in entry (check for collision with existing nozzle-based entries first)
+        console.log('[BackdatedEntries] Creating walk-in entry', {
+          branchId,
+          businessDate: businessDateObj.toISOString().split('T')[0],
+          shiftId: shiftId || null,
+          placeholderNozzleId: placeholderNozzle.id,
         });
 
-        walkInEntryId = walkInEntry.id;
+        try {
+          const walkInEntry = await prisma.backdatedEntry.create({
+            data: {
+              branchId,
+              businessDate: businessDateObj,
+              nozzleId: placeholderNozzle.id,
+              shiftId: shiftId || null,
+              openingReading: new Prisma.Decimal(0),
+              closingReading: new Prisma.Decimal(0),
+              notes: 'WALK-IN: Non-fuel transactions without nozzle assignment',
+            },
+          });
+
+          walkInEntryId = walkInEntry.id;
+        } catch (error: any) {
+          // ✅ CRITICAL FIX: Handle UNIQUE constraint violation
+          // If creation fails with 409 (UNIQUE violation), try to find the existing entry
+          if (error.code === 'P2002' || error.message?.includes('Unique constraint')) {
+            console.log('[BackdatedEntries] Walk-in entry UNIQUE constraint violation, finding existing...');
+            const existingEntry = await prisma.backdatedEntry.findFirst({
+              where: {
+                branchId,
+                businessDate: businessDateObj,
+                nozzleId: placeholderNozzle.id,
+                shiftId: shiftId || null,
+              },
+            });
+
+            if (existingEntry) {
+              console.log('[BackdatedEntries] Reusing existing walk-in entry:', existingEntry.id);
+              walkInEntryId = existingEntry.id;
+            } else {
+              throw new AppError(409, `Walk-in entry collision detected for ${businessDateObj.toISOString().split('T')[0]}: UNIQUE constraint on nozzle`);
+            }
+          } else {
+            throw error;
+          }
+        }
 
         // ✅ CRITICAL FIX: Create all walk-in transactions using global fuelTypesMap (already validated)
         let createdCount = 0;
