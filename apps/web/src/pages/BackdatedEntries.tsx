@@ -718,7 +718,6 @@ export function BackdatedEntries() {
   const [selectedMeterNozzle, setSelectedMeterNozzle] = useState<any>(null);
   const [selectedReadingType, setSelectedReadingType] = useState<'opening' | 'closing'>('opening');
   const [editingReadingId, setEditingReadingId] = useState<string | null>(null);
-  const [editingReadingValue, setEditingReadingValue] = useState<number | null>(null);
   const [modalPreviousReading, setModalPreviousReading] = useState<number | null>(null);
 
   // UI state (removed showReconciliation - now using Accordion)
@@ -1493,10 +1492,8 @@ export function BackdatedEntries() {
     setSelectedShiftId(shift?.shiftId || '');
     if (reading) {
       setEditingReadingId(reading.id);
-      setEditingReadingValue(toNumber(reading.meter_value ?? reading.reading_value));
     } else {
       setEditingReadingId(null);
-      setEditingReadingValue(null);
     }
 
     // Fetch previous reading for modal context
@@ -2739,7 +2736,6 @@ export function BackdatedEntries() {
                     setIsMeterReadingOpen(false);
                     setSelectedMeterNozzle(null);
                     setEditingReadingId(null);
-                    setEditingReadingValue(null);
                     setModalPreviousReading(null);
                   }}
                 />
