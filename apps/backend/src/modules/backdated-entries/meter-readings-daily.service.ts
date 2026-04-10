@@ -59,7 +59,9 @@ export interface ShiftSummary {
     totalReadingsExpected: number;
     totalReadingsEntered: number;
     totalReadingsPropagated: number;
+    openingPropagatedCount: number;
     totalReadingsMissing: number;
+    filledReadings: number;
     completionPercent: number;
     totalSalesLiters: number;
     // ✅ NEW: Product-wise sales breakdown
@@ -78,7 +80,9 @@ export interface DailyMeterReadingsResponse {
     totalReadingsExpected: number;
     totalReadingsEntered: number;
     totalReadingsPropagated: number;
+    openingPropagatedCount: number;
     totalReadingsMissing: number;
+    filledReadings: number;
     completionPercent: number;
     totalSalesLiters: number;
     // ✅ NEW: Product-wise sales breakdown
@@ -161,6 +165,7 @@ export class BackdatedMeterReadingsDailyService {
     // Build response per shift
     const shiftSummaries: ShiftSummary[] = [];
     let totalEntered = 0;
+    let totalOpeningPropagated = 0;
     let totalPropagated = 0;
     let totalMissing = 0;
     let totalSalesLiters = 0;
@@ -172,6 +177,7 @@ export class BackdatedMeterReadingsDailyService {
       let shiftHsdSales = 0; // ✅ NEW: Product-wise sales breakdown
       let shiftPmgSales = 0; // ✅ NEW: Product-wise sales breakdown
       let shiftEntered = 0;
+      let shiftOpeningPropagated = 0;
       let shiftPropagated = 0;
 
       for (const nozzle of nozzles) {
@@ -213,6 +219,7 @@ export class BackdatedMeterReadingsDailyService {
               status: 'propagated_backward',
               propagatedFrom: propagated.propagatedFrom,
             };
+            shiftOpeningPropagated++;
             shiftPropagated++;
           } else {
             openingStatus = { value: null, status: 'missing' };
@@ -294,8 +301,9 @@ export class BackdatedMeterReadingsDailyService {
       }
 
       totalEntered += shiftEntered;
+      totalOpeningPropagated += shiftOpeningPropagated;
       totalPropagated += shiftPropagated;
-      totalMissing += nozzles.length * 2 - shiftEntered - shiftPropagated;
+      totalMissing += totalMissingShift;
       totalSalesLiters += shiftTotalSales;
 
       // ✅ FIX: Completion % only counts MANUALLY ENTERED readings, not propagated
@@ -303,6 +311,10 @@ export class BackdatedMeterReadingsDailyService {
         nozzles.length * 2 > 0
           ? (shiftEntered / (nozzles.length * 2)) * 100
           : 0;
+
+      const filledReadings = shiftEntered + shiftOpeningPropagated;
+      const totalExpectedShift = nozzles.length * 2;
+      const totalMissingShift = totalExpectedShift - filledReadings;
 
       shiftSummaries.push({
         shiftId: shift.id,
@@ -316,7 +328,9 @@ export class BackdatedMeterReadingsDailyService {
           totalReadingsExpected: nozzles.length * 2,
           totalReadingsEntered: shiftEntered,
           totalReadingsPropagated: shiftPropagated,
-          totalReadingsMissing: nozzles.length * 2 - shiftEntered - shiftPropagated,
+          openingPropagatedCount: shiftOpeningPropagated,
+          filledReadings,
+          totalReadingsMissing: totalMissingShift,
           completionPercent: Math.round(completionPercent * 100) / 100,
           totalSalesLiters: Math.round(shiftTotalSales * 1000) / 1000,
           // ✅ NEW: Product-wise sales breakdown
@@ -331,6 +345,8 @@ export class BackdatedMeterReadingsDailyService {
     // ✅ FIX: Completion % only counts MANUALLY ENTERED readings, not propagated
     const aggregateCompletion =
       totalExpected > 0 ? (totalEntered / totalExpected) * 100 : 0;
+
+    const totalFilled = totalEntered + totalOpeningPropagated;
 
     // ✅ NEW: Calculate aggregate product-wise sales from all shifts
     const aggregateHsdSales = shiftSummaries.reduce(
@@ -352,7 +368,9 @@ export class BackdatedMeterReadingsDailyService {
         totalReadingsExpected: totalExpected,
         totalReadingsEntered: totalEntered,
         totalReadingsPropagated: totalPropagated,
-        totalReadingsMissing: totalMissing,
+        openingPropagatedCount: totalOpeningPropagated,
+        filledReadings: totalFilled,
+        totalReadingsMissing: totalExpected - totalFilled,
         completionPercent: Math.round(aggregateCompletion * 100) / 100,
         totalSalesLiters: Math.round(totalSalesLiters * 1000) / 1000,
         // ✅ NEW: Product-wise sales breakdown for aggregated view
@@ -872,5 +890,124 @@ export class BackdatedMeterReadingsDailyService {
     await prisma.backdatedMeterReading.delete({
       where: { id: readingId },
     });
+  }
+
+  /**
+   * Get modal previous reading (shift-aware)
+   * For CLOSING: previous = current shift OPENING (entered or propagated)
+   * For OPENING: previous = previous shift CLOSING (same day) OR previous day last shift closing
+   */
+  async getModalPreviousReading(
+    branchId: string,
+    businessDate: string,
+    shiftId: string,
+    nozzleId: string,
+    readingType: 'opening' | 'closing'
+  ): Promise<{ value: number | null; status: 'entered' | 'propagated' | 'not_found' } | null> {
+    const shift = await prisma.shift.findFirst({
+      where: { id: shiftId },
+    });
+
+    if (!shift) return null;
+
+    const businessDateObj = new Date(businessDate);
+    businessDateObj.setUTCHours(0, 0, 0, 0);
+
+    if (readingType === 'closing') {
+      // For closing: get current shift opening (entered or propagated)
+      const opening = await prisma.backdatedMeterReading.findFirst({
+        where: {
+          branchId,
+          businessDate: businessDateObj,
+          shiftId,
+          nozzleId,
+          readingType: 'opening',
+        } as any,
+      });
+
+      if (opening) {
+        return {
+          value: Number(opening.meterValue),
+          status: 'entered',
+        };
+      }
+
+      // If no entered opening, try to get propagated opening
+      const propagated = await this.getPropagatedOpening(
+        nozzleId,
+        shift,
+        businessDateObj,
+        branchId
+      );
+
+      if (propagated) {
+        return {
+          value: propagated.value,
+          status: 'propagated',
+        };
+      }
+
+      return { value: null, status: 'not_found' };
+    } else {
+      // For opening: get previous shift closing (same day) or previous day last shift closing
+      const isMorning = shift.shiftNumber === 1;
+
+      if (isMorning) {
+        // Morning opening: get previous day evening closing
+        const previousDate = new Date(businessDateObj);
+        previousDate.setDate(previousDate.getDate() - 1);
+
+        const eveningShift = await prisma.shift.findFirst({
+          where: { branchId, shiftNumber: 2, isActive: true },
+        });
+
+        if (!eveningShift) return null;
+
+        const previousClosing = await prisma.backdatedMeterReading.findFirst({
+          where: {
+            branchId,
+            businessDate: previousDate,
+            shiftId: eveningShift.id,
+            nozzleId,
+            readingType: 'closing',
+          } as any,
+        });
+
+        if (previousClosing) {
+          return {
+            value: Number(previousClosing.meterValue),
+            status: 'entered',
+          };
+        }
+
+        return { value: null, status: 'not_found' };
+      } else {
+        // Evening opening: get same day morning closing
+        const morningShift = await prisma.shift.findFirst({
+          where: { branchId, shiftNumber: 1, isActive: true },
+        });
+
+        if (!morningShift) return null;
+
+        const morningClosing = await prisma.backdatedMeterReading.findFirst({
+          where: {
+            branchId,
+            businessDate: businessDateObj,
+            shiftId: morningShift.id,
+            nozzleId,
+            readingType: 'closing',
+          } as any,
+        });
+
+        if (morningClosing) {
+          return {
+            value: Number(morningClosing.meterValue),
+            status: 'entered',
+          };
+        }
+
+        return { value: null, status: 'not_found' };
+      }
+    }
   }
 }

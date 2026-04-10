@@ -25,6 +25,19 @@ router.use(authenticate);
 router.get('/daily', controller.getDailyMeterReadings.bind(controller));
 
 /**
+ * GET /api/backdated-meter-readings/daily/modal/previous-reading
+ *
+ * Get previous reading for modal display (shift-aware context).
+ * Query params:
+ * - branchId (required): UUID
+ * - businessDate (required): YYYY-MM-DD
+ * - shiftId (required): UUID
+ * - nozzleId (required): UUID
+ * - readingType (required): 'opening' | 'closing'
+ */
+router.get('/daily/modal/previous-reading', controller.getModalPreviousReading.bind(controller));
+
+/**
  * POST /api/backdated-meter-readings/daily
  *
  * Save a single meter reading for backdated entry.

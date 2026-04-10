@@ -297,4 +297,60 @@ export class BackdatedMeterReadingsDailyController {
       next(error);
     }
   }
+
+  /**
+   * GET /api/backdated-meter-readings/daily/modal/previous-reading
+   *
+   * Get previous reading for modal display (shift-aware context).
+   * For CLOSING: returns current shift OPENING value (entered or propagated)
+   * For OPENING: returns previous shift CLOSING (same day) or previous day last shift closing
+   *
+   * Query params:
+   * - branchId (required): UUID
+   * - businessDate (required): YYYY-MM-DD
+   * - shiftId (required): UUID
+   * - nozzleId (required): UUID
+   * - readingType (required): 'opening' | 'closing'
+   */
+  async getModalPreviousReading(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { branchId, businessDate, shiftId, nozzleId, readingType } = req.query;
+
+      // Validation
+      if (!branchId || typeof branchId !== 'string') {
+        throw new AppError(400, 'branchId is required');
+      }
+
+      if (!businessDate || typeof businessDate !== 'string') {
+        throw new AppError(400, 'businessDate is required (YYYY-MM-DD)');
+      }
+
+      if (!shiftId || typeof shiftId !== 'string') {
+        throw new AppError(400, 'shiftId is required');
+      }
+
+      if (!nozzleId || typeof nozzleId !== 'string') {
+        throw new AppError(400, 'nozzleId is required');
+      }
+
+      if (!readingType || !['opening', 'closing'].includes(readingType as string)) {
+        throw new AppError(400, 'readingType must be "opening" or "closing"');
+      }
+
+      const result = await service.getModalPreviousReading(
+        branchId,
+        businessDate,
+        shiftId,
+        nozzleId,
+        readingType as 'opening' | 'closing'
+      );
+
+      res.json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
