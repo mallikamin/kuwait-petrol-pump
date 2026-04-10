@@ -1761,7 +1761,7 @@ export function BackdatedEntries() {
           </Collapsible>
 
           {/* Meter Readings Section - Shift-Segregated */}
-          {selectedBranchId && businessDate && (backdatedMeterReadingsData as any)?.shifts ? (
+          {selectedBranchId && businessDate ? (
             <Card className="border rounded-lg">
               <CardHeader>
                 <div className="flex items-center justify-between">
@@ -1783,6 +1783,26 @@ export function BackdatedEntries() {
                     <strong>Shift-Level Readings:</strong> Each shift (Morning, Evening) has separate opening/closing. Opening auto-fills from previous shift closing. Gaps detected are shown as warnings.
                   </AlertDescription>
                 </Alert>
+
+                {/* Loading State */}
+                {!backdatedMeterReadingsData && !backdatedReadingsError && (
+                  <Alert className="mb-4 border-blue-200 bg-blue-50">
+                    <AlertCircle className="h-4 w-4 text-blue-600" />
+                    <AlertDescription className="text-sm text-blue-900">
+                      <strong>Loading meter readings...</strong> Please wait.
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {/* Error Alert */}
+                {backdatedReadingsError && (
+                  <Alert className="mb-4 border-red-200 bg-red-50">
+                    <AlertCircle className="h-4 w-4 text-red-600" />
+                    <AlertDescription className="text-sm text-red-900">
+                      <strong>Failed to load backdated meter readings.</strong> This may indicate a database connection issue or missing data. Try refreshing the page, or contact support if the issue persists.
+                    </AlertDescription>
+                  </Alert>
+                )}
 
                 {/* Aggregate Summary (across all shifts) */}
                 {(backdatedMeterReadingsData as any)?.aggregateSummary && (
@@ -1814,25 +1834,18 @@ export function BackdatedEntries() {
                   </div>
                 )}
 
-                {/* Error Alert */}
-                {backdatedReadingsError && (
-                  <Alert className="mb-4 border-red-200 bg-red-50">
-                    <AlertCircle className="h-4 w-4 text-red-600" />
-                    <AlertDescription className="text-sm text-red-900">
-                      <strong>Failed to load backdated meter readings.</strong> Please try again.
+                {/* Empty State */}
+                {backdatedMeterReadingsData && !(backdatedMeterReadingsData as any)?.shifts?.length && (
+                  <Alert className="mb-4 border-amber-200 bg-amber-50">
+                    <AlertCircle className="h-4 w-4 text-amber-600" />
+                    <AlertDescription className="text-sm text-amber-900">
+                      <strong>No nozzle readings found for this date.</strong> Start by selecting a nozzle and entering meter readings above.
                     </AlertDescription>
                   </Alert>
                 )}
 
                 {/* Shift Accordions */}
-                {!(backdatedMeterReadingsData as any)?.shifts || ((backdatedMeterReadingsData as any).shifts.length === 0) ? (
-                  <Alert className="mb-4 border-amber-200 bg-amber-50">
-                    <AlertCircle className="h-4 w-4 text-amber-600" />
-                    <AlertDescription className="text-sm text-amber-900">
-                      <strong>No nozzle readings found for this date.</strong> Select a date and branch to view meter readings.
-                    </AlertDescription>
-                  </Alert>
-                ) : (
+                {(backdatedMeterReadingsData as any)?.shifts?.length > 0 ? (
                   <Accordion type="multiple" defaultValue={(backdatedMeterReadingsData as any).shifts.map((s: any) => s.shiftId)}>
                     {(backdatedMeterReadingsData as any).shifts.map((shift: any) => (
                       <AccordionItem key={shift.shiftId} value={shift.shiftId} className="border rounded-lg mb-4">
@@ -2160,10 +2173,10 @@ export function BackdatedEntries() {
               </AccordionItem>
             ))}
           </Accordion>
-            )}
-            </CardContent>
-          </Card>
-        ) : null}
+                ) : null}
+              </CardContent>
+            </Card>
+          ) : null}
 
           {/* HSD/PMG Dashboard Cards */}
           {selectedBranchId && businessDate && (
