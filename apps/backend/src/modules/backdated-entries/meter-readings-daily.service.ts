@@ -300,6 +300,11 @@ export class BackdatedMeterReadingsDailyService {
         });
       }
 
+      // Calculate shift-specific metrics
+      const filledReadings = shiftEntered + shiftOpeningPropagated;
+      const totalExpectedShift = nozzles.length * 2;
+      const totalMissingShift = totalExpectedShift - filledReadings;
+
       totalEntered += shiftEntered;
       totalOpeningPropagated += shiftOpeningPropagated;
       totalPropagated += shiftPropagated;
@@ -311,10 +316,6 @@ export class BackdatedMeterReadingsDailyService {
         nozzles.length * 2 > 0
           ? (shiftEntered / (nozzles.length * 2)) * 100
           : 0;
-
-      const filledReadings = shiftEntered + shiftOpeningPropagated;
-      const totalExpectedShift = nozzles.length * 2;
-      const totalMissingShift = totalExpectedShift - filledReadings;
 
       shiftSummaries.push({
         shiftId: shift.id,
