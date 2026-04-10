@@ -75,3 +75,4 @@ qb-entities-*.json
 *-reconciliation-*.csv
 *-reconciliation-*.xlsx
 parity_check.py
+DEPLOY_LOG_*.md
