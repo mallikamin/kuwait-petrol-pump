@@ -1315,10 +1315,11 @@ export function BackdatedEntries() {
     }
   };
 
-  // Save backdated meter reading mutation (no shift required)
+  // Save backdated meter reading mutation
   const saveMeterReadingMutation = useMutation({
-    mutationFn: async ({ nozzleId, readingType, meterValue, imageUrl, ocrConfidence, attachmentUrl, ocrManuallyEdited }: {
+    mutationFn: async ({ nozzleId, shiftId, readingType, meterValue, imageUrl, ocrConfidence, attachmentUrl, ocrManuallyEdited }: {
       nozzleId: string;
+      shiftId: string;
       readingType: 'opening' | 'closing';
       meterValue: number;
       imageUrl?: string;
@@ -1330,6 +1331,7 @@ export function BackdatedEntries() {
         branchId: selectedBranchId,
         businessDate,
         nozzleId,
+        shiftId,
         readingType,
         meterValue,
         source: ocrConfidence ? 'ocr' : 'manual',
@@ -1461,6 +1463,7 @@ export function BackdatedEntries() {
       // Otherwise, create new reading
       await saveMeterReadingMutation.mutateAsync({
         nozzleId,
+        shiftId: selectedShiftId,
         readingType: selectedReadingType,
         meterValue,
         imageUrl: data.imageUrl,
@@ -1475,9 +1478,10 @@ export function BackdatedEntries() {
     }
   };
 
-  const openMeterReadingDialog = (nozzle: any, type: 'opening' | 'closing', reading?: any) => {
+  const openMeterReadingDialog = (nozzle: any, type: 'opening' | 'closing', shift?: any, reading?: any) => {
     setSelectedMeterNozzle(nozzle);
     setSelectedReadingType(type);
+    setSelectedShiftId(shift?.shiftId || '');
     if (reading) {
       setEditingReadingId(reading.id);
       setEditingReadingValue(toNumber(reading.meter_value ?? reading.reading_value));
@@ -1757,62 +1761,134 @@ export function BackdatedEntries() {
           </Collapsible>
 
           {/* Meter Readings Section - Shift-Segregated */}
-          {selectedBranchId && businessDate && nozzlesData && nozzlesData.length > 0 && (
-            <Accordion type="single" collapsible>
-              <AccordionItem value="meter-readings" className="border rounded-lg">
-                <AccordionTrigger className="px-4 hover:no-underline">
-                  <div className="flex items-center justify-between w-full pr-2">
-                    <CardTitle className="flex items-center gap-2">
-                      <Gauge className="h-5 w-5" />
-                      Backdated Meter Readings
-                    </CardTitle>
-                    <Badge variant="outline" className="text-blue-600 border-blue-600">
-                      <Camera className="h-3 w-3 mr-1" />
-                      OCR + Upload
-                    </Badge>
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent className="px-4 pb-4">
-                {/* Day-level readings (shift-independent) */}
+          {selectedBranchId && businessDate && (backdatedMeterReadingsData as any)?.shifts ? (
+            <Card className="border rounded-lg">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <Gauge className="h-5 w-5" />
+                    Backdated Meter Readings (Shift-Wise)
+                  </CardTitle>
+                  <Badge variant="outline" className="text-blue-600 border-blue-600">
+                    <Camera className="h-3 w-3 mr-1" />
+                    OCR + Upload
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {/* Continuity Info Alert */}
                 <Alert className="mb-4 border-blue-200 bg-blue-50">
                   <CheckCircle className="h-4 w-4 text-blue-600" />
                   <AlertDescription className="text-sm text-blue-900">
-                    <strong>Day-Level Readings:</strong> Backdated meter readings are recorded at the day level, not per shift. Enter opening and closing for each nozzle.
+                    <strong>Shift-Level Readings:</strong> Each shift (Morning, Evening) has separate opening/closing. Opening auto-fills from previous shift closing. Gaps detected are shown as warnings.
                   </AlertDescription>
                 </Alert>
 
-                {/* Day-level nozzle readings (NO shift segregation) */}
-                {backdatedReadingsError ? (
+                {/* Aggregate Summary (across all shifts) */}
+                {(backdatedMeterReadingsData as any)?.aggregateSummary && (
+                  <div className="grid grid-cols-4 gap-4 mb-6 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                    <div>
+                      <div className="text-xs text-muted-foreground">Total Sales (All Shifts)</div>
+                      <div className="text-2xl font-bold text-green-600">
+                        {((backdatedMeterReadingsData as any).aggregateSummary.totalSalesLiters || 0).toFixed(3)} L
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">Completion</div>
+                      <div className="text-2xl font-bold">
+                        {((backdatedMeterReadingsData as any).aggregateSummary.completionPercent || 0).toFixed(0)}%
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">Readings Entered</div>
+                      <div className="text-lg font-semibold">
+                        {(backdatedMeterReadingsData as any).aggregateSummary.totalReadingsEntered} / {(backdatedMeterReadingsData as any).aggregateSummary.totalReadingsExpected}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">Missing</div>
+                      <div className="text-lg font-semibold text-amber-600">
+                        {(backdatedMeterReadingsData as any).aggregateSummary.totalReadingsMissing}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Error Alert */}
+                {backdatedReadingsError && (
                   <Alert className="mb-4 border-red-200 bg-red-50">
                     <AlertCircle className="h-4 w-4 text-red-600" />
                     <AlertDescription className="text-sm text-red-900">
                       <strong>Failed to load backdated meter readings.</strong> Please try again.
                     </AlertDescription>
                   </Alert>
-                ) : backdatedMeterReadingsData?.nozzles && backdatedMeterReadingsData.nozzles.length > 0 ? (
-                  <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2">
-                    {backdatedMeterReadingsData.nozzles.map((nozzle: any) => {
-                      const hasOpening = nozzle.opening?.status === 'entered';
-                      const hasClosing = nozzle.closing?.status === 'entered';
-                      const openingValue = hasOpening ? nozzle.opening?.value || 0 : null;
-                      const closingValue = hasClosing ? nozzle.closing?.value || 0 : null;
-                      const salesLiters = hasOpening && hasClosing ? closingValue - openingValue : 0;
+                )}
 
-                      let rowState = 'Both Missing';
-                      let statusColor = 'bg-amber-50 border-amber-200';
-                      if (hasOpening && hasClosing) {
-                        rowState = '✓ Complete';
-                        statusColor = 'bg-green-50 border-green-300';
-                      } else if (hasOpening && !hasClosing) {
-                        rowState = 'Closing Missing';
-                        statusColor = 'bg-amber-50 border-amber-300';
-                      } else if (!hasOpening && hasClosing) {
-                        rowState = 'Opening Missing';
-                        statusColor = 'bg-amber-50 border-amber-300';
-                      }
+                {/* Shift Accordions */}
+                {!(backdatedMeterReadingsData as any)?.shifts || ((backdatedMeterReadingsData as any).shifts.length === 0) ? (
+                  <Alert className="mb-4 border-amber-200 bg-amber-50">
+                    <AlertCircle className="h-4 w-4 text-amber-600" />
+                    <AlertDescription className="text-sm text-amber-900">
+                      <strong>No nozzle readings found for this date.</strong> Select a date and branch to view meter readings.
+                    </AlertDescription>
+                  </Alert>
+                ) : (
+                  <Accordion type="multiple" defaultValue={(backdatedMeterReadingsData as any).shifts.map((s: any) => s.shiftId)}>
+                    {(backdatedMeterReadingsData as any).shifts.map((shift: any) => (
+                      <AccordionItem key={shift.shiftId} value={shift.shiftId} className="border rounded-lg mb-4">
+                        <AccordionTrigger className="px-4 hover:no-underline">
+                          <div className="flex items-center justify-between w-full pr-2">
+                            <div className="flex items-center gap-3">
+                              <Clock className="h-5 w-5 text-blue-600" />
+                              <div>
+                                <div className="font-semibold text-lg text-left">{shift.shiftName}</div>
+                                <div className="text-xs text-muted-foreground text-left">
+                                  {shift.startTime.substring(11, 16)} - {shift.endTime.substring(11, 16)}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <Badge variant={shift.summary.completionPercent === 100 ? 'default' : 'secondary'} className="text-sm">
+                                {shift.summary.completionPercent.toFixed(0)}% Complete
+                              </Badge>
+                              <div className="text-sm text-muted-foreground">
+                                Sales: <span className="font-semibold text-green-600">{shift.summary.totalSalesLiters.toFixed(3)} L</span>
+                              </div>
+                            </div>
+                          </div>
+                        </AccordionTrigger>
+                        <AccordionContent className="px-4 pb-4">
+                          {/* Nozzles for this shift */}
+                          <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2">
+                            {shift.nozzles.map((nozzle: any) => {
+                              const hasEnteredOpening = nozzle.opening?.status === 'entered';
+                              const hasEnteredClosing = nozzle.closing?.status === 'entered';
+                              const isPropagatedOpening = nozzle.opening?.status === 'propagated_backward' || nozzle.opening?.status === 'propagated_forward';
+                              const isPropagatedClosing = nozzle.closing?.status === 'propagated_backward' || nozzle.closing?.status === 'propagated_forward';
+                              const hasBothValid = (hasEnteredOpening || isPropagatedOpening) && (hasEnteredClosing || isPropagatedClosing);
+                              const openingValue = nozzle.opening?.value;
+                              const closingValue = nozzle.closing?.value;
+                              const showSales = hasBothValid && (openingValue > 0) && (closingValue > 0);
+                              const salesLiters = showSales ? closingValue - openingValue : null;
 
-                      return (
-                        <div key={nozzle.nozzleId} className={`border rounded-lg p-3 ${statusColor}`}>
+                              let rowState = 'Both Missing';
+                              let statusColor = 'bg-amber-50 border-amber-200';
+                              if (hasEnteredOpening && hasEnteredClosing) {
+                                rowState = '✓ Complete';
+                                statusColor = 'bg-green-50 border-green-300';
+                              } else if ((hasEnteredOpening || isPropagatedOpening) && (hasEnteredClosing || isPropagatedClosing)) {
+                                rowState = '✓ Complete (with derived)';
+                                statusColor = 'bg-blue-50 border-blue-300';
+                              } else if ((hasEnteredOpening || isPropagatedOpening) && !hasEnteredClosing && !isPropagatedClosing) {
+                                rowState = 'Closing Missing';
+                                statusColor = 'bg-amber-50 border-amber-300';
+                              } else if (!hasEnteredOpening && !isPropagatedOpening && (hasEnteredClosing || isPropagatedClosing)) {
+                                rowState = 'Opening Missing';
+                                statusColor = 'bg-amber-50 border-amber-300';
+                              }
+
+                              return (
+                                <div key={nozzle.nozzleId} className={`border rounded-lg p-3 ${statusColor}`}>
                           {/* Nozzle Header */}
                           <div className="flex items-center justify-between mb-2">
                             <div>
@@ -1825,9 +1901,9 @@ export function BackdatedEntries() {
                             </div>
                             <div className="flex items-center gap-2">
                               <Badge
-                                variant={hasOpening && hasClosing ? 'default' : 'secondary'}
+                                variant={(hasEnteredOpening || isPropagatedOpening) && (hasEnteredClosing || isPropagatedClosing) ? 'default' : 'secondary'}
                                 className={
-                                  hasOpening && hasClosing
+                                  (hasEnteredOpening || isPropagatedOpening) && (hasEnteredClosing || isPropagatedClosing)
                                     ? 'bg-green-600 text-xs'
                                     : 'bg-amber-600 text-xs'
                                 }
@@ -1840,13 +1916,29 @@ export function BackdatedEntries() {
                             </div>
                           </div>
 
+                          {/* Continuity Warning Alert (if applicable) */}
+                          {nozzle.continuityWarning && (
+                            <Alert className="mb-3 border-amber-200 bg-amber-50">
+                              <AlertCircle className="h-4 w-4 text-amber-600" />
+                              <AlertDescription className="text-xs text-amber-900">
+                                {nozzle.continuityWarning}
+                              </AlertDescription>
+                            </Alert>
+                          )}
+
                           {/* Reading Inputs */}
                           <div className="grid grid-cols-3 gap-2">
                             {/* Opening Reading */}
                             <div className="space-y-2">
                               <div className="text-xs font-medium text-muted-foreground">Opening</div>
-                              {hasOpening ? (
+                              {(hasEnteredOpening || isPropagatedOpening) ? (
                                 <div className="space-y-2">
+                                  {/* Propagated Badge */}
+                                  {isPropagatedOpening && (
+                                    <div className="text-xs text-blue-700 font-medium bg-blue-50 px-2 py-1 rounded border border-blue-200">
+                                      From {shift.shiftName} (previous)
+                                    </div>
+                                  )}
                                   {/* Value and Actions */}
                                   <div className="flex items-center gap-2 justify-between">
                                     <div className="flex items-center gap-2">
@@ -1882,7 +1974,7 @@ export function BackdatedEntries() {
                                         size="sm"
                                         variant="ghost"
                                         onClick={() =>
-                                          openMeterReadingDialog(nozzle, 'opening', {
+                                          openMeterReadingDialog(nozzle, 'opening', shift, {
                                             id: nozzle.opening?.id,
                                             meter_value: nozzle.opening?.value,
                                           })
@@ -1934,7 +2026,7 @@ export function BackdatedEntries() {
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  onClick={() => openMeterReadingDialog(nozzle, 'opening')}
+                                  onClick={() => openMeterReadingDialog(nozzle, 'opening', shift)}
                                   className="w-full h-11 text-sm border-amber-600 text-amber-700 hover:bg-amber-100"
                                 >
                                   <Camera className="h-4 w-4 mr-1" />
@@ -1946,8 +2038,14 @@ export function BackdatedEntries() {
                             {/* Closing Reading */}
                             <div className="space-y-2">
                               <div className="text-xs font-medium text-muted-foreground">Closing</div>
-                              {hasClosing ? (
+                              {(hasEnteredClosing || isPropagatedClosing) ? (
                                 <div className="space-y-2">
+                                  {/* Propagated Badge */}
+                                  {isPropagatedClosing && (
+                                    <div className="text-xs text-blue-700 font-medium bg-blue-50 px-2 py-1 rounded border border-blue-200">
+                                      From {shift.shiftName} (next)
+                                    </div>
+                                  )}
                                   {/* Value and Actions */}
                                   <div className="flex items-center gap-2 justify-between">
                                     <div className="flex items-center gap-2">
@@ -1983,7 +2081,7 @@ export function BackdatedEntries() {
                                         size="sm"
                                         variant="ghost"
                                         onClick={() =>
-                                          openMeterReadingDialog(nozzle, 'closing', {
+                                          openMeterReadingDialog(nozzle, 'closing', shift, {
                                             id: nozzle.closing?.id,
                                             meter_value: nozzle.closing?.value,
                                           })
@@ -2035,7 +2133,7 @@ export function BackdatedEntries() {
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  onClick={() => openMeterReadingDialog(nozzle, 'closing')}
+                                  onClick={() => openMeterReadingDialog(nozzle, 'closing', shift)}
                                   className="w-full h-11 text-sm border-amber-600 text-amber-700 hover:bg-amber-100"
                                 >
                                   <Camera className="h-4 w-4 mr-1" />
@@ -2049,7 +2147,7 @@ export function BackdatedEntries() {
                               <div className="text-xs font-medium text-muted-foreground">Sales (L)</div>
                               <div className="flex items-center justify-center h-11 rounded border border-gray-200 bg-gray-50">
                                 <span className="font-mono font-semibold text-sm">
-                                  {hasOpening && hasClosing ? salesLiters.toFixed(2) : '—'}
+                                  {showSales && salesLiters !== null ? salesLiters.toFixed(2) : '—'}
                                 </span>
                               </div>
                             </div>
@@ -2057,20 +2155,19 @@ export function BackdatedEntries() {
                         </div>
                       );
                     })}
-                  </div>
+                          </div>
+                        </AccordionContent>
+                      </AccordionItem>
+                    ))}
+                  </Accordion>
                 ) : (
                   <Alert className="mb-4 border-amber-200 bg-amber-50">
                     <AlertCircle className="h-4 w-4 text-amber-600" />
                     <AlertDescription className="text-sm text-amber-900">
-                      <strong>No nozzle readings found for this date.</strong> Enter opening and closing readings for each nozzle above.
+                      <strong>No nozzle readings found for this date.</strong> Select a date and branch to view meter readings.
                     </AlertDescription>
                   </Alert>
                 )}
-
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-          )}
 
           {/* HSD/PMG Dashboard Cards */}
           {selectedBranchId && businessDate && (
