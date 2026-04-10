@@ -1116,8 +1116,9 @@ model BackdatedEntry {
   shift             Shift?                   @relation(fields: [shiftId], references: [id])
   transactions      BackdatedTransaction[]
 
-  @@unique([nozzleId, businessDate, shiftId], name: "unique_nozzle_date_shift") // ✅ Allows multiple entries when nozzleId=NULL (daily entries)
-  @@unique([branchId, businessDate, shiftId], name: "unique_daily_entry_per_branch") // ✅ NEW: One daily entry per (branch, date, shift)
+  @@unique([nozzleId, businessDate, shiftId], name: "unique_nozzle_date_shift") // For legacy nozzle-linked entries
+  // NOTE: daily-entry uniqueness (branchId + businessDate + shiftId where nozzleId IS NULL)
+  // is enforced by a partial unique index in SQL migration, not representable in Prisma schema.
   @@index([businessDate], name: "idx_backdated_entries_date")
   @@index([branchId, businessDate], name: "idx_backdated_entries_branch_date")
   @@index([nozzleId], name: "idx_backdated_entries_nozzle")

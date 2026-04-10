@@ -257,11 +257,13 @@ export class DailyBackdatedEntriesService {
       entry.transactions.map((txn) => ({
         id: txn.id,
         entryId: entry.id,
-        nozzle: {
-          id: entry.nozzle.id,
-          name: entry.nozzle.name || `D${entry.nozzle.dispensingUnit.unitNumber}N${entry.nozzle.nozzleNumber}`,
-          fuelType: entry.nozzle.fuelType.code,
-        },
+        nozzle: entry.nozzle
+          ? {
+              id: entry.nozzle.id,
+              name: entry.nozzle.name || `D${entry.nozzle.dispensingUnit.unitNumber}N${entry.nozzle.nozzleNumber}`,
+              fuelType: entry.nozzle.fuelType.code,
+            }
+          : null,
         customer: txn.customer
           ? {
               id: txn.customer.id,
@@ -317,15 +319,13 @@ export class DailyBackdatedEntriesService {
         .find(t => t.id === txn.id);
 
       if (txnFuelType) {
-        const resolvedFuelCode = entries
-          .flatMap(e => e.nozzle.fuelType)
-          .find(ft => ft.id === txnFuelType.fuelTypeId)?.code || '???';
+        const resolvedFuelCode = txnFuelType.fuelType?.code || '???';
 
         if (txnFuelCode && resolvedFuelCode && txnFuelCode !== resolvedFuelCode) {
           consistencyWarnings.push({
             txnId: txn.id,
             fuelCode: txnFuelCode,
-            fuelTypeId: txnFuelType.fuelTypeId,
+            fuelTypeId: txnFuelType.fuelTypeId || 'null',
             issue: `fuelCode string "${txnFuelCode}" disagrees with fuelTypeId "${resolvedFuelCode}"`,
           });
         }
@@ -381,8 +381,8 @@ export class DailyBackdatedEntriesService {
     // Back-traced cash calculation
     // Total meter sales = all meter liters * price
     // Use fallback prices if no transactions exist
-    const hsdPrice = allTransactions.find((t) => t.nozzle.fuelType === 'HSD')?.unitPrice || 287.33;
-    const pmgPrice = allTransactions.find((t) => t.nozzle.fuelType === 'PMG')?.unitPrice || 290.5;
+    const hsdPrice = allTransactions.find((t) => t.fuelCode === 'HSD')?.unitPrice || 287.33;
+    const pmgPrice = allTransactions.find((t) => t.fuelCode === 'PMG')?.unitPrice || 290.5;
 
     const meterSalesPkr = hsdMeterLiters * hsdPrice + pmgMeterLiters * pmgPrice;
     const nonCashTotal =
