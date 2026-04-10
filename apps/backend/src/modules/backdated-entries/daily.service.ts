@@ -762,14 +762,32 @@ export class DailyBackdatedEntriesService {
                 }
               }
 
-              await prisma.backdatedTransaction.create({
-                data: {
-                  id: txn.id, // Use client-provided ID if available
-                  ...txnData,
-                  createdBy: userId || null,
-                },
-              });
-              createdCount++;
+              try {
+                await prisma.backdatedTransaction.create({
+                  data: {
+                    id: txn.id, // Use client-provided ID if available
+                    ...txnData,
+                    createdBy: userId || null,
+                  },
+                });
+                createdCount++;
+              } catch (error: any) {
+                // ✅ CRITICAL FIX: Handle UNIQUE constraint violation on transaction ID
+                // If transaction with this ID already exists, update it instead
+                if (error.code === 'P2002' || error.message?.includes('Unique constraint')) {
+                  console.log('[BackdatedEntries] Nozzle transaction UNIQUE constraint violation, updating existing:', txn.id);
+                  await prisma.backdatedTransaction.update({
+                    where: { id: txn.id },
+                    data: {
+                      ...txnData,
+                      updatedBy: userId || null,
+                    },
+                  });
+                  updatedCount++;
+                } else {
+                  throw error;
+                }
+              }
             }
             upsertedCount++;
           }
@@ -857,26 +875,55 @@ export class DailyBackdatedEntriesService {
               throw new AppError(400, `Cannot resolve fuel type for code: ${txn.fuelCode}`);
             }
 
-            await prisma.backdatedTransaction.create({
-              data: {
-                id: txn.id, // Use client-provided ID if available
-                backdatedEntryId: entryId,
-                customerId: txn.customerId,
-                vehicleNumber: txn.vehicleNumber,
-                slipNumber: txn.slipNumber,
-                productName: txn.productName,
-                quantity: new Prisma.Decimal(txn.quantity),
-                unitPrice: new Prisma.Decimal(txn.unitPrice),
-                lineTotal: new Prisma.Decimal(txn.lineTotal),
-                paymentMethod: txn.paymentMethod,
-                bankId: txn.bankId || null,
-                fuelTypeId: resolvedFuelTypeId,
-                transactionDateTime: businessDateObj,
-                createdBy: userId || null,
-                updatedBy: userId || null,
-              },
-            });
-            createdCount++;
+            try {
+              await prisma.backdatedTransaction.create({
+                data: {
+                  id: txn.id, // Use client-provided ID if available
+                  backdatedEntryId: entryId,
+                  customerId: txn.customerId,
+                  vehicleNumber: txn.vehicleNumber,
+                  slipNumber: txn.slipNumber,
+                  productName: txn.productName,
+                  quantity: new Prisma.Decimal(txn.quantity),
+                  unitPrice: new Prisma.Decimal(txn.unitPrice),
+                  lineTotal: new Prisma.Decimal(txn.lineTotal),
+                  paymentMethod: txn.paymentMethod,
+                  bankId: txn.bankId || null,
+                  fuelTypeId: resolvedFuelTypeId,
+                  transactionDateTime: businessDateObj,
+                  createdBy: userId || null,
+                  updatedBy: userId || null,
+                },
+              });
+              createdCount++;
+            } catch (error: any) {
+              // ✅ CRITICAL FIX: Handle UNIQUE constraint violation on transaction ID
+              // If transaction with this ID already exists, update it instead
+              if (error.code === 'P2002' || error.message?.includes('Unique constraint')) {
+                console.log('[BackdatedEntries] New entry transaction UNIQUE constraint violation, updating existing:', txn.id);
+                await prisma.backdatedTransaction.update({
+                  where: { id: txn.id },
+                  data: {
+                    backdatedEntryId: entryId,
+                    customerId: txn.customerId,
+                    vehicleNumber: txn.vehicleNumber,
+                    slipNumber: txn.slipNumber,
+                    productName: txn.productName,
+                    quantity: new Prisma.Decimal(txn.quantity),
+                    unitPrice: new Prisma.Decimal(txn.unitPrice),
+                    lineTotal: new Prisma.Decimal(txn.lineTotal),
+                    paymentMethod: txn.paymentMethod,
+                    bankId: txn.bankId || null,
+                    fuelTypeId: resolvedFuelTypeId,
+                    transactionDateTime: businessDateObj,
+                    updatedBy: userId || null,
+                  },
+                });
+                updatedCount++;
+              } else {
+                throw error;
+              }
+            }
           }
 
           console.log('[BackdatedEntries] Created transactions:', {
@@ -1020,14 +1067,32 @@ export class DailyBackdatedEntriesService {
               }
             }
 
-            await prisma.backdatedTransaction.create({
-              data: {
-                id: txn.id,
-                ...txnData,
-                createdBy: userId || null,
-              },
-            });
-            createdCount++;
+            try {
+              await prisma.backdatedTransaction.create({
+                data: {
+                  id: txn.id,
+                  ...txnData,
+                  createdBy: userId || null,
+                },
+              });
+              createdCount++;
+            } catch (error: any) {
+              // ✅ CRITICAL FIX: Handle UNIQUE constraint violation on transaction ID
+              // If transaction with this ID already exists, update it instead
+              if (error.code === 'P2002' || error.message?.includes('Unique constraint')) {
+                console.log('[BackdatedEntries] Transaction UNIQUE constraint violation, updating existing:', txn.id);
+                await prisma.backdatedTransaction.update({
+                  where: { id: txn.id },
+                  data: {
+                    ...txnData,
+                    updatedBy: userId || null,
+                  },
+                });
+                updatedCount++;
+              } else {
+                throw error;
+              }
+            }
           }
           upsertedCount++;
         }
@@ -1134,26 +1199,55 @@ export class DailyBackdatedEntriesService {
             throw new AppError(400, `Cannot resolve fuel type for walk-in code: ${txn.fuelCode}`);
           }
 
-          await prisma.backdatedTransaction.create({
-            data: {
-              id: txn.id,
-              backdatedEntryId: walkInEntryId,
-              customerId: txn.customerId,
-              vehicleNumber: txn.vehicleNumber,
-              slipNumber: txn.slipNumber,
-              productName: txn.productName,
-              quantity: new Prisma.Decimal(txn.quantity),
-              unitPrice: new Prisma.Decimal(txn.unitPrice),
-              lineTotal: new Prisma.Decimal(txn.lineTotal),
-              paymentMethod: txn.paymentMethod,
-              bankId: txn.bankId || null,
-              fuelTypeId: resolvedFuelTypeId,
-              transactionDateTime: businessDateObj,
-              createdBy: userId || null,
-              updatedBy: userId || null,
-            },
-          });
-          createdCount++;
+          try {
+            await prisma.backdatedTransaction.create({
+              data: {
+                id: txn.id,
+                backdatedEntryId: walkInEntryId,
+                customerId: txn.customerId,
+                vehicleNumber: txn.vehicleNumber,
+                slipNumber: txn.slipNumber,
+                productName: txn.productName,
+                quantity: new Prisma.Decimal(txn.quantity),
+                unitPrice: new Prisma.Decimal(txn.unitPrice),
+                lineTotal: new Prisma.Decimal(txn.lineTotal),
+                paymentMethod: txn.paymentMethod,
+                bankId: txn.bankId || null,
+                fuelTypeId: resolvedFuelTypeId,
+                transactionDateTime: businessDateObj,
+                createdBy: userId || null,
+                updatedBy: userId || null,
+              },
+            });
+            createdCount++;
+          } catch (error: any) {
+            // ✅ CRITICAL FIX: Handle UNIQUE constraint violation on transaction ID
+            // If transaction with this ID already exists, update it instead
+            if (error.code === 'P2002' || error.message?.includes('Unique constraint')) {
+              console.log('[BackdatedEntries] New walk-in transaction UNIQUE constraint violation, updating existing:', txn.id);
+              await prisma.backdatedTransaction.update({
+                where: { id: txn.id },
+                data: {
+                  backdatedEntryId: walkInEntryId,
+                  customerId: txn.customerId,
+                  vehicleNumber: txn.vehicleNumber,
+                  slipNumber: txn.slipNumber,
+                  productName: txn.productName,
+                  quantity: new Prisma.Decimal(txn.quantity),
+                  unitPrice: new Prisma.Decimal(txn.unitPrice),
+                  lineTotal: new Prisma.Decimal(txn.lineTotal),
+                  paymentMethod: txn.paymentMethod,
+                  bankId: txn.bankId || null,
+                  fuelTypeId: resolvedFuelTypeId,
+                  transactionDateTime: businessDateObj,
+                  updatedBy: userId || null,
+                },
+              });
+              updatedCount++;
+            } else {
+              throw error;
+            }
+          }
         }
 
         console.log('[BackdatedEntries] Created walk-in transactions:', createdCount);
