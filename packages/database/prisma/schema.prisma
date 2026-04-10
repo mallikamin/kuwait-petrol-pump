@@ -211,8 +211,9 @@ model Shift {
 
   // Relations
   branch            Branch              @relation(fields: [branchId], references: [id])
-  shiftInstances    ShiftInstance[]
-  backdatedEntries  BackdatedEntry[]
+  shiftInstances         ShiftInstance[]
+  backdatedEntries       BackdatedEntry[]
+  backdatedMeterReadings BackdatedMeterReading[]
 
   @@map("shifts")
 }
@@ -1187,6 +1188,7 @@ model BackdatedMeterReading {
   organizationId  String   @map("organization_id") @db.Uuid
   branchId        String   @map("branch_id") @db.Uuid
   businessDate    DateTime @map("business_date") @db.Date
+  shiftId         String   @map("shift_id") @db.Uuid
   nozzleId        String   @map("nozzle_id") @db.Uuid
   readingType     String   @map("reading_type") @db.VarChar(20) // 'opening' | 'closing'
   meterValue      Decimal  @map("meter_value") @db.Decimal(12, 3)
@@ -1207,14 +1209,16 @@ model BackdatedMeterReading {
   // Relations
   organization        Organization @relation(fields: [organizationId], references: [id])
   branch              Branch       @relation(fields: [branchId], references: [id])
+  shift               Shift        @relation(fields: [shiftId], references: [id])
   nozzle              Nozzle       @relation(fields: [nozzleId], references: [id])
   submittedByUser     User?        @relation("BackdatedMeterReadingSubmittedBy", fields: [submittedBy], references: [id])
   createdByUser       User?        @relation("BackdatedMeterReadingCreatedBy", fields: [createdBy], references: [id])
   updatedByUser       User?        @relation("BackdatedMeterReadingUpdatedBy", fields: [updatedBy], references: [id])
 
-  @@unique([branchId, businessDate, nozzleId, readingType], name: "unique_branch_date_nozzle_type")
+  @@unique([branchId, businessDate, shiftId, nozzleId, readingType], name: "unique_branch_date_shift_nozzle_type")
   @@index([organizationId, branchId, businessDate], name: "idx_backdated_meter_org_branch_date")
   @@index([nozzleId, businessDate], name: "idx_backdated_meter_nozzle_date")
   @@index([businessDate], name: "idx_backdated_meter_date")
+  @@index([shiftId, businessDate], name: "idx_backdated_meter_shift_date")
   @@map("backdated_meter_readings")
 }

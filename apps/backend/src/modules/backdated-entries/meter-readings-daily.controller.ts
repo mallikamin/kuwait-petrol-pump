@@ -99,13 +99,13 @@ export class BackdatedMeterReadingsDailyController {
   /**
    * POST /api/backdated-meter-readings/daily
    *
-   * Save a single meter reading for a backdated entry.
-   * No shift required - uses businessDate only.
+   * Save a single meter reading for a backdated entry (shift-wise).
    *
    * Request body:
    * {
    *   branchId: string (UUID)
    *   businessDate: string (YYYY-MM-DD)
+   *   shiftId: string (UUID) - REQUIRED
    *   nozzleId: string (UUID)
    *   readingType: 'opening' | 'closing'
    *   meterValue: number
@@ -134,7 +134,7 @@ export class BackdatedMeterReadingsDailyController {
         throw new AppError(403, 'Insufficient permissions. Only admin, manager, or accountant can save meter readings.');
       }
 
-      const { branchId, businessDate, nozzleId, readingType, meterValue, source, imageUrl, attachmentUrl, ocrConfidence, ocrManuallyEdited } = req.body;
+      const { branchId, businessDate, shiftId, nozzleId, readingType, meterValue, source, imageUrl, attachmentUrl, ocrConfidence, ocrManuallyEdited } = req.body;
 
       // Validation
       if (!branchId || typeof branchId !== 'string') {
@@ -143,6 +143,10 @@ export class BackdatedMeterReadingsDailyController {
 
       if (!businessDate || typeof businessDate !== 'string') {
         throw new AppError(400, 'businessDate is required (format: YYYY-MM-DD)');
+      }
+
+      if (!shiftId || typeof shiftId !== 'string') {
+        throw new AppError(400, 'shiftId is required');
       }
 
       if (!nozzleId || typeof nozzleId !== 'string') {
@@ -167,6 +171,7 @@ export class BackdatedMeterReadingsDailyController {
       const data = await service.saveSingleMeterReading(
         branchId,
         businessDate,
+        shiftId,
         organizationId,
         {
           nozzleId,
