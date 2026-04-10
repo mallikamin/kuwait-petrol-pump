@@ -198,10 +198,10 @@ export class DailyBackdatedEntriesService {
       nozzlesWithValidMeter.add(nozzle.nozzleId);
       nozzleMeterLiters.set(nozzle.nozzleId, liters);
 
-      // ✅ CRITICAL FIX: Access nozzle.fuelType.code (object property), not compare object to string
-      if (nozzle.fuelType.code === 'HSD') {
+      // ✅ CRITICAL FIX: nozzle.fuelType is already a string ('HSD' or 'PMG')
+      if (nozzle.fuelType === 'HSD') {
         hsdMeterLiters += liters;
-      } else if (nozzle.fuelType.code === 'PMG') {
+      } else if (nozzle.fuelType === 'PMG') {
         pmgMeterLiters += liters;
       }
       });
