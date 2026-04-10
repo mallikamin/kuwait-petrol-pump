@@ -62,6 +62,9 @@ export interface ShiftSummary {
     totalReadingsMissing: number;
     completionPercent: number;
     totalSalesLiters: number;
+    // ✅ NEW: Product-wise sales breakdown
+    hsdSalesLiters?: number;
+    pmgSalesLiters?: number;
   };
 }
 
@@ -78,6 +81,9 @@ export interface DailyMeterReadingsResponse {
     totalReadingsMissing: number;
     completionPercent: number;
     totalSalesLiters: number;
+    // ✅ NEW: Product-wise sales breakdown
+    hsdSalesLiters?: number;
+    pmgSalesLiters?: number;
   };
 }
 
