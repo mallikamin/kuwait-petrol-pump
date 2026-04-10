@@ -116,4 +116,21 @@ export const meterReadingsApi = {
     });
     return response.data?.data ?? response.data;
   },
+
+  getModalPreviousReading: async (params: {
+    branchId: string;
+    businessDate: string;
+    shiftId: string;
+    nozzleId: string;
+    readingType: 'opening' | 'closing';
+  }): Promise<{ value: number | null; status: 'entered' | 'propagated' | 'not_found' } | null> => {
+    try {
+      const response = await apiClient.get('/api/backdated-meter-readings/daily/modal/previous-reading', {
+        params,
+      });
+      return response.data?.data ?? null;
+    } catch (error) {
+      return null;
+    }
+  },
 };

@@ -719,6 +719,7 @@ export function BackdatedEntries() {
   const [selectedReadingType, setSelectedReadingType] = useState<'opening' | 'closing'>('opening');
   const [editingReadingId, setEditingReadingId] = useState<string | null>(null);
   const [editingReadingValue, setEditingReadingValue] = useState<number | null>(null);
+  const [modalPreviousReading, setModalPreviousReading] = useState<number | null>(null);
 
   // UI state (removed showReconciliation - now using Accordion)
 
@@ -1486,7 +1487,7 @@ export function BackdatedEntries() {
     }
   };
 
-  const openMeterReadingDialog = (nozzle: any, type: 'opening' | 'closing', shift?: any, reading?: any) => {
+  const openMeterReadingDialog = async (nozzle: any, type: 'opening' | 'closing', shift?: any, reading?: any) => {
     setSelectedMeterNozzle(nozzle);
     setSelectedReadingType(type);
     setSelectedShiftId(shift?.shiftId || '');
@@ -1497,6 +1498,24 @@ export function BackdatedEntries() {
       setEditingReadingId(null);
       setEditingReadingValue(null);
     }
+
+    // Fetch previous reading for modal context
+    if (shift?.shiftId && nozzle?.id) {
+      try {
+        const prevReading = await meterReadingsApi.getModalPreviousReading({
+          branchId: selectedBranchId,
+          businessDate,
+          shiftId: shift.shiftId,
+          nozzleId: nozzle.id,
+          readingType: type,
+        });
+        setModalPreviousReading(prevReading?.value ?? null);
+      } catch (error) {
+        console.error('[MeterReading] Failed to fetch previous reading:', error);
+        setModalPreviousReading(null);
+      }
+    }
+
     setIsMeterReadingOpen(true);
   };
 
@@ -1828,9 +1847,9 @@ export function BackdatedEntries() {
                       </div>
                     </div>
                     <div>
-                      <div className="text-xs text-muted-foreground">Readings Entered</div>
+                      <div className="text-xs text-muted-foreground">Filled Readings</div>
                       <div className="text-lg font-semibold">
-                        {(backdatedMeterReadingsData as any).aggregateSummary.totalReadingsEntered} / {(backdatedMeterReadingsData as any).aggregateSummary.totalReadingsExpected}
+                        {(backdatedMeterReadingsData as any).aggregateSummary.filledReadings} / {(backdatedMeterReadingsData as any).aggregateSummary.totalReadingsExpected}
                       </div>
                     </div>
                     <div>
@@ -2714,13 +2733,14 @@ export function BackdatedEntries() {
                 <MeterReadingCapture
                   nozzleId={selectedMeterNozzle.id}
                   nozzleName={`${selectedMeterNozzle.name || `Nozzle ${selectedMeterNozzle.nozzleNumber}`} (${selectedMeterNozzle.fuelType?.name || 'Unknown'})`}
-                  previousReading={editingReadingValue ?? undefined}
+                  previousReading={modalPreviousReading ?? undefined}
                   onCapture={handleMeterReadingCapture}
                   onCancel={() => {
                     setIsMeterReadingOpen(false);
                     setSelectedMeterNozzle(null);
                     setEditingReadingId(null);
                     setEditingReadingValue(null);
+                    setModalPreviousReading(null);
                   }}
                 />
               )}
