@@ -7,7 +7,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.json ./
 COPY apps/backend/package.json apps/backend/package.json
 COPY packages/database/package.json packages/database/package.json
 
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --prod=false
 
 # Copy only backend-relevant source (not frontend) to avoid unnecessary cache busting.
 COPY apps/backend apps/backend
