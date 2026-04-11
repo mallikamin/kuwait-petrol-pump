@@ -29,9 +29,16 @@ export const reportsApi = {
     return response.data.report || response.data;
   },
 
-  getInventoryReport: async (branchId: string, asOfDate?: string): Promise<any> => {
+  getInventoryReport: async (branchId: string, asOfDate?: string, startDate?: string, endDate?: string): Promise<any> => {
     const params: any = { branchId };
-    if (asOfDate) {
+    // Date filter precedence:
+    // 1. If startDate/endDate provided => range mode
+    // 2. Else if asOfDate provided => single-date mode
+    // 3. Else => no filter (all purchases)
+    if (startDate && endDate) {
+      params.startDate = startDate;
+      params.endDate = endDate;
+    } else if (asOfDate) {
       params.asOfDate = asOfDate;
     }
     const response = await apiClient.get('/api/reports/inventory', { params });

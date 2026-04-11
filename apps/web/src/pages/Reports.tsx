@@ -119,8 +119,13 @@ export function Reports() {
 
   // Inventory
   const { data: inventory, isLoading: loadingInventory, isError: errorInventory } = useQuery({
-    queryKey: ['report-inventory', branchId, startDate],
-    queryFn: () => reportsApi.getInventoryReport(branchId, startDate ? new Date(startDate).toISOString() : undefined),
+    queryKey: ['report-inventory', branchId, startDate, endDate],
+    queryFn: () => reportsApi.getInventoryReport(
+      branchId,
+      undefined, // asOfDate - not used when date range provided
+      startDate ? new Date(startDate).toISOString() : undefined,
+      endDate ? new Date(endDate).toISOString() : undefined
+    ),
     enabled: fetchEnabled && selectedReport === 'inventory' && !!branchId,
   });
 
@@ -273,16 +278,43 @@ export function Reports() {
   // CSV + Print for Inventory
   const exportInventoryCSV = () => {
     if (!inventory) return;
+
+    // Export purchases if available
+    if (inventory.purchases && inventory.purchases.length > 0) {
+      const purchases = inventory.purchases;
+      const headers = ['Product', 'SKU', 'Supplier', 'Quantity Received', 'Cost/Unit', 'Total Cost', 'Receipt Date', 'Status'];
+      const rows: (string | number)[][] = purchases.map((p: any) => [
+        p.name || '-',
+        p.sku || '-',
+        p.supplierName || p.supplier || '-',
+        Number(p.quantityReceived || 0),
+        Number(p.costPerUnit || 0),
+        Number(p.totalCost || 0),
+        p.receiptDate ? new Date(p.receiptDate).toLocaleDateString('en-PK') : '-',
+        p.status === 'received_with_receipt' ? 'Received' : 'Pending Receipt',
+      ]);
+      downloadCSV(`inventory-purchases-${new Date().toISOString().split('T')[0]}.csv`, toCSV(headers, rows));
+      return;
+    }
+
+    // Fall back to current stock if no purchases
     const products = inventory.nonFuelProducts || [];
-    const headers = ['Product', 'SKU', 'Category', 'Quantity', 'Unit Price', 'Status'];
+    const headers = ['Product', 'SKU', 'Category', 'Quantity', 'Unit Price', 'Stock Value', 'Status'];
     const allProducts = [...(products.normal || []), ...(products.lowStock || [])];
-    const rows: (string | number)[][] = allProducts.map((p: any) => [
-      p.name || '-', p.sku || '-', p.category || '-',
-      p.quantity ?? p.stockLevel ?? 0,
-      Number(p.unitPrice || 0),
-      (p.quantity ?? p.stockLevel ?? 999) <= (p.lowStockThreshold || 10) ? 'LOW STOCK' : 'OK',
-    ]);
-    downloadCSV(`inventory-${reportDate}.csv`, toCSV(headers, rows));
+    const rows: (string | number)[][] = allProducts.map((p: any) => {
+      const qty = p.quantity ?? p.stockLevel ?? 0;
+      const unitPrice = Number(p.unitPrice || 0);
+      return [
+        p.name || '-',
+        p.sku || '-',
+        p.category || '-',
+        qty,
+        unitPrice,
+        qty * unitPrice,
+        qty <= (p.lowStockThreshold || 10) ? 'LOW STOCK' : 'OK',
+      ];
+    });
+    downloadCSV(`inventory-stock-${new Date().toISOString().split('T')[0]}.csv`, toCSV(headers, rows));
   };
 
   const printInventory = () => {
@@ -424,15 +456,16 @@ export function Reports() {
             {(selectedReport === 'variance' || selectedReport === 'fuel-price-history' || selectedReport === 'inventory') && (
               <>
                 <div className="space-y-2">
-                  <Label>{selectedReport === 'inventory' ? 'View As Of Date (Optional)' : 'Start Date'}</Label>
+                  <Label>
+                    {selectedReport === 'inventory' ? 'Start Date (Optional)' : 'Start Date'}
+                    {selectedReport === 'inventory' && <span className="text-xs text-muted-foreground ml-2">(or single date for snapshot)</span>}
+                  </Label>
                   <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setFetchEnabled(false); }} />
                 </div>
-                {selectedReport !== 'inventory' && (
-                  <div className="space-y-2">
-                    <Label>End Date</Label>
-                    <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setFetchEnabled(false); }} />
-                  </div>
-                )}
+                <div className="space-y-2">
+                  <Label>End Date{selectedReport === 'inventory' ? ' (Optional)' : ''}</Label>
+                  <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setFetchEnabled(false); }} />
+                </div>
               </>
             )}
 

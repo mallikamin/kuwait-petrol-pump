@@ -679,7 +679,7 @@ export class ReportsService {
   /**
    * Get inventory report with current stock levels, low-stock alerts, and purchases received
    */
-  async getInventoryReport(branchId: string, organizationId: string, asOfDate?: string) {
+  async getInventoryReport(branchId: string, organizationId: string, asOfDate?: string, startDate?: string, endDate?: string) {
     // Verify branch belongs to organization
     const branch = await prisma.branch.findFirst({
       where: { id: branchId, organizationId },
@@ -717,6 +717,31 @@ export class ReportsService {
     // Get purchases received (stock receipts with items)
     let purchases: any[] = [];
     try {
+      // Determine date filter precedence:
+      // 1. If startDate/endDate provided => range mode
+      // 2. Else if asOfDate provided => single-date mode
+      // 3. Else => no filter (all purchases)
+      let dateFilter: any = null;
+      if (startDate && endDate) {
+        // Range mode: inclusive of both start and end dates
+        const rangeStart = new Date(startDate);
+        rangeStart.setHours(0, 0, 0, 0); // Start of day
+        const rangeEnd = new Date(endDate);
+        rangeEnd.setHours(23, 59, 59, 999); // End of day
+        dateFilter = {
+          gte: rangeStart,
+          lte: rangeEnd,
+        };
+      } else if (asOfDate) {
+        // Single-date mode: up to and including the specified date
+        const asOfDateObj = new Date(asOfDate);
+        asOfDateObj.setHours(23, 59, 59, 999); // End of that day
+        dateFilter = {
+          lte: asOfDateObj,
+        };
+      }
+      // else: dateFilter remains null (no date filter)
+
       // Query 1: Get all stock receipts (items received with receipt form)
       const purchaseWhere: any = {
         purchaseOrder: {
@@ -724,12 +749,8 @@ export class ReportsService {
         },
       };
 
-      // Filter by date if provided
-      if (asOfDate) {
-        const asOfDateObj = new Date(asOfDate);
-        purchaseWhere.receiptDate = {
-          lte: asOfDateObj,
-        };
+      if (dateFilter) {
+        purchaseWhere.receiptDate = dateFilter;
       }
 
       const stockReceipts = await prisma.stockReceipt.findMany({
@@ -784,12 +805,8 @@ export class ReportsService {
         status: 'received',
       };
 
-      // Filter by date if provided
-      if (asOfDate) {
-        const asOfDateObj = new Date(asOfDate);
-        poWhere.receivedDate = {
-          lte: asOfDateObj,
-        };
+      if (dateFilter) {
+        poWhere.receivedDate = dateFilter;
       }
 
       const receivedPos = await prisma.purchaseOrder.findMany({
