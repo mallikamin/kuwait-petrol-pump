@@ -717,6 +717,7 @@ export class ReportsService {
     // Get purchases received (stock receipts with items)
     let purchases: any[] = [];
     try {
+      // Query 1: Get all stock receipts (items received with receipt form)
       const purchaseWhere: any = {
         purchaseOrder: {
           branchId,
@@ -745,15 +746,24 @@ export class ReportsService {
               },
             },
           },
+          receivedByUser: {
+            select: {
+              id: true,
+              fullName: true,
+              username: true,
+            },
+          },
         },
         orderBy: {
           receiptDate: 'desc',
         },
       });
 
-      // Transform purchases for display
-      purchases = stockReceipts.flatMap(receipt =>
+      // Transform stock receipts for display
+      const stockReceiptPurchases = stockReceipts.flatMap(receipt =>
         receipt.purchaseOrder.items.map(item => ({
+          poNumber: receipt.purchaseOrder.poNumber,
+          receiptNumber: receipt.receiptNumber,
           id: item.id,
           name: item.product?.name || item.fuelType?.name || 'Unknown',
           sku: item.product?.sku || '',
@@ -762,7 +772,67 @@ export class ReportsService {
           costPerUnit: parseFloat(item.costPerUnit.toString()),
           totalCost: parseFloat(item.totalCost.toString()),
           receiptDate: receipt.receiptDate,
+          status: 'received_with_receipt',
+          receivedBy: receipt.receivedByUser?.fullName || 'Unknown',
+          receivedByUsername: receipt.receivedByUser?.username,
         }))
+      );
+
+      // Query 2: Get PurchaseOrders with status='received' that might not have stock receipts yet
+      const poWhere: any = {
+        branchId,
+        status: 'received',
+      };
+
+      // Filter by date if provided
+      if (asOfDate) {
+        const asOfDateObj = new Date(asOfDate);
+        poWhere.receivedDate = {
+          lte: asOfDateObj,
+        };
+      }
+
+      const receivedPos = await prisma.purchaseOrder.findMany({
+        where: poWhere,
+        include: {
+          supplier: true,
+          items: {
+            include: {
+              product: true,
+              fuelType: true,
+            },
+          },
+        },
+        orderBy: {
+          receivedDate: 'desc',
+        },
+      });
+
+      // Transform received POs for display (exclude those already in stock receipts)
+      const poNumbers = new Set(stockReceipts.map(r => r.purchaseOrder.poNumber));
+      const receivedPoPurchases = receivedPos
+        .filter(po => !poNumbers.has(po.poNumber))
+        .flatMap(po =>
+          po.items.map(item => ({
+            poNumber: po.poNumber,
+            receiptNumber: null,
+            id: item.id,
+            name: item.product?.name || item.fuelType?.name || 'Unknown',
+            sku: item.product?.sku || '',
+            supplierName: po.supplier?.name,
+            quantityReceived: parseFloat(item.quantityReceived.toString()),
+            costPerUnit: parseFloat(item.costPerUnit.toString()),
+            totalCost: parseFloat(item.totalCost.toString()),
+            receiptDate: po.receivedDate,
+            status: 'received_no_receipt',
+            receivedBy: 'Pending Receipt Form',
+            receivedByUsername: null,
+          }))
+        );
+
+      // Combine both sources and sort by date
+      purchases = [...stockReceiptPurchases, ...receivedPoPurchases].sort(
+        (a, b) => new Date(b.receiptDate).getTime() - new Date(a.receiptDate).getTime()
       );
     } catch (error) {
       // If purchases query fails, continue without purchases data

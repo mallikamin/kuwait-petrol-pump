@@ -666,4 +666,287 @@ export class BifurcationService {
       },
     };
   }
+
+  /**
+   * Get reconciliation summary for a date range
+   * Uses BackdatedMeterReading table to show:
+   * - Total readings expected per day (12 nozzles × 2 shifts = 24)
+   * - Readings entered (manually submitted)
+   * - Readings derived (auto-propagated from previous shift)
+   * - Readings missing (not entered or derived)
+   * - Reconciliation % per day
+   */
+  async getReconciliationSummaryRange(
+    branchId: string,
+    startDate: string,
+    endDate: string,
+    organizationId: string
+  ) {
+    // Verify branch belongs to organization
+    const branch = await prisma.branch.findFirst({
+      where: { id: branchId, organizationId },
+    });
+
+    if (!branch) {
+      throw new AppError(404, 'Branch not found');
+    }
+
+    // Parse dates
+    const start = new Date(startDate);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+
+    // Get all shifts for this branch
+    const shifts = await prisma.shift.findMany({
+      where: { branchId },
+      orderBy: { shiftNumber: 'asc' },
+    });
+
+    // Get all nozzles for this branch
+    const nozzles = await prisma.nozzle.findMany({
+      where: {
+        dispensingUnit: { branchId },
+        isActive: true,
+      },
+      include: {
+        fuelType: true,
+      },
+    });
+
+    const nozzleCount = nozzles.length;
+    const shiftsPerDay = shifts.length; // Usually 2 (morning, night)
+    const readingsPerDay = nozzleCount * shiftsPerDay; // e.g., 12 nozzles × 2 shifts = 24
+
+    // Get all backdated meter readings in the date range
+    const readings = await prisma.backdatedMeterReading.findMany({
+      where: {
+        branchId,
+        businessDate: {
+          gte: start,
+          lte: end,
+        },
+      },
+      include: {
+        submittedByUser: {
+          select: { id: true, fullName: true, username: true },
+        },
+        shift: true,
+        nozzle: {
+          include: { fuelType: true },
+        },
+      },
+      orderBy: [{ businessDate: 'asc' }, { shiftId: 'asc' }, { nozzleId: 'asc' }],
+    });
+
+    // Group readings by date to calculate daily summaries
+    const dailySummaries = new Map<string, {
+      date: string;
+      entered: number;
+      derived: number;
+      missing: number;
+      total: number;
+      percentage: number;
+      status: 'fully_reconciled' | 'partially_reconciled' | 'not_reconciled';
+    }>();
+
+    // Initialize all dates in range with 0 readings
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const dateStr = d.toISOString().split('T')[0];
+      dailySummaries.set(dateStr, {
+        date: dateStr,
+        entered: 0,
+        derived: 0,
+        missing: 0,
+        total: readingsPerDay,
+        percentage: 0,
+        status: 'not_reconciled',
+      });
+    }
+
+    // Count readings per date
+    for (const reading of readings) {
+      const dateStr = reading.businessDate.toISOString().split('T')[0];
+      const summary = dailySummaries.get(dateStr);
+      if (!summary) continue;
+
+      // Count as entered if submittedBy is set, otherwise derived
+      if (reading.submittedBy) {
+        summary.entered++;
+      } else {
+        summary.derived++;
+      }
+    }
+
+    // Calculate percentages and status
+    const result = Array.from(dailySummaries.values()).map(summary => {
+      summary.missing = Math.max(0, summary.total - summary.entered - summary.derived);
+      const filledReadings = summary.entered + summary.derived;
+      summary.percentage = summary.total > 0 ? Math.round((filledReadings / summary.total) * 100) : 0;
+
+      if (summary.percentage === 100) {
+        summary.status = 'fully_reconciled';
+      } else if (summary.percentage > 0) {
+        summary.status = 'partially_reconciled';
+      } else {
+        summary.status = 'not_reconciled';
+      }
+
+      return summary;
+    });
+
+    // Calculate overall summary
+    const fullySummary = result.filter(s => s.status === 'fully_reconciled').length;
+    const partiallySummary = result.filter(s => s.status === 'partially_reconciled').length;
+    const notSummary = result.filter(s => s.status === 'not_reconciled').length;
+    const totalMissing = result.reduce((sum, s) => sum + s.missing, 0);
+
+    return {
+      startDate,
+      endDate,
+      branchId,
+      dateRange: {
+        fullyReconciled: fullySummary,
+        partiallyReconciled: partiallySummary,
+        notReconciled: notSummary,
+      },
+      summary: {
+        totalDays: result.length,
+        totalMissing,
+        totalReadingsExpected: readingsPerDay * result.length,
+      },
+      dailyBreakdown: result.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+      nozzles: nozzleCount,
+      shiftsPerDay,
+      readingsPerDay,
+    };
+  }
+
+  /**
+   * Get meter readings differential from BackdatedMeterReading table
+   * Used for reconciliation calculations on backdated entries
+   */
+  async getBackdatedMeterReadingsDifferential(
+    branchId: string,
+    date: string,
+    organizationId: string
+  ) {
+    const targetDate = new Date(date);
+    const startOfDay = new Date(targetDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(targetDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    // Get all backdated meter readings for the date
+    const meterReadings = await prisma.backdatedMeterReading.findMany({
+      where: {
+        branchId,
+        businessDate: {
+          gte: startOfDay,
+          lte: endOfDay,
+        },
+      },
+      include: {
+        nozzle: {
+          include: {
+            fuelType: {
+              select: { code: true, name: true },
+            },
+          },
+        },
+        shift: true,
+      },
+      orderBy: [{ shiftId: 'asc' }, { nozzleId: 'asc' }, { readingType: 'asc' }],
+    });
+
+    // Group by nozzle and shift, calculate differential
+    const nozzleDifferentials = new Map<string, {
+      nozzleId: string;
+      nozzleName: string;
+      fuelType: string;
+      opening: number;
+      closing: number;
+      differential: number;
+    }>();
+
+    for (const reading of meterReadings) {
+      const key = `${reading.nozzleId}-${reading.shiftId}`;
+      const meterValue = parseFloat(reading.meterValue.toString());
+
+      if (!nozzleDifferentials.has(key)) {
+        nozzleDifferentials.set(key, {
+          nozzleId: reading.nozzleId,
+          nozzleName: reading.nozzle.name || `Nozzle ${reading.nozzleId}`,
+          fuelType: reading.nozzle.fuelType.code,
+          opening: reading.readingType === 'opening' ? meterValue : 0,
+          closing: reading.readingType === 'closing' ? meterValue : 0,
+          differential: 0,
+        });
+      } else {
+        const existing = nozzleDifferentials.get(key)!;
+        if (reading.readingType === 'opening') {
+          existing.opening = meterValue;
+        } else if (reading.readingType === 'closing') {
+          existing.closing = meterValue;
+        }
+      }
+    }
+
+    // Calculate differentials
+    nozzleDifferentials.forEach((nozzle) => {
+      nozzle.differential = nozzle.closing - nozzle.opening;
+    });
+
+    // Aggregate by fuel type
+    let pmgTotalLiters = 0;
+    let hsdTotalLiters = 0;
+
+    nozzleDifferentials.forEach((nozzle) => {
+      if (nozzle.fuelType === 'PMG') {
+        pmgTotalLiters += nozzle.differential;
+      } else if (nozzle.fuelType === 'HSD') {
+        hsdTotalLiters += nozzle.differential;
+      }
+    });
+
+    // Get fuel prices for the date
+    const fuelPrices = await prisma.fuelPrice.findMany({
+      where: {
+        fuelType: {
+          code: { in: ['PMG', 'HSD'] },
+        },
+        effectiveFrom: {
+          lte: endOfDay,
+        },
+        OR: [
+          { effectiveTo: null },
+          { effectiveTo: { gte: startOfDay } },
+        ],
+      },
+      include: {
+        fuelType: true,
+      },
+      orderBy: {
+        effectiveFrom: 'desc',
+      },
+    });
+
+    const pmgPrice = fuelPrices.find(p => p.fuelType.code === 'PMG');
+    const hsdPrice = fuelPrices.find(p => p.fuelType.code === 'HSD');
+
+    const pmgTotalAmount = pmgTotalLiters * (pmgPrice ? parseFloat(pmgPrice.pricePerLiter.toString()) : 0);
+    const hsdTotalAmount = hsdTotalLiters * (hsdPrice ? parseFloat(hsdPrice.pricePerLiter.toString()) : 0);
+
+    return {
+      date,
+      branchId,
+      pmgTotalLiters: Number(pmgTotalLiters.toFixed(2)),
+      pmgTotalAmount: Number(pmgTotalAmount.toFixed(2)),
+      pmgPricePerLiter: pmgPrice ? parseFloat(pmgPrice.pricePerLiter.toString()) : 0,
+      hsdTotalLiters: Number(hsdTotalLiters.toFixed(2)),
+      hsdTotalAmount: Number(hsdTotalAmount.toFixed(2)),
+      hsdPricePerLiter: hsdPrice ? parseFloat(hsdPrice.pricePerLiter.toString()) : 0,
+      nozzleDetails: Array.from(nozzleDifferentials.values()),
+    };
+  }
 }

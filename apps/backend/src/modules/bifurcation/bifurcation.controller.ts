@@ -244,4 +244,46 @@ export class BifurcationController {
       next(error);
     }
   };
+
+  /**
+   * GET /api/bifurcations/summary-range
+   * Get reconciliation summary for a date range (BACKDATED METER READINGS)
+   * Query params: startDate (required), endDate (required), branchId (required)
+   * Returns: Daily reconciliation status with entered/derived/missing counts
+   */
+  getReconciliationSummaryRange = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      const startDate = req.query.startDate as string | undefined;
+      const endDate = req.query.endDate as string | undefined;
+      const branchId = req.query.branchId as string | undefined;
+
+      if (!startDate || !endDate) {
+        return res.status(400).json({ error: 'startDate and endDate query parameters are required' });
+      }
+
+      if (!branchId) {
+        return res.status(400).json({ error: 'branchId query parameter is required' });
+      }
+
+      // Validate date formats
+      if (isNaN(Date.parse(startDate)) || isNaN(Date.parse(endDate))) {
+        return res.status(400).json({ error: 'Invalid date format' });
+      }
+
+      const summary = await this.bifurcationService.getReconciliationSummaryRange(
+        branchId,
+        startDate,
+        endDate,
+        req.user.organizationId
+      );
+
+      res.json({ summary });
+    } catch (error) {
+      next(error);
+    }
+  };
 }

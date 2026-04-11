@@ -18,6 +18,9 @@ router.post(
 // GET /api/bifurcation/summary - Get daily sales summary for bifurcation wizard
 router.get('/summary', bifurcationController.getDailySalesSummary);
 
+// GET /api/bifurcations/summary-range - Get reconciliation summary for date range (backdated meters)
+router.get('/summary-range', bifurcationController.getReconciliationSummaryRange);
+
 // GET /api/bifurcation/history - Get bifurcation history with filters
 router.get('/history', bifurcationController.getBifurcationHistory);
 
