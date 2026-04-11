@@ -1,8 +1,18 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
 RUN npm install -g pnpm@8
-COPY . .
-RUN pnpm install
+
+# Copy manifests first so dependency install layer is cached across code-only changes.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.json ./
+COPY apps/backend/package.json apps/backend/package.json
+COPY packages/database/package.json packages/database/package.json
+
+RUN pnpm install --frozen-lockfile
+
+# Copy only backend-relevant source (not frontend) to avoid unnecessary cache busting.
+COPY apps/backend apps/backend
+COPY packages/database packages/database
+
 WORKDIR /app/packages/database
 RUN pnpm exec prisma generate
 WORKDIR /app/apps/backend
@@ -11,9 +21,14 @@ RUN pnpm run build
 FROM node:20-alpine
 WORKDIR /app
 RUN apk add --no-cache wget && npm install -g pnpm@8
-COPY --from=builder /app .
-WORKDIR /app/packages/database
-RUN pnpm exec prisma generate
+
+# Copy only runtime artifacts and dependencies from builder.
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/pnpm-workspace.yaml ./pnpm-workspace.yaml
+COPY --from=builder /app/apps/backend ./apps/backend
+COPY --from=builder /app/packages/database ./packages/database
+
 WORKDIR /app/apps/backend
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \

@@ -93,3 +93,8 @@ nginx/
 .cache/
 .parcel-cache/
 .eslintcache
+
+# Backend image does not need frontend/mobile/desktop sources
+apps/web/
+apps/mobile/
+apps/desktop/
