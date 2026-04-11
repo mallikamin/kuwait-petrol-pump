@@ -687,15 +687,35 @@ export function BackdatedEntries() {
       .sort((a, b) => b.firstIndex - a.firstIndex); // Descending: newest at top
   }, [transactions]);
 
-  // Keep accordion items open by default (sync with customer groups)
+  const customerGroupIds = useMemo(
+    () => customerGroups.map((g) => g.customerId),
+    [customerGroups]
+  );
+
+  // Keep accordion items open by default for first load and only auto-open truly new groups.
+  // This preserves user-collapsed state on existing groups when transactions update.
+  const seenCustomerGroupIdsRef = useRef<string[]>([]);
   useEffect(() => {
-    const allCustomerIds = customerGroups.map(g => g.customerId);
-    // Add any new customer IDs that aren't already in the open list
-    const newIds = allCustomerIds.filter(id => !openAccordionItems.includes(id));
-    if (newIds.length > 0) {
-      setOpenAccordionItems([...openAccordionItems, ...newIds]);
-    }
-  }, [customerGroups]);
+    const seen = seenCustomerGroupIdsRef.current;
+    const isFirstRender = seen.length === 0;
+    const newlyIntroducedIds = customerGroupIds.filter((id) => !seen.includes(id));
+
+    setOpenAccordionItems((prev) => {
+      if (isFirstRender) {
+        return customerGroupIds;
+      }
+      if (newlyIntroducedIds.length === 0) {
+        return prev;
+      }
+      const merged = [...prev];
+      for (const id of newlyIntroducedIds) {
+        if (!merged.includes(id)) merged.push(id);
+      }
+      return merged;
+    });
+
+    seenCustomerGroupIdsRef.current = customerGroupIds;
+  }, [customerGroupIds]);
 
   // Add customer group dialog state
   const [isAddGroupOpen, setIsAddGroupOpen] = useState(false);
@@ -753,9 +773,7 @@ export function BackdatedEntries() {
     ]);
 
     // Ensure the customer's accordion is open
-    if (!openAccordionItems.includes(customerId)) {
-      setOpenAccordionItems([...openAccordionItems, customerId]);
-    }
+    setOpenAccordionItems((prev) => (prev.includes(customerId) ? prev : [...prev, customerId]));
 
     // Scroll to the newly added customer's accordion item
     setTimeout(() => {
@@ -813,8 +831,28 @@ export function BackdatedEntries() {
     ]);
   };
 
+  const getCreditCustomerValidationError = (txn: Transaction): string | null => {
+    if (txn.paymentMethod !== 'credit_customer') return null;
+
+    const hasCustomer = !!txn.customerId && txn.customerId.trim() !== '';
+    const hasVehicle = !!txn.vehicleNumber && txn.vehicleNumber.trim() !== '';
+    const hasSlip = !!txn.slipNumber && txn.slipNumber.trim() !== '';
+
+    if (!hasCustomer || !hasVehicle || !hasSlip) {
+      return `Credit customer transaction requires customer, vehicle#, and slip# (row with ${txn.quantity}L)`;
+    }
+
+    return null;
+  };
+
   // Save individual transaction row (triggers auto-save to server)
   const saveTransactionRow = async (index: number) => {
+    const validationError = getCreditCustomerValidationError(transactions[index]);
+    if (validationError) {
+      toast.error(validationError);
+      return;
+    }
+
     const updated = [...transactions];
     updated[index] = { ...updated[index], _localStatus: 'saved' };
     setTransactions(updated);
@@ -823,9 +861,10 @@ export function BackdatedEntries() {
     try {
       await saveDailyDraftMutation.mutateAsync();
       toast.success('Row saved successfully');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Auto-save failed:', error);
-      toast.error('Failed to save row. Please click "Save Draft" manually.');
+      const errorMsg = error?.response?.data?.error || error?.message || 'Failed to save row. Please click "Save Draft" manually.';
+      toast.error(errorMsg);
       updated[index]._localStatus = 'draft'; // Revert status on error
       setTransactions(updated);
     }
@@ -1099,12 +1138,10 @@ export function BackdatedEntries() {
 
       // Validate credit customer requirements
       for (const txn of transactions) {
-        if (txn.paymentMethod === 'credit_customer') {
-          if (!txn.customerId || !txn.vehicleNumber || !txn.slipNumber) {
-            const error = `Credit customer transaction requires customer, vehicle#, and slip# (row with ${txn.quantity}L)`;
-            console.error('[Save Draft] Validation failed:', error);
-            throw new Error(error);
-          }
+        const error = getCreditCustomerValidationError(txn);
+        if (error) {
+          console.error('[Save Draft] Validation failed:', error);
+          throw new Error(error);
         }
       }
 
@@ -1114,8 +1151,8 @@ export function BackdatedEntries() {
         nozzleId: txn.nozzleId || undefined,
         customerId: txn.customerId || undefined,
         fuelCode: txn.fuelCode || undefined,
-        vehicleNumber: txn.vehicleNumber || undefined,
-        slipNumber: txn.slipNumber || undefined,
+        vehicleNumber: txn.vehicleNumber?.trim() || undefined,
+        slipNumber: txn.slipNumber?.trim() || undefined,
         productName: txn.productName,
         quantity: toNumber(txn.quantity),
         unitPrice: toNumber(txn.unitPrice),
