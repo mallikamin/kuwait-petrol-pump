@@ -16,6 +16,12 @@ interface DailyQueryParams {
   shiftId?: string;
 }
 
+interface DailyReconciliationRangeQueryParams {
+  branchId: string;
+  startDate: string; // YYYY-MM-DD
+  endDate: string; // YYYY-MM-DD
+}
+
 interface DailyTransactionInput {
   id?: string; // ✅ NEW: Stable client-side ID (UUID) - used for upsert to prevent data loss
   customerId?: string;
@@ -51,6 +57,291 @@ export class DailyBackdatedEntriesService {
       throw new AppError(400, `Invalid businessDate: ${businessDate}`);
     }
     return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+  }
+
+  private resolveFuelCodeForChecklist(txn: {
+    fuelType?: { code?: string } | null;
+    productName?: string | null;
+    backdatedEntry?: { nozzle?: { fuelType?: { code?: string } | null } | null } | null;
+  }): 'HSD' | 'PMG' | null {
+    const explicit = (txn.fuelType?.code || '').toUpperCase();
+    if (explicit === 'HSD' || explicit === 'PMG') return explicit as 'HSD' | 'PMG';
+
+    const nozzleFuel = (txn.backdatedEntry?.nozzle?.fuelType?.code || '').toUpperCase();
+    if (nozzleFuel === 'HSD' || nozzleFuel === 'PMG') return nozzleFuel as 'HSD' | 'PMG';
+
+    const productNameUpper = (txn.productName || '').toUpperCase();
+    if (productNameUpper.includes('HSD') || productNameUpper.includes('DIESEL')) return 'HSD';
+    if (productNameUpper.includes('PMG') || productNameUpper.includes('PETROL')) return 'PMG';
+
+    return null;
+  }
+
+  /**
+   * GET /api/backdated-entries/daily/reconciliation-range
+   *
+   * Fast range summary for accountant reconciliation dashboard.
+   * Includes meter completion + transaction posting checklist + finalize status per day.
+   */
+  async getDailyReconciliationSummaryRange(
+    params: DailyReconciliationRangeQueryParams,
+    organizationId: string
+  ) {
+    const { branchId, startDate, endDate } = params;
+
+    // Validate branch belongs to organization
+    const branch = await prisma.branch.findFirst({
+      where: { id: branchId, organizationId },
+    });
+    if (!branch) {
+      throw new AppError(404, 'Branch not found or does not belong to organization');
+    }
+
+    const startDateObj = this.normalizeBusinessDate(startDate);
+    const endDateObj = this.normalizeBusinessDate(endDate);
+    if (startDateObj > endDateObj) {
+      throw new AppError(400, 'startDate cannot be after endDate');
+    }
+
+    // Expected readings/day: nozzles × shifts × opening+closing
+    const [activeShiftCount, activeNozzleCount] = await Promise.all([
+      prisma.shift.count({ where: { branchId, isActive: true } }),
+      prisma.nozzle.count({
+        where: {
+          dispensingUnit: { branchId },
+          isActive: true,
+        },
+      }),
+    ]);
+    const expectedReadingsPerDay = activeNozzleCount * activeShiftCount * 2;
+
+    type DaySummary = {
+      businessDate: string;
+      totalReadingsExpected: number;
+      totalReadingsEntered: number;
+      totalReadingsDerived: number;
+      totalReadingsMissing: number;
+      completionPercent: number;
+      status: 'fully_reconciled' | 'partially_reconciled' | 'not_reconciled';
+      postingChecks: {
+        transactionsByFuel: { HSD: number; PMG: number };
+        creditOrBankByFuel: { HSD: number; PMG: number };
+        cashByFuel: { HSD: number; PMG: number };
+        meterComplete: boolean;
+        coreChecksPassed: boolean;
+      };
+      finalizeStatus: 'finalized' | 'not_finalized' | 'no_entries';
+      blockers: string[];
+      readyForFinalize: boolean;
+    };
+
+    const dayMap = new Map<string, DaySummary>();
+    for (
+      const d = new Date(startDateObj);
+      d <= endDateObj;
+      d.setUTCDate(d.getUTCDate() + 1)
+    ) {
+      const dateStr = d.toISOString().split('T')[0];
+      dayMap.set(dateStr, {
+        businessDate: dateStr,
+        totalReadingsExpected: expectedReadingsPerDay,
+        totalReadingsEntered: 0,
+        totalReadingsDerived: 0,
+        totalReadingsMissing: expectedReadingsPerDay,
+        completionPercent: 0,
+        status: 'not_reconciled',
+        postingChecks: {
+          transactionsByFuel: { HSD: 0, PMG: 0 },
+          creditOrBankByFuel: { HSD: 0, PMG: 0 },
+          cashByFuel: { HSD: 0, PMG: 0 },
+          meterComplete: false,
+          coreChecksPassed: false,
+        },
+        finalizeStatus: 'no_entries',
+        blockers: [],
+        readyForFinalize: false,
+      });
+    }
+
+    const [meterReadingCounts, transactions, entries] = await Promise.all([
+      prisma.backdatedMeterReading.groupBy({
+        by: ['businessDate'],
+        where: {
+          branchId,
+          businessDate: {
+            gte: startDateObj,
+            lte: endDateObj,
+          },
+        },
+        _count: { _all: true },
+      }),
+      prisma.backdatedTransaction.findMany({
+        where: {
+          deletedAt: null,
+          backdatedEntry: {
+            branchId,
+            businessDate: {
+              gte: startDateObj,
+              lte: endDateObj,
+            },
+          },
+        },
+        select: {
+          paymentMethod: true,
+          productName: true,
+          fuelType: {
+            select: { code: true },
+          },
+          backdatedEntry: {
+            select: {
+              businessDate: true,
+              nozzle: {
+                select: {
+                  fuelType: {
+                    select: { code: true },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+      prisma.backdatedEntry.findMany({
+        where: {
+          branchId,
+          businessDate: {
+            gte: startDateObj,
+            lte: endDateObj,
+          },
+        },
+        select: {
+          businessDate: true,
+          isFinalized: true,
+        },
+      }),
+    ]);
+
+    for (const meterRow of meterReadingCounts) {
+      const dateStr = meterRow.businessDate.toISOString().split('T')[0];
+      const summary = dayMap.get(dateStr);
+      if (!summary) continue;
+
+      summary.totalReadingsEntered = meterRow._count._all;
+    }
+
+    for (const txn of transactions) {
+      const dateStr = txn.backdatedEntry.businessDate.toISOString().split('T')[0];
+      const summary = dayMap.get(dateStr);
+      if (!summary) continue;
+
+      const fuelCode = this.resolveFuelCodeForChecklist(txn);
+      if (!fuelCode) continue;
+
+      summary.postingChecks.transactionsByFuel[fuelCode] += 1;
+
+      const method = (txn.paymentMethod || '').toLowerCase();
+      if (method === 'cash') {
+        summary.postingChecks.cashByFuel[fuelCode] += 1;
+      }
+      if (method === 'credit_customer' || method === 'credit_card' || method === 'bank_card') {
+        summary.postingChecks.creditOrBankByFuel[fuelCode] += 1;
+      }
+    }
+
+    const entryFinalizeMap = new Map<string, { total: number; finalized: number }>();
+    for (const entry of entries) {
+      const dateStr = entry.businessDate.toISOString().split('T')[0];
+      const aggregate = entryFinalizeMap.get(dateStr) || { total: 0, finalized: 0 };
+      aggregate.total += 1;
+      if (entry.isFinalized) aggregate.finalized += 1;
+      entryFinalizeMap.set(dateStr, aggregate);
+    }
+
+    const dailySummaries = Array.from(dayMap.values())
+      .map((summary) => {
+        const filled = summary.totalReadingsEntered + summary.totalReadingsDerived;
+        summary.totalReadingsMissing = Math.max(0, summary.totalReadingsExpected - filled);
+        summary.completionPercent =
+          summary.totalReadingsExpected > 0
+            ? Math.round((filled / summary.totalReadingsExpected) * 100)
+            : 0;
+        summary.status =
+          summary.completionPercent === 100
+            ? 'fully_reconciled'
+            : summary.completionPercent > 0
+              ? 'partially_reconciled'
+              : 'not_reconciled';
+
+        const finalizeAggregate = entryFinalizeMap.get(summary.businessDate);
+        if (!finalizeAggregate || finalizeAggregate.total === 0) {
+          summary.finalizeStatus = 'no_entries';
+        } else if (finalizeAggregate.finalized === finalizeAggregate.total) {
+          summary.finalizeStatus = 'finalized';
+        } else {
+          summary.finalizeStatus = 'not_finalized';
+        }
+
+        const hsdTxnPosted = summary.postingChecks.transactionsByFuel.HSD > 0;
+        const pmgTxnPosted = summary.postingChecks.transactionsByFuel.PMG > 0;
+        const hsdCreditOrBankPosted = summary.postingChecks.creditOrBankByFuel.HSD > 0;
+        const pmgCreditOrBankPosted = summary.postingChecks.creditOrBankByFuel.PMG > 0;
+        const hsdCashPosted = summary.postingChecks.cashByFuel.HSD > 0;
+        const pmgCashPosted = summary.postingChecks.cashByFuel.PMG > 0;
+        const meterComplete = summary.totalReadingsExpected > 0 && filled >= summary.totalReadingsExpected;
+
+        summary.postingChecks.meterComplete = meterComplete;
+        summary.postingChecks.coreChecksPassed =
+          hsdTxnPosted &&
+          pmgTxnPosted &&
+          hsdCreditOrBankPosted &&
+          pmgCreditOrBankPosted &&
+          hsdCashPosted &&
+          pmgCashPosted;
+
+        const blockers: string[] = [];
+        if (!hsdTxnPosted) blockers.push('0 transactions posted for HSD');
+        if (!pmgTxnPosted) blockers.push('0 transactions posted for PMG');
+        if (!hsdCreditOrBankPosted) blockers.push('HSD credit/bank card sales not posted');
+        if (!pmgCreditOrBankPosted) blockers.push('PMG credit/bank card sales not posted');
+        if (!hsdCashPosted) blockers.push('HSD cash sales not posted');
+        if (!pmgCashPosted) blockers.push('PMG cash sales not posted');
+        if (!meterComplete) blockers.push(`Meter readings incomplete (${filled}/${summary.totalReadingsExpected})`);
+
+        if (
+          blockers.length === 0 &&
+          (summary.finalizeStatus === 'not_finalized' || summary.finalizeStatus === 'no_entries')
+        ) {
+          blockers.push('Ready checks passed, but day is not finalized yet');
+        }
+
+        summary.blockers = blockers;
+        summary.readyForFinalize =
+          summary.postingChecks.coreChecksPassed && meterComplete && summary.finalizeStatus !== 'finalized';
+
+        return summary;
+      })
+      .sort((a, b) => new Date(b.businessDate).getTime() - new Date(a.businessDate).getTime());
+
+    const dateRangeStats = {
+      fullyReconciled: dailySummaries.filter((d) => d.status === 'fully_reconciled').length,
+      partiallyReconciled: dailySummaries.filter((d) => d.status === 'partially_reconciled').length,
+      notReconciled: dailySummaries.filter((d) => d.status === 'not_reconciled').length,
+      readyForFinalize: dailySummaries.filter((d) => d.readyForFinalize).length,
+      finalized: dailySummaries.filter((d) => d.finalizeStatus === 'finalized').length,
+    };
+
+    return {
+      branchId,
+      startDate,
+      endDate,
+      config: {
+        activeNozzles: activeNozzleCount,
+        activeShifts: activeShiftCount,
+        expectedReadingsPerDay,
+      },
+      dateRange: dateRangeStats,
+      dailySummaries,
+    };
   }
 
   /**

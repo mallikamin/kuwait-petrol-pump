@@ -28,6 +28,16 @@ interface DailySummary {
   totalReadingsMissing: number;
   completionPercent: number;
   status: 'fully_reconciled' | 'partially_reconciled' | 'not_reconciled';
+  postingChecks: {
+    transactionsByFuel: { HSD: number; PMG: number };
+    creditOrBankByFuel: { HSD: number; PMG: number };
+    cashByFuel: { HSD: number; PMG: number };
+    meterComplete: boolean;
+    coreChecksPassed: boolean;
+  };
+  finalizeStatus: 'finalized' | 'not_finalized' | 'no_entries';
+  blockers: string[];
+  readyForFinalize: boolean;
   missingDetails?: {
     shiftName: string;
     nozzleName: string;
@@ -59,81 +69,15 @@ export function ReconciliationNew() {
     queryFn: async () => {
       if (!branchId) throw new Error('Branch not found. Please log in again.');
 
-      const dateList: string[] = [];
-      const cursor = new Date(`${startDate}T00:00:00.000Z`);
-      const end = new Date(`${endDate}T00:00:00.000Z`);
-      while (cursor <= end) {
-        dateList.push(cursor.toISOString().split('T')[0]);
-        cursor.setUTCDate(cursor.getUTCDate() + 1);
-      }
+      const response = await apiClient.get('/api/backdated-entries/daily/reconciliation-range', {
+        params: {
+          branchId,
+          startDate,
+          endDate,
+        },
+      });
 
-      // Fetch all days in parallel to reduce dashboard load latency.
-      const summariesByDay = await Promise.all(
-        dateList.map(async (businessDate): Promise<DailySummary> => {
-          try {
-            const response = await apiClient.get('/api/backdated-meter-readings/daily', {
-              params: {
-                branchId,
-                businessDate,
-              },
-            });
-
-            const data = response.data.data;
-            const aggregate = data.aggregateSummary;
-            const derivedCount = aggregate.totalReadingsPropagated || 0;
-
-            let status: 'fully_reconciled' | 'partially_reconciled' | 'not_reconciled';
-            if (aggregate.completionPercent === 100) {
-              status = 'fully_reconciled';
-            } else if (aggregate.totalReadingsEntered > 0 || derivedCount > 0) {
-              status = 'partially_reconciled';
-            } else {
-              status = 'not_reconciled';
-            }
-
-            // Extract missing details
-            const missingDetails: { shiftName: string; nozzleName: string; missingReadings: ('opening' | 'closing')[] }[] = [];
-            data.shifts.forEach((shift: any) => {
-              shift.nozzles.forEach((nozzle: any) => {
-                const missing: ('opening' | 'closing')[] = [];
-                if (nozzle.opening?.status === 'missing') missing.push('opening');
-                if (nozzle.closing?.status === 'missing') missing.push('closing');
-                if (missing.length > 0) {
-                  missingDetails.push({
-                    shiftName: shift.shiftName,
-                    nozzleName: nozzle.nozzleName,
-                    missingReadings: missing,
-                  });
-                }
-              });
-            });
-
-            return {
-              businessDate,
-              totalReadingsExpected: aggregate.totalReadingsExpected,
-              totalReadingsEntered: aggregate.totalReadingsEntered,
-              totalReadingsDerived: derivedCount,
-              totalReadingsMissing: aggregate.totalReadingsMissing,
-              completionPercent: aggregate.completionPercent,
-              status,
-              missingDetails: missingDetails.length > 0 ? missingDetails : undefined,
-            };
-          } catch {
-            // If no data for this date, mark as not reconciled
-            return {
-              businessDate,
-              totalReadingsExpected: 24, // Default: 6 nozzles x 2 shifts x 2 readings
-              totalReadingsEntered: 0,
-              totalReadingsDerived: 0,
-              totalReadingsMissing: 24,
-              completionPercent: 0,
-              status: 'not_reconciled',
-            };
-          }
-        })
-      );
-
-      return summariesByDay.sort((a, b) => new Date(b.businessDate).getTime() - new Date(a.businessDate).getTime());
+      return (response.data?.data?.dailySummaries || []) as DailySummary[];
     },
     enabled: !!branchId,
     staleTime: 30000, // Cache for 30 seconds
@@ -364,7 +308,49 @@ export function ReconciliationNew() {
 
                     <CollapsibleContent>
                       <div className="border-t px-4 py-4 bg-white">
-                        {day.missingDetails && day.missingDetails.length > 0 ? (
+                        <div className="space-y-3">
+                          <h4 className="font-semibold text-sm">Posting Checklist:</h4>
+                          <div className="text-sm text-muted-foreground">
+                            Txn count: HSD {day.postingChecks.transactionsByFuel.HSD}, PMG {day.postingChecks.transactionsByFuel.PMG}
+                          </div>
+                          <div className="text-sm text-muted-foreground">
+                            Credit/Bank count: HSD {day.postingChecks.creditOrBankByFuel.HSD}, PMG {day.postingChecks.creditOrBankByFuel.PMG}
+                          </div>
+                          <div className="text-sm text-muted-foreground">
+                            Cash count: HSD {day.postingChecks.cashByFuel.HSD}, PMG {day.postingChecks.cashByFuel.PMG}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge variant={day.postingChecks.coreChecksPassed ? 'default' : 'destructive'}>
+                              {day.postingChecks.coreChecksPassed ? 'Core Posting Checks Passed' : 'Posting Checks Pending'}
+                            </Badge>
+                            <Badge variant={day.finalizeStatus === 'finalized' ? 'default' : 'secondary'}>
+                              {day.finalizeStatus === 'finalized'
+                                ? 'Finalized'
+                                : day.finalizeStatus === 'not_finalized'
+                                  ? 'Not Finalized'
+                                  : 'No Entries'}
+                            </Badge>
+                          </div>
+
+                          {day.blockers && day.blockers.length > 0 ? (
+                            <div className="space-y-2">
+                              <h4 className="font-semibold text-sm text-red-700">Action Items:</h4>
+                              <ul className="text-sm text-red-700 list-disc pl-5 space-y-1">
+                                {day.blockers.map((blocker, idx) => (
+                                  <li key={idx}>{blocker}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2 text-green-700">
+                              <CheckCircle className="h-5 w-5" />
+                              <span className="font-medium">
+                                Ready state complete{day.finalizeStatus === 'finalized' ? ' and finalized' : ''}.
+                              </span>
+                            </div>
+                          )}
+
+                          {day.missingDetails && day.missingDetails.length > 0 ? (
                           <div className="space-y-3">
                             <h4 className="font-semibold text-sm">Missing Readings:</h4>
                             <Table>
@@ -401,12 +387,8 @@ export function ReconciliationNew() {
                               Fill Missing Readings
                             </Button>
                           </div>
-                        ) : (
-                          <div className="flex items-center gap-2 text-green-700">
-                            <CheckCircle className="h-5 w-5" />
-                            <span className="font-medium">All readings complete for this day!</span>
-                          </div>
-                        )}
+                          ) : null}
+                        </div>
                       </div>
                     </CollapsibleContent>
                   </div>

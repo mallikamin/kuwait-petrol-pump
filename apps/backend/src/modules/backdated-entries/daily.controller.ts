@@ -17,6 +17,12 @@ const getDailySummaryQuerySchema = z.object({
   shiftId: z.string().uuid().optional(),
 });
 
+const getDailyReconciliationRangeQuerySchema = z.object({
+  branchId: z.string().uuid(),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+
 const saveDailyDraftSchema = z.object({
   branchId: z.string().uuid(),
   businessDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -86,6 +92,44 @@ export class DailyBackdatedEntriesController {
           branchId: params.branchId,
           businessDate: params.businessDate,
           shiftId: params.shiftId,
+        },
+        req.user.organizationId
+      );
+
+      res.json({
+        success: true,
+        data: summary,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * GET /api/backdated-entries/daily/reconciliation-range
+   *
+   * Fast range summary for reconciliation dashboard:
+   * - meter completion per day
+   * - posting checks (HSD/PMG transaction, credit/bank, cash)
+   * - finalization status
+   */
+  getDailyReconciliationRange = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      if (!hasRole(req.user, ['admin', 'manager', 'accountant'])) {
+        return res.status(403).json({ error: 'Insufficient permissions' });
+      }
+
+      const params = getDailyReconciliationRangeQuerySchema.parse(req.query);
+
+      const summary = await this.service.getDailyReconciliationSummaryRange(
+        {
+          branchId: params.branchId,
+          startDate: params.startDate,
+          endDate: params.endDate,
         },
         req.user.organizationId
       );
