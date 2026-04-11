@@ -1490,7 +1490,15 @@ export function BackdatedEntries() {
   };
 
   const openMeterReadingDialog = async (nozzle: any, type: 'opening' | 'closing', shift?: any, reading?: any) => {
-    setSelectedMeterNozzle(nozzle);
+    const normalizedNozzle = {
+      ...nozzle,
+      id: nozzle?.id || nozzle?.nozzleId,
+      name: nozzle?.name || nozzle?.nozzleName,
+      nozzleNumber: nozzle?.nozzleNumber || nozzle?.nozzleNo || nozzle?.nozzleCode,
+      fuelType: nozzle?.fuelType || { name: nozzle?.fuelTypeName || nozzle?.fuelType || 'Unknown' },
+    };
+
+    setSelectedMeterNozzle(normalizedNozzle);
     setSelectedReadingType(type);
     setSelectedShiftId(shift?.shiftId || '');
     if (reading) {
@@ -1500,13 +1508,14 @@ export function BackdatedEntries() {
     }
 
     // Fetch previous reading for modal context
-    if (shift?.shiftId && nozzle?.id) {
+    const nozzleId = normalizedNozzle?.id;
+    if (shift?.shiftId && nozzleId) {
       try {
         const prevReading = await meterReadingsApi.getModalPreviousReading({
           branchId: selectedBranchId,
           businessDate,
           shiftId: shift.shiftId,
-          nozzleId: nozzle.id,
+          nozzleId,
           readingType: type,
         });
         setModalPreviousReading(prevReading?.value ?? null);
@@ -2724,7 +2733,7 @@ export function BackdatedEntries() {
                   {selectedReadingType === 'opening' ? 'Opening' : 'Closing'} Reading
                 </DialogTitle>
                 <DialogDescription>
-                  {selectedMeterNozzle?.name || `Nozzle ${selectedMeterNozzle?.nozzleNumber}`} ({selectedMeterNozzle?.fuelType?.name || 'Unknown'})
+                  {selectedMeterNozzle?.name || `Nozzle ${selectedMeterNozzle?.nozzleNumber || '-'}`} ({selectedMeterNozzle?.fuelType?.name || selectedMeterNozzle?.fuelTypeName || selectedMeterNozzle?.fuelType || 'Unknown'})
                   {' • '}
                   Business Date: {businessDate}
                 </DialogDescription>
@@ -2732,7 +2741,7 @@ export function BackdatedEntries() {
               {selectedMeterNozzle && (
                 <MeterReadingCapture
                   nozzleId={selectedMeterNozzle.id}
-                  nozzleName={`${selectedMeterNozzle.name || `Nozzle ${selectedMeterNozzle.nozzleNumber}`} (${selectedMeterNozzle.fuelType?.name || 'Unknown'})`}
+                  nozzleName={`${selectedMeterNozzle.name || `Nozzle ${selectedMeterNozzle.nozzleNumber || '-'}`} (${selectedMeterNozzle.fuelType?.name || selectedMeterNozzle?.fuelTypeName || selectedMeterNozzle?.fuelType || 'Unknown'})`}
                   previousReading={modalPreviousReading ?? undefined}
                   onCapture={handleMeterReadingCapture}
                   onCancel={() => {
