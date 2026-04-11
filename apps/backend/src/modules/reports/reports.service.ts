@@ -715,53 +715,60 @@ export class ReportsService {
     });
 
     // Get purchases received (stock receipts with items)
-    const purchasesQuery: any = {
-      where: {
+    let purchases: any[] = [];
+    try {
+      const purchaseWhere: any = {
         purchaseOrder: {
           branchId,
         },
-      },
-      include: {
-        purchaseOrder: {
-          include: {
-            supplier: true,
-            items: {
-              include: {
-                product: true,
-                fuelType: true,
+      };
+
+      // Filter by date if provided
+      if (asOfDate) {
+        const asOfDateObj = new Date(asOfDate);
+        purchaseWhere.receiptDate = {
+          lte: asOfDateObj,
+        };
+      }
+
+      const stockReceipts = await prisma.stockReceipt.findMany({
+        where: purchaseWhere,
+        include: {
+          purchaseOrder: {
+            include: {
+              supplier: true,
+              items: {
+                include: {
+                  product: true,
+                  fuelType: true,
+                },
               },
             },
           },
         },
-      },
-      orderBy: {
-        receiptDate: 'desc',
-      },
-    };
+        orderBy: {
+          receiptDate: 'desc',
+        },
+      });
 
-    // Filter by date if provided
-    if (asOfDate) {
-      const asOfDateObj = new Date(asOfDate);
-      purchasesQuery.where.receiptDate = {
-        lte: asOfDateObj,
-      };
+      // Transform purchases for display
+      purchases = stockReceipts.flatMap(receipt =>
+        receipt.purchaseOrder.items.map(item => ({
+          id: item.id,
+          name: item.product?.name || item.fuelType?.name || 'Unknown',
+          sku: item.product?.sku || '',
+          supplierName: receipt.purchaseOrder.supplier?.name,
+          quantityReceived: parseFloat(item.quantityReceived.toString()),
+          costPerUnit: parseFloat(item.costPerUnit.toString()),
+          totalCost: parseFloat(item.totalCost.toString()),
+          receiptDate: receipt.receiptDate,
+        }))
+      );
+    } catch (error) {
+      // If purchases query fails, continue without purchases data
+      console.warn('[Inventory Report] Failed to fetch purchases:', error);
+      purchases = [];
     }
-
-    const stockReceipts = await prisma.stockReceipt.findMany(purchasesQuery);
-
-    // Transform purchases for display
-    const purchases = stockReceipts.flatMap(receipt =>
-      receipt.purchaseOrder.items.map(item => ({
-        id: item.id,
-        name: item.product?.name || item.fuelType?.name || 'Unknown',
-        sku: item.product?.sku || '',
-        supplierName: receipt.purchaseOrder.supplier?.name,
-        quantityReceived: parseFloat(item.quantityReceived.toString()),
-        costPerUnit: parseFloat(item.costPerUnit.toString()),
-        totalCost: parseFloat(item.totalCost.toString()),
-        receiptDate: receipt.receiptDate,
-      }))
-    );
 
     // Categorize products
     const lowStockProducts = stockLevels.filter(
