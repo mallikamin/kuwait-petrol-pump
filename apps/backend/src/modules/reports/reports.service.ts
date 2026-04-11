@@ -61,6 +61,7 @@ export class ReportsService {
         liters: number;
         amount: number;
         count: number;
+        isUnassigned?: boolean;
       }
     } = {};
 
