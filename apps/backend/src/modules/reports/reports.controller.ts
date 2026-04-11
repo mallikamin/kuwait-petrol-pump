@@ -7,8 +7,19 @@ const dateString = z.string().transform(val => new Date(val)).refine(d => !isNaN
 
 const dailySalesQuerySchema = z.object({
   branchId: z.string().uuid().optional(),
-  date: dateString,
-});
+  date: dateString.optional(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+}).refine(
+  (data) => {
+    // Either date must be provided, or both startDate and endDate must be provided
+    if (data.startDate || data.endDate) {
+      return data.startDate && data.endDate;
+    }
+    return data.date !== undefined;
+  },
+  { message: 'Either date, or both startDate and endDate must be provided' }
+);
 
 const shiftReportQuerySchema = z.object({
   shiftInstanceId: z.string().uuid(),
@@ -77,9 +88,27 @@ export class ReportsController {
         return res.status(400).json({ error: 'branchId required (user has no assigned branch)' });
       }
 
+      // Parse dates with proper timezone handling
+      let startDate: Date | undefined;
+      let endDate: Date | undefined;
+
+      if (query.startDate && query.endDate) {
+        startDate = new Date(query.startDate);
+        startDate.setUTCHours(0, 0, 0, 0);
+        endDate = new Date(query.endDate);
+        endDate.setUTCHours(23, 59, 59, 999);
+      } else if (query.date) {
+        // Single date mode
+        startDate = new Date(query.date);
+        startDate.setUTCHours(0, 0, 0, 0);
+        endDate = new Date(query.date);
+        endDate.setUTCHours(23, 59, 59, 999);
+      }
+
       const report = await this.reportsService.getDailySalesReport(
         branchId,
-        query.date,
+        startDate!,
+        endDate!,
         req.user.organizationId
       );
 

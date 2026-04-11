@@ -1,10 +1,21 @@
 import { apiClient } from './client';
 
 export const reportsApi = {
-  getDailySales: async (branchId: string, date: string): Promise<any> => {
-    const response = await apiClient.get('/api/reports/daily-sales', {
-      params: { branchId, date },
-    });
+  getDailySales: async (branchId: string, date?: string, startDate?: string, endDate?: string): Promise<any> => {
+    const params: any = { branchId };
+    // Date filter precedence:
+    // 1. If startDate/endDate provided => range mode
+    // 2. Else if date provided => single-date mode
+    // 3. Else => error (date required)
+    if (startDate && endDate) {
+      params.startDate = startDate;
+      params.endDate = endDate;
+    } else if (date) {
+      params.date = date;
+    } else {
+      throw new Error('Either date or (startDate and endDate) must be provided');
+    }
+    const response = await apiClient.get('/api/reports/daily-sales', { params });
     return response.data.report || response.data;
   },
 

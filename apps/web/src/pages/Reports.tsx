@@ -103,10 +103,16 @@ export function Reports() {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [fetchEnabled, setFetchEnabled] = useState(false);
 
-  // Daily Sales
+  // Daily Sales (supports both single date and date range)
   const { data: dailySales, isLoading: loadingDaily, isError: errorDaily } = useQuery({
-    queryKey: ['report-daily-sales', branchId, reportDate],
-    queryFn: () => reportsApi.getDailySales(branchId, new Date(reportDate).toISOString()),
+    queryKey: ['report-daily-sales', branchId, reportDate, startDate, endDate],
+    queryFn: () => {
+      // Check if using date range or single date
+      if (selectedReport === 'daily-sales' && startDate && endDate) {
+        return reportsApi.getDailySales(branchId, undefined, startDate, endDate);
+      }
+      return reportsApi.getDailySales(branchId, reportDate);
+    },
     enabled: fetchEnabled && selectedReport === 'daily-sales' && !!branchId,
   });
 
@@ -213,11 +219,14 @@ export function Reports() {
     const summary = dailySales.summary || {};
     const payments = dailySales.paymentMethodBreakdown || [];
     const shifts = dailySales.shiftBreakdown || [];
+    const shiftFuels = dailySales.shiftFuelBreakdown || [];
     const variantPayments = dailySales.variantPaymentBreakdown || [];
     const fuelByType = summary.fuel?.byType || {};
 
-    const headers = ['Category', 'Count', 'Amount'];
     const rows: (string | number)[][] = [
+      ['Daily Sales Report', formatDate(reportDate)],
+      ['', ''],
+      ['Summary', 'Count', 'Amount'],
       ['Total Sales', summary.totalTransactions || 0, Number(summary.totalAmount || 0)],
       ['Fuel Sales', summary.fuel?.count || 0, Number(summary.fuel?.amount || 0)],
       ['Non-Fuel Sales', summary.nonFuel?.count || 0, Number(summary.nonFuel?.amount || 0)],
@@ -235,11 +244,14 @@ export function Reports() {
       ['Product Variant', 'Payment Type', 'Count', 'Amount'],
       ...variantPayments.map((vp: any) => [vp.variant, vp.paymentMethod, vp.count, Number(vp.amount)]),
       ['', '', '', ''],
-      ['Shift', 'Cashier', 'Amount'],
-      ...shifts.map((s: any) => [s.shiftNumber || s.name || '-', s.cashier?.fullName || s.cashier || '-', Number(s.totalAmount || s.amount || 0)]),
+      ['Shift', 'Cashier', 'Sales', 'Amount'],
+      ...shifts.map((s: any) => [s.shiftNumber || s.name || '-', s.cashier?.fullName || s.cashier || '-', s.count || 0, Number(s.totalAmount || s.amount || 0)]),
+      ['', '', '', ''],
+      ['Shift', 'Fuel Type', 'Liters', 'Count', 'Amount'],
+      ...shiftFuels.map((sf: any) => [sf.shiftName || '-', sf.fuelType || '-', Number(sf.liters || 0).toFixed(2), sf.count || 0, Number(sf.amount || 0)]),
     ];
 
-    downloadCSV(`daily-sales-${reportDate}.csv`, toCSV(headers, rows));
+    downloadCSV(`daily-sales-${reportDate}.csv`, toCSV(['', '', '', '', ''], rows));
   };
 
   const printDailySales = () => {
@@ -247,6 +259,7 @@ export function Reports() {
     const summary = dailySales.summary || {};
     const payments = dailySales.paymentMethodBreakdown || [];
     const shifts = dailySales.shiftBreakdown || [];
+    const shiftFuels = dailySales.shiftFuelBreakdown || [];
     const variantPayments = dailySales.variantPaymentBreakdown || [];
 
     let html = `
@@ -269,8 +282,13 @@ export function Reports() {
       </table>
       <h2>Shift Breakdown</h2>
       <table>
-        <tr><th>Shift</th><th>Cashier</th><th class="right">Amount</th></tr>
-        ${shifts.map((s: any) => `<tr><td>${s.shiftNumber || s.name || '-'}</td><td>${s.cashier?.fullName || s.cashier || '-'}</td><td class="right">${formatCurrency(Number(s.totalAmount || s.amount || 0))}</td></tr>`).join('')}
+        <tr><th>Shift</th><th>Cashier</th><th class="right">Sales</th><th class="right">Amount</th></tr>
+        ${shifts.map((s: any) => `<tr><td>${s.shiftNumber || s.name || '-'}</td><td>${s.cashier?.fullName || s.cashier || '-'}</td><td class="right">${s.count || 0}</td><td class="right">${formatCurrency(Number(s.totalAmount || s.amount || 0))}</td></tr>`).join('')}
+      </table>
+      <h2>Shift-wise Fuel Type Breakdown</h2>
+      <table>
+        <tr><th>Shift</th><th>Fuel Type</th><th class="right">Liters</th><th class="right">Count</th><th class="right">Amount</th></tr>
+        ${shiftFuels.map((sf: any) => `<tr><td>${sf.shiftName || '-'}</td><td>${sf.fuelType || '-'}</td><td class="right">${Number(sf.liters || 0).toFixed(2)} L</td><td class="right">${sf.count || 0}</td><td class="right">${formatCurrency(Number(sf.amount || 0))}</td></tr>`).join('')}
       </table>`;
     printReport(`Daily Sales Report - ${formatDate(reportDate)}`, html);
   };
@@ -393,10 +411,21 @@ export function Reports() {
             </div>
 
             {selectedReport === 'daily-sales' && (
-              <div className="space-y-2">
-                <Label>Date</Label>
-                <Input type="date" value={reportDate} onChange={(e) => { setReportDate(e.target.value); setFetchEnabled(false); }} />
-              </div>
+              <>
+                <div className="space-y-2">
+                  <Label>Single Date</Label>
+                  <Input type="date" value={reportDate} onChange={(e) => { setReportDate(e.target.value); setStartDate(''); setEndDate(''); setFetchEnabled(false); }} />
+                </div>
+                <div className="text-center text-xs text-muted-foreground">OR</div>
+                <div className="space-y-2">
+                  <Label>Date Range Start</Label>
+                  <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setReportDate(''); setFetchEnabled(false); }} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Date Range End</Label>
+                  <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setReportDate(''); setFetchEnabled(false); }} />
+                </div>
+              </>
             )}
 
             {selectedReport === 'shift' && (
@@ -688,6 +717,41 @@ export function Reports() {
                         <TableCell>{s.cashier?.fullName || s.cashier || '-'}</TableCell>
                         <TableCell className="text-right">{s.salesCount || s.count || 0}</TableCell>
                         <TableCell className="text-right font-medium">{formatCurrency(Number(s.totalAmount || s.amount || 0))}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Shift-wise Fuel Type Breakdown */}
+          {dailySales.shiftFuelBreakdown?.length > 0 && (
+            <Card>
+              <CardHeader><CardTitle className="text-base">Shift-wise Fuel Type Breakdown</CardTitle></CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Shift</TableHead>
+                      <TableHead>Fuel Type</TableHead>
+                      <TableHead className="text-right">Liters</TableHead>
+                      <TableHead className="text-right">Transactions</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {dailySales.shiftFuelBreakdown.map((sf: any, i: number) => (
+                      <TableRow key={i}>
+                        <TableCell className="font-medium">{sf.shiftName || '-'}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{sf.fuelType || '-'}</Badge>
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {typeof sf.liters === 'number' ? `${Number(sf.liters).toFixed(2)} L` : '-'}
+                        </TableCell>
+                        <TableCell className="text-right">{sf.count || 0}</TableCell>
+                        <TableCell className="text-right font-medium">{formatCurrency(Number(sf.amount || 0))}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
