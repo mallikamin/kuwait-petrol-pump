@@ -106,22 +106,28 @@ export class ReportsService {
           variantPaymentBreakdown[variantKey].liters! += fuelSale.quantityLiters.toNumber();
 
           // Shift-wise fuel type breakdown
+          let shiftName: string;
           if (sale.shiftInstance) {
-            const shiftName = sale.shiftInstance.shift.name;
-            const shiftFuelKey = `${shiftName}|${fuelTypeName}`;
-            if (!shiftFuelBreakdown[shiftFuelKey]) {
-              shiftFuelBreakdown[shiftFuelKey] = {
-                shiftName,
-                fuelType: fuelTypeName,
-                liters: 0,
-                amount: 0,
-                count: 0,
-              };
-            }
-            shiftFuelBreakdown[shiftFuelKey].liters += fuelSale.quantityLiters.toNumber();
-            shiftFuelBreakdown[shiftFuelKey].amount += fuelSale.totalAmount.toNumber();
-            shiftFuelBreakdown[shiftFuelKey].count += 1;
+            shiftName = sale.shiftInstance.shift.name;
+          } else {
+            // Fallback for unassigned sales: attribute based on sale time
+            const saleHour = sale.saleDate.getHours();
+            shiftName = saleHour < 12 ? 'Morning' : 'Evening';
           }
+
+          const shiftFuelKey = `${shiftName}|${fuelTypeName}`;
+          if (!shiftFuelBreakdown[shiftFuelKey]) {
+            shiftFuelBreakdown[shiftFuelKey] = {
+              shiftName,
+              fuelType: fuelTypeName,
+              liters: 0,
+              amount: 0,
+              count: 0,
+            };
+          }
+          shiftFuelBreakdown[shiftFuelKey].liters += fuelSale.quantityLiters.toNumber();
+          shiftFuelBreakdown[shiftFuelKey].amount += fuelSale.totalAmount.toNumber();
+          shiftFuelBreakdown[shiftFuelKey].count += 1;
         }
       }
 
@@ -152,14 +158,24 @@ export class ReportsService {
       paymentBreakdown[method].amount += sale.totalAmount.toNumber();
 
       // Shift-wise breakdown
+      let shiftName: string;
       if (sale.shiftInstance) {
-        const shiftName = `${sale.shiftInstance.shift.name} (${sale.shiftInstance.date.toLocaleDateString()})`;
-        if (!shiftBreakdown[shiftName]) {
-          shiftBreakdown[shiftName] = { count: 0, amount: 0 };
-        }
-        shiftBreakdown[shiftName].count += 1;
-        shiftBreakdown[shiftName].amount += sale.totalAmount.toNumber();
+        // Sale explicitly assigned to a shift
+        shiftName = `${sale.shiftInstance.shift.name} (${sale.shiftInstance.date.toLocaleDateString()})`;
+      } else {
+        // Fallback for unassigned sales: attribute based on sale time
+        // Morning: 00:00-12:00, Evening: 12:01-23:59
+        const saleHour = sale.saleDate.getHours();
+        const shiftType = saleHour < 12 ? 'Morning' : 'Evening';
+        const saleDay = sale.saleDate.toLocaleDateString();
+        shiftName = `${shiftType} (Unassigned) - ${saleDay}`;
       }
+
+      if (!shiftBreakdown[shiftName]) {
+        shiftBreakdown[shiftName] = { count: 0, amount: 0 };
+      }
+      shiftBreakdown[shiftName].count += 1;
+      shiftBreakdown[shiftName].amount += sale.totalAmount.toNumber();
     }
 
     return {

@@ -47,7 +47,7 @@ export function MeterReadingCapture({
   nozzleId,
   fuelTypeId: _fuelTypeId,
   nozzleName,
-  previousReading = 0,
+  previousReading,
   onCapture,
   onCancel,
 }: MeterReadingCaptureProps) {
@@ -71,9 +71,9 @@ export function MeterReadingCapture({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const referenceFileInputRef = useRef<HTMLInputElement>(null);
 
-  // Calculate liters
+  // Calculate liters - use 0 if previousReading is missing, else subtract previous from current
   const calculatedLiters = currentReading
-    ? Math.max(0, parseFloat(currentReading) - previousReading)
+    ? Math.max(0, parseFloat(currentReading) - (previousReading ?? 0))
     : 0;
 
   // Start camera

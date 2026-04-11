@@ -12,13 +12,13 @@ const dailySalesQuerySchema = z.object({
   endDate: z.string().optional(),
 }).refine(
   (data) => {
-    // Either date must be provided, or both startDate and endDate must be provided
-    if (data.startDate || data.endDate) {
-      return data.startDate && data.endDate;
-    }
-    return data.date !== undefined;
+    // Validate that if startDate/endDate are provided, both must be present
+    if (data.startDate && !data.endDate) return false;
+    if (data.endDate && !data.startDate) return false;
+    // All 3 modes valid: (1) no filter, (2) date only, (3) range
+    return true;
   },
-  { message: 'Either date, or both startDate and endDate must be provided' }
+  { message: 'If providing date range, both startDate and endDate required' }
 );
 
 const shiftReportQuerySchema = z.object({
@@ -27,15 +27,31 @@ const shiftReportQuerySchema = z.object({
 
 const varianceReportQuerySchema = z.object({
   branchId: z.string().uuid().optional(),
-  startDate: dateString,
-  endDate: dateString,
-});
+  date: dateString.optional(),
+  startDate: dateString.optional(),
+  endDate: dateString.optional(),
+}).refine(
+  (data) => {
+    if (data.startDate && !data.endDate) return false;
+    if (data.endDate && !data.startDate) return false;
+    return true;
+  },
+  { message: 'If providing date range, both startDate and endDate required' }
+);
 
 const customerLedgerQuerySchema = z.object({
   customerId: z.string().uuid(),
-  startDate: dateString,
-  endDate: dateString,
-});
+  date: dateString.optional(),
+  startDate: dateString.optional(),
+  endDate: dateString.optional(),
+}).refine(
+  (data) => {
+    if (data.startDate && !data.endDate) return false;
+    if (data.endDate && !data.startDate) return false;
+    return true;
+  },
+  { message: 'If providing date range, both startDate and endDate required' }
+);
 
 const inventoryReportQuerySchema = z.object({
   branchId: z.string().uuid().optional(),
@@ -45,16 +61,32 @@ const inventoryReportQuerySchema = z.object({
 });
 
 const fuelPriceHistoryQuerySchema = z.object({
-  startDate: dateString,
-  endDate: dateString,
-});
+  date: dateString.optional(),
+  startDate: dateString.optional(),
+  endDate: dateString.optional(),
+}).refine(
+  (data) => {
+    if (data.startDate && !data.endDate) return false;
+    if (data.endDate && !data.startDate) return false;
+    return true;
+  },
+  { message: 'If providing date range, both startDate and endDate required' }
+);
 
 const customerWiseSalesQuerySchema = z.object({
   branchId: z.string().uuid().optional(),
-  startDate: dateString,
-  endDate: dateString,
+  date: dateString.optional(),
+  startDate: dateString.optional(),
+  endDate: dateString.optional(),
   customerId: z.string().uuid().optional(),
-});
+}).refine(
+  (data) => {
+    if (data.startDate && !data.endDate) return false;
+    if (data.endDate && !data.startDate) return false;
+    return true;
+  },
+  { message: 'If providing date range, both startDate and endDate required' }
+);
 
 export class ReportsController {
   private reportsService: ReportsService;
@@ -89,10 +121,12 @@ export class ReportsController {
       }
 
       // Parse dates with proper timezone handling
-      let startDate: Date | undefined;
-      let endDate: Date | undefined;
+      // Precedence: startDate/endDate > date > no filter (all data)
+      let startDate: Date;
+      let endDate: Date;
 
       if (query.startDate && query.endDate) {
+        // Date range mode
         startDate = new Date(query.startDate);
         startDate.setUTCHours(0, 0, 0, 0);
         endDate = new Date(query.endDate);
@@ -103,12 +137,18 @@ export class ReportsController {
         startDate.setUTCHours(0, 0, 0, 0);
         endDate = new Date(query.date);
         endDate.setUTCHours(23, 59, 59, 999);
+      } else {
+        // No filter mode - get all data
+        startDate = new Date('1970-01-01');
+        startDate.setUTCHours(0, 0, 0, 0);
+        endDate = new Date('2099-12-31');
+        endDate.setUTCHours(23, 59, 59, 999);
       }
 
       const report = await this.reportsService.getDailySalesReport(
         branchId,
-        startDate!,
-        endDate!,
+        startDate,
+        endDate,
         req.user.organizationId
       );
 
@@ -171,11 +211,6 @@ export class ReportsController {
 
       const query = varianceReportQuerySchema.parse(req.query);
 
-      // Validate date range
-      if (query.startDate > query.endDate) {
-        return res.status(400).json({ error: 'Start date must be before end date' });
-      }
-
       // Use user's branch if not specified
       const branchId = query.branchId || req.user.branchId;
 
@@ -183,10 +218,39 @@ export class ReportsController {
         return res.status(400).json({ error: 'branchId required (user has no assigned branch)' });
       }
 
+      // Parse dates with proper timezone handling
+      // Precedence: startDate/endDate > date > no filter (all data)
+      let startDate: Date;
+      let endDate: Date;
+
+      if (query.startDate && query.endDate) {
+        // Date range mode
+        startDate = new Date(query.startDate);
+        startDate.setUTCHours(0, 0, 0, 0);
+        endDate = new Date(query.endDate);
+        endDate.setUTCHours(23, 59, 59, 999);
+
+        if (startDate > endDate) {
+          return res.status(400).json({ error: 'Start date must be before end date' });
+        }
+      } else if (query.date) {
+        // Single date mode
+        startDate = new Date(query.date);
+        startDate.setUTCHours(0, 0, 0, 0);
+        endDate = new Date(query.date);
+        endDate.setUTCHours(23, 59, 59, 999);
+      } else {
+        // No filter mode - get all data
+        startDate = new Date('1970-01-01');
+        startDate.setUTCHours(0, 0, 0, 0);
+        endDate = new Date('2099-12-31');
+        endDate.setUTCHours(23, 59, 59, 999);
+      }
+
       const report = await this.reportsService.getVarianceReport(
         branchId,
-        query.startDate,
-        query.endDate,
+        startDate,
+        endDate,
         req.user.organizationId
       );
 
@@ -216,15 +280,39 @@ export class ReportsController {
 
       const query = customerLedgerQuerySchema.parse(req.query);
 
-      // Validate date range
-      if (query.startDate > query.endDate) {
-        return res.status(400).json({ error: 'Start date must be before end date' });
+      // Parse dates with proper timezone handling
+      // Precedence: startDate/endDate > date > no filter (all data)
+      let startDate: Date;
+      let endDate: Date;
+
+      if (query.startDate && query.endDate) {
+        // Date range mode
+        startDate = new Date(query.startDate);
+        startDate.setUTCHours(0, 0, 0, 0);
+        endDate = new Date(query.endDate);
+        endDate.setUTCHours(23, 59, 59, 999);
+
+        if (startDate > endDate) {
+          return res.status(400).json({ error: 'Start date must be before end date' });
+        }
+      } else if (query.date) {
+        // Single date mode
+        startDate = new Date(query.date);
+        startDate.setUTCHours(0, 0, 0, 0);
+        endDate = new Date(query.date);
+        endDate.setUTCHours(23, 59, 59, 999);
+      } else {
+        // No filter mode - get all data
+        startDate = new Date('1970-01-01');
+        startDate.setUTCHours(0, 0, 0, 0);
+        endDate = new Date('2099-12-31');
+        endDate.setUTCHours(23, 59, 59, 999);
       }
 
       const report = await this.reportsService.getCustomerLedgerReport(
         query.customerId,
-        query.startDate,
-        query.endDate,
+        startDate,
+        endDate,
         req.user.organizationId
       );
 
@@ -295,9 +383,34 @@ export class ReportsController {
 
       const query = fuelPriceHistoryQuerySchema.parse(req.query);
 
+      // Parse dates with proper timezone handling
+      // Precedence: startDate/endDate > date > no filter (all data)
+      let startDate: Date;
+      let endDate: Date;
+
+      if (query.startDate && query.endDate) {
+        // Date range mode
+        startDate = new Date(query.startDate);
+        startDate.setUTCHours(0, 0, 0, 0);
+        endDate = new Date(query.endDate);
+        endDate.setUTCHours(23, 59, 59, 999);
+      } else if (query.date) {
+        // Single date mode
+        startDate = new Date(query.date);
+        startDate.setUTCHours(0, 0, 0, 0);
+        endDate = new Date(query.date);
+        endDate.setUTCHours(23, 59, 59, 999);
+      } else {
+        // No filter mode - get all data
+        startDate = new Date('1970-01-01');
+        startDate.setUTCHours(0, 0, 0, 0);
+        endDate = new Date('2099-12-31');
+        endDate.setUTCHours(23, 59, 59, 999);
+      }
+
       const report = await this.reportsService.getFuelPriceHistoryReport(
-        query.startDate,
-        query.endDate,
+        startDate,
+        endDate,
         req.user.organizationId
       );
 
@@ -327,11 +440,6 @@ export class ReportsController {
 
       const query = customerWiseSalesQuerySchema.parse(req.query);
 
-      // Validate date range
-      if (query.startDate > query.endDate) {
-        return res.status(400).json({ error: 'Start date must be before end date' });
-      }
-
       // Use user's branch if not specified
       const branchId = query.branchId || req.user.branchId;
 
@@ -339,10 +447,39 @@ export class ReportsController {
         return res.status(400).json({ error: 'branchId required (user has no assigned branch)' });
       }
 
+      // Parse dates with proper timezone handling
+      // Precedence: startDate/endDate > date > no filter (all data)
+      let startDate: Date;
+      let endDate: Date;
+
+      if (query.startDate && query.endDate) {
+        // Date range mode
+        startDate = new Date(query.startDate);
+        startDate.setUTCHours(0, 0, 0, 0);
+        endDate = new Date(query.endDate);
+        endDate.setUTCHours(23, 59, 59, 999);
+
+        if (startDate > endDate) {
+          return res.status(400).json({ error: 'Start date must be before end date' });
+        }
+      } else if (query.date) {
+        // Single date mode
+        startDate = new Date(query.date);
+        startDate.setUTCHours(0, 0, 0, 0);
+        endDate = new Date(query.date);
+        endDate.setUTCHours(23, 59, 59, 999);
+      } else {
+        // No filter mode - get all data
+        startDate = new Date('1970-01-01');
+        startDate.setUTCHours(0, 0, 0, 0);
+        endDate = new Date('2099-12-31');
+        endDate.setUTCHours(23, 59, 59, 999);
+      }
+
       const report = await this.reportsService.getCustomerWiseSalesReport(
         branchId,
-        query.startDate,
-        query.endDate,
+        startDate,
+        endDate,
         req.user.organizationId,
         query.customerId
       );
