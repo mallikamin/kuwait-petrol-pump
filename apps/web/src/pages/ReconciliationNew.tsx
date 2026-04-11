@@ -59,75 +59,81 @@ export function ReconciliationNew() {
     queryFn: async () => {
       if (!branchId) throw new Error('Branch not found. Please log in again.');
 
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      const days: DailySummary[] = [];
-
-      // Fetch each day in range
-      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        const businessDate = d.toISOString().split('T')[0];
-        try {
-          const response = await apiClient.get('/api/backdated-meter-readings/daily', {
-            params: {
-              branchId: branchId,
-              businessDate,
-            },
-          });
-
-          const data = response.data.data;
-
-          // Determine status
-          let status: 'fully_reconciled' | 'partially_reconciled' | 'not_reconciled';
-          if (data.summary.completionPercent === 100) {
-            status = 'fully_reconciled';
-          } else if (data.summary.totalReadingsEntered > 0 || data.summary.totalReadingsDerived > 0) {
-            status = 'partially_reconciled';
-          } else {
-            status = 'not_reconciled';
-          }
-
-          // Extract missing details
-          const missingDetails: { shiftName: string; nozzleName: string; missingReadings: ('opening' | 'closing')[] }[] = [];
-          data.shifts.forEach((shift: any) => {
-            shift.nozzles.forEach((nozzle: any) => {
-              const missing: ('opening' | 'closing')[] = [];
-              if (nozzle.opening?.status === 'missing') missing.push('opening');
-              if (nozzle.closing?.status === 'missing') missing.push('closing');
-              if (missing.length > 0) {
-                missingDetails.push({
-                  shiftName: shift.shiftName,
-                  nozzleName: nozzle.nozzleName,
-                  missingReadings: missing,
-                });
-              }
-            });
-          });
-
-          days.push({
-            businessDate,
-            totalReadingsExpected: data.summary.totalReadingsExpected,
-            totalReadingsEntered: data.summary.totalReadingsEntered,
-            totalReadingsDerived: data.summary.totalReadingsDerived,
-            totalReadingsMissing: data.summary.totalReadingsMissing,
-            completionPercent: data.summary.completionPercent,
-            status,
-            missingDetails: missingDetails.length > 0 ? missingDetails : undefined,
-          });
-        } catch (err: any) {
-          // If no data for this date, mark as not reconciled
-          days.push({
-            businessDate,
-            totalReadingsExpected: 24, // Default: 6 nozzles × 2 shifts × 2 readings
-            totalReadingsEntered: 0,
-            totalReadingsDerived: 0,
-            totalReadingsMissing: 24,
-            completionPercent: 0,
-            status: 'not_reconciled',
-          });
-        }
+      const dateList: string[] = [];
+      const cursor = new Date(`${startDate}T00:00:00.000Z`);
+      const end = new Date(`${endDate}T00:00:00.000Z`);
+      while (cursor <= end) {
+        dateList.push(cursor.toISOString().split('T')[0]);
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
       }
 
-      return days.reverse(); // Most recent first
+      // Fetch all days in parallel to reduce dashboard load latency.
+      const summariesByDay = await Promise.all(
+        dateList.map(async (businessDate): Promise<DailySummary> => {
+          try {
+            const response = await apiClient.get('/api/backdated-meter-readings/daily', {
+              params: {
+                branchId,
+                businessDate,
+              },
+            });
+
+            const data = response.data.data;
+            const aggregate = data.aggregateSummary;
+            const derivedCount = aggregate.totalReadingsPropagated || 0;
+
+            let status: 'fully_reconciled' | 'partially_reconciled' | 'not_reconciled';
+            if (aggregate.completionPercent === 100) {
+              status = 'fully_reconciled';
+            } else if (aggregate.totalReadingsEntered > 0 || derivedCount > 0) {
+              status = 'partially_reconciled';
+            } else {
+              status = 'not_reconciled';
+            }
+
+            // Extract missing details
+            const missingDetails: { shiftName: string; nozzleName: string; missingReadings: ('opening' | 'closing')[] }[] = [];
+            data.shifts.forEach((shift: any) => {
+              shift.nozzles.forEach((nozzle: any) => {
+                const missing: ('opening' | 'closing')[] = [];
+                if (nozzle.opening?.status === 'missing') missing.push('opening');
+                if (nozzle.closing?.status === 'missing') missing.push('closing');
+                if (missing.length > 0) {
+                  missingDetails.push({
+                    shiftName: shift.shiftName,
+                    nozzleName: nozzle.nozzleName,
+                    missingReadings: missing,
+                  });
+                }
+              });
+            });
+
+            return {
+              businessDate,
+              totalReadingsExpected: aggregate.totalReadingsExpected,
+              totalReadingsEntered: aggregate.totalReadingsEntered,
+              totalReadingsDerived: derivedCount,
+              totalReadingsMissing: aggregate.totalReadingsMissing,
+              completionPercent: aggregate.completionPercent,
+              status,
+              missingDetails: missingDetails.length > 0 ? missingDetails : undefined,
+            };
+          } catch {
+            // If no data for this date, mark as not reconciled
+            return {
+              businessDate,
+              totalReadingsExpected: 24, // Default: 6 nozzles x 2 shifts x 2 readings
+              totalReadingsEntered: 0,
+              totalReadingsDerived: 0,
+              totalReadingsMissing: 24,
+              completionPercent: 0,
+              status: 'not_reconciled',
+            };
+          }
+        })
+      );
+
+      return summariesByDay.sort((a, b) => new Date(b.businessDate).getTime() - new Date(a.businessDate).getTime());
     },
     enabled: !!branchId,
     staleTime: 30000, // Cache for 30 seconds
@@ -340,7 +346,7 @@ export function ReconciliationNew() {
                               {day.completionPercent.toFixed(0)}%
                             </div>
                             <p className="text-xs text-muted-foreground">
-                              {day.totalReadingsEntered}/{day.totalReadingsExpected} readings
+                              {day.totalReadingsEntered + day.totalReadingsDerived}/{day.totalReadingsExpected} readings
                             </p>
                           </div>
                           <Badge variant={
@@ -449,3 +455,4 @@ export function ReconciliationNew() {
     </div>
   );
 }
+
