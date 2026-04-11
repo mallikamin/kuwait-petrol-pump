@@ -37,3 +37,26 @@ Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
 3. Use `get_affected_flows` to understand impact.
 4. Use `query_graph` pattern="tests_for" to check coverage.
 
+## Deployment Memory (Mandatory)
+
+Use only the canonical deploy script:
+
+```bash
+./scripts/deploy.sh [auto|full|backend-only|frontend-only]
+```
+
+Default mode is `auto` and should be used unless there is a specific reason otherwise.
+
+Deployment rules:
+- Never perform manual production deploy steps (`ssh` deploy commands, ad-hoc `docker build`, ad-hoc `docker compose up`, ad-hoc `scp`).
+- Never run deploy commands in background during production rollout.
+- Respect deploy lock and commit pin checks from `scripts/deploy.sh`.
+- Prefer targeted deploy modes to avoid full rebuilds:
+  - `frontend-only` for web-only changes
+  - `backend-only` for API/database package changes
+  - `full` only when required
+
+Docker hygiene rules:
+- Safe cleanup only: `docker image prune -f` and `docker builder prune -af`.
+- Never use destructive cleanup such as `docker system prune -a --volumes` in production.
+
