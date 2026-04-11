@@ -4,8 +4,9 @@ import { AppError } from '../../middleware/error.middleware';
 export class ReportsService {
   /**
    * Get daily sales report with breakdown by type, fuel type, and payment method
+   * Supports both single date and date range filtering
    */
-  async getDailySalesReport(branchId: string, date: Date, organizationId: string) {
+  async getDailySalesReport(branchId: string, startDate: Date, endDate: Date, organizationId: string) {
     // Verify branch belongs to organization
     const branch = await prisma.branch.findFirst({
       where: { id: branchId, organizationId },
@@ -15,19 +16,13 @@ export class ReportsService {
       throw new AppError(404, 'Branch not found');
     }
 
-    // Set date range for the day
-    const startOfDay = new Date(date);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(date);
-    endOfDay.setHours(23, 59, 59, 999);
-
-    // Get all sales for the day
+    // Get all sales for the date range
     const sales = await prisma.sale.findMany({
       where: {
         branchId,
         saleDate: {
-          gte: startOfDay,
-          lte: endOfDay,
+          gte: startDate,
+          lte: endDate,
         },
       },
       include: {
@@ -56,6 +51,19 @@ export class ReportsService {
     const fuelByType: { [key: string]: { liters: number; amount: number } } = {};
     const paymentBreakdown: { [key: string]: { count: number; amount: number } } = {};
     const shiftBreakdown: { [key: string]: { count: number; amount: number } } = {};
+
+    // Shift-wise fuel breakdown: Key format "ShiftName|FuelType"
+    type ShiftFuelKey = string;
+    const shiftFuelBreakdown: {
+      [key: ShiftFuelKey]: {
+        shiftName: string;
+        fuelType: string;
+        liters: number;
+        amount: number;
+        count: number;
+        isUnassigned?: boolean;
+      }
+    } = {};
 
     // Product Variant × Payment Type breakdown
     type VariantPaymentKey = string; // Format: "HSD|Cash", "PMG|Credit", "NonFuel|Card"
@@ -97,6 +105,34 @@ export class ReportsService {
           variantPaymentBreakdown[variantKey].count += 1;
           variantPaymentBreakdown[variantKey].amount += fuelSale.totalAmount.toNumber();
           variantPaymentBreakdown[variantKey].liters! += fuelSale.quantityLiters.toNumber();
+
+          // Shift-wise fuel type breakdown
+          let shiftName: string;
+          let isUnassigned = false;
+          if (sale.shiftInstance) {
+            shiftName = sale.shiftInstance.shift.name;
+          } else {
+            // Fallback for unassigned sales: attribute based on sale time
+            // Morning: 00:00-12:00, Evening: 12:01-23:59
+            const saleHour = sale.saleDate.getHours();
+            shiftName = `${saleHour < 12 ? 'Morning' : 'Evening'} (Unassigned)`;
+            isUnassigned = true;
+          }
+
+          const shiftFuelKey = `${shiftName}|${fuelTypeName}`;
+          if (!shiftFuelBreakdown[shiftFuelKey]) {
+            shiftFuelBreakdown[shiftFuelKey] = {
+              shiftName,
+              fuelType: fuelTypeName,
+              liters: 0,
+              amount: 0,
+              count: 0,
+              isUnassigned,
+            };
+          }
+          shiftFuelBreakdown[shiftFuelKey].liters += fuelSale.quantityLiters.toNumber();
+          shiftFuelBreakdown[shiftFuelKey].amount += fuelSale.totalAmount.toNumber();
+          shiftFuelBreakdown[shiftFuelKey].count += 1;
         }
       }
 
@@ -127,18 +163,32 @@ export class ReportsService {
       paymentBreakdown[method].amount += sale.totalAmount.toNumber();
 
       // Shift-wise breakdown
+      let shiftName: string;
       if (sale.shiftInstance) {
-        const shiftName = `${sale.shiftInstance.shift.name} (${sale.shiftInstance.date.toLocaleDateString()})`;
-        if (!shiftBreakdown[shiftName]) {
-          shiftBreakdown[shiftName] = { count: 0, amount: 0 };
-        }
-        shiftBreakdown[shiftName].count += 1;
-        shiftBreakdown[shiftName].amount += sale.totalAmount.toNumber();
+        // Sale explicitly assigned to a shift
+        shiftName = `${sale.shiftInstance.shift.name} (${sale.shiftInstance.date.toLocaleDateString()})`;
+      } else {
+        // Fallback for unassigned sales: attribute based on sale time
+        // Morning: 00:00-12:00, Evening: 12:01-23:59
+        const saleHour = sale.saleDate.getHours();
+        const shiftType = saleHour < 12 ? 'Morning' : 'Evening';
+        const saleDay = sale.saleDate.toLocaleDateString();
+        shiftName = `${shiftType} (Unassigned) - ${saleDay}`;
       }
+
+      if (!shiftBreakdown[shiftName]) {
+        shiftBreakdown[shiftName] = { count: 0, amount: 0 };
+      }
+      shiftBreakdown[shiftName].count += 1;
+      shiftBreakdown[shiftName].amount += sale.totalAmount.toNumber();
     }
 
     return {
-      date,
+      dateRange: {
+        startDate,
+        endDate,
+        isSingleDay: startDate.toDateString() === endDate.toDateString(),
+      },
       branch: {
         id: branch.id,
         name: branch.name,
@@ -165,6 +215,8 @@ export class ReportsService {
         name,
         ...data,
       })),
+      // NEW: Shift-wise Fuel Type Breakdown
+      shiftFuelBreakdown: Object.values(shiftFuelBreakdown),
       // NEW: Product Variant × Payment Type Breakdown
       variantPaymentBreakdown: Object.values(variantPaymentBreakdown),
     };

@@ -1,10 +1,20 @@
 import { apiClient } from './client';
 
 export const reportsApi = {
-  getDailySales: async (branchId: string, date: string): Promise<any> => {
-    const response = await apiClient.get('/api/reports/daily-sales', {
-      params: { branchId, date },
-    });
+  getDailySales: async (branchId: string, date?: string, startDate?: string, endDate?: string): Promise<any> => {
+    const params: any = { branchId };
+    // Date filter precedence:
+    // 1. If startDate/endDate provided => range mode
+    // 2. Else if date provided => single-date mode
+    // 3. Else => no filter (all data)
+    if (startDate && endDate) {
+      params.startDate = startDate;
+      params.endDate = endDate;
+    } else if (date) {
+      params.date = date;
+    }
+    // If neither provided, no-filter mode (no date params sent to API)
+    const response = await apiClient.get('/api/reports/daily-sales', { params });
     return response.data.report || response.data;
   },
 
@@ -15,17 +25,35 @@ export const reportsApi = {
     return response.data.report || response.data;
   },
 
-  getVarianceReport: async (branchId: string, startDate: string, endDate: string): Promise<any> => {
-    const response = await apiClient.get('/api/reports/variance', {
-      params: { branchId, startDate, endDate },
-    });
+  getVarianceReport: async (branchId: string, date?: string, startDate?: string, endDate?: string): Promise<any> => {
+    const params: any = { branchId };
+    // Date filter precedence:
+    // 1. If startDate/endDate provided => range mode
+    // 2. Else if date provided => single-date mode
+    // 3. Else => no filter (all data)
+    if (startDate && endDate) {
+      params.startDate = startDate;
+      params.endDate = endDate;
+    } else if (date) {
+      params.date = date;
+    }
+    const response = await apiClient.get('/api/reports/variance', { params });
     return response.data.report || response.data;
   },
 
-  getCustomerLedger: async (customerId: string, startDate: string, endDate: string): Promise<any> => {
-    const response = await apiClient.get('/api/reports/customer-ledger', {
-      params: { customerId, startDate, endDate },
-    });
+  getCustomerLedger: async (customerId: string, date?: string, startDate?: string, endDate?: string): Promise<any> => {
+    const params: any = { customerId };
+    // Date filter precedence:
+    // 1. If startDate/endDate provided => range mode
+    // 2. Else if date provided => single-date mode
+    // 3. Else => no filter (all data)
+    if (startDate && endDate) {
+      params.startDate = startDate;
+      params.endDate = endDate;
+    } else if (date) {
+      params.date = date;
+    }
+    const response = await apiClient.get('/api/reports/customer-ledger', { params });
     return response.data.report || response.data;
   },
 
@@ -45,17 +73,38 @@ export const reportsApi = {
     return response.data.report || response.data;
   },
 
-  getFuelPriceHistory: async (startDate: string, endDate: string): Promise<any> => {
-    const response = await apiClient.get('/api/reports/fuel-price-history', {
-      params: { startDate, endDate },
-    });
+  getFuelPriceHistory: async (date?: string, startDate?: string, endDate?: string): Promise<any> => {
+    const params: any = {};
+    // Date filter precedence:
+    // 1. If startDate/endDate provided => range mode
+    // 2. Else if date provided => single-date mode
+    // 3. Else => no filter (all data)
+    if (startDate && endDate) {
+      params.startDate = startDate;
+      params.endDate = endDate;
+    } else if (date) {
+      params.date = date;
+    }
+    const response = await apiClient.get('/api/reports/fuel-price-history', { params });
     return response.data.report || response.data;
   },
 
-  getCustomerWiseSales: async (branchId: string, startDate: string, endDate: string, customerId?: string): Promise<any> => {
-    const response = await apiClient.get('/api/reports/customer-wise-sales', {
-      params: { branchId, startDate, endDate, customerId },
-    });
+  getCustomerWiseSales: async (branchId: string, date?: string, startDate?: string, endDate?: string, customerId?: string): Promise<any> => {
+    const params: any = { branchId };
+    if (customerId) {
+      params.customerId = customerId;
+    }
+    // Date filter precedence:
+    // 1. If startDate/endDate provided => range mode
+    // 2. Else if date provided => single-date mode
+    // 3. Else => no filter (all data)
+    if (startDate && endDate) {
+      params.startDate = startDate;
+      params.endDate = endDate;
+    } else if (date) {
+      params.date = date;
+    }
+    const response = await apiClient.get('/api/reports/customer-wise-sales', { params });
     return response.data.report || response.data;
   },
 };

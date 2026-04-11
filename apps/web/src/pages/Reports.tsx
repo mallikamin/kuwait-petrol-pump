@@ -89,6 +89,8 @@ function printReport(title: string, contentHtml: string) {
   win.document.close();
 }
 
+type FilterMode = 'no-filter' | 'single-date' | 'date-range';
+
 export function Reports() {
   const { user } = useAuthStore();
   const branchId = user?.branch_id || (user as any)?.branch?.id || (user as any)?.branchId;
@@ -103,10 +105,27 @@ export function Reports() {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [fetchEnabled, setFetchEnabled] = useState(false);
 
-  // Daily Sales
+  // Filter mode state for each report
+  const [dailySalesFilterMode, setDailySalesFilterMode] = useState<FilterMode>('single-date');
+  const [varianceFilterMode, setVarianceFilterMode] = useState<FilterMode>('date-range');
+  const [customerLedgerFilterMode, setCustomerLedgerFilterMode] = useState<FilterMode>('date-range');
+  const [fuelPriceFilterMode, setFuelPriceFilterMode] = useState<FilterMode>('date-range');
+  const [customerWiseSalesFilterMode, setCustomerWiseSalesFilterMode] = useState<FilterMode>('date-range');
+  const [inventoryFilterMode, setInventoryFilterMode] = useState<FilterMode>('date-range');
+
+  // Daily Sales (supports no-filter, single date, and date range)
   const { data: dailySales, isLoading: loadingDaily, isError: errorDaily } = useQuery({
-    queryKey: ['report-daily-sales', branchId, reportDate],
-    queryFn: () => reportsApi.getDailySales(branchId, new Date(reportDate).toISOString()),
+    queryKey: ['report-daily-sales', branchId, dailySalesFilterMode, reportDate, startDate, endDate],
+    queryFn: () => {
+      if (dailySalesFilterMode === 'date-range') {
+        return reportsApi.getDailySales(branchId, undefined, startDate, endDate);
+      } else if (dailySalesFilterMode === 'single-date') {
+        return reportsApi.getDailySales(branchId, reportDate);
+      } else {
+        // no-filter mode
+        return reportsApi.getDailySales(branchId);
+      }
+    },
     enabled: fetchEnabled && selectedReport === 'daily-sales' && !!branchId,
   });
 
@@ -119,24 +138,47 @@ export function Reports() {
 
   // Inventory
   const { data: inventory, isLoading: loadingInventory, isError: errorInventory } = useQuery({
-    queryKey: ['report-inventory', branchId, startDate, endDate],
-    queryFn: () => reportsApi.getInventoryReport(
-      branchId,
-      undefined, // asOfDate - not used when date range provided
-      startDate ? new Date(startDate).toISOString() : undefined,
-      endDate ? new Date(endDate).toISOString() : undefined
-    ),
+    queryKey: ['report-inventory', branchId, inventoryFilterMode, reportDate, startDate, endDate],
+    queryFn: () => {
+      if (inventoryFilterMode === 'date-range') {
+        return reportsApi.getInventoryReport(
+          branchId,
+          undefined,
+          startDate ? new Date(startDate).toISOString() : undefined,
+          endDate ? new Date(endDate).toISOString() : undefined
+        );
+      } else if (inventoryFilterMode === 'single-date') {
+        return reportsApi.getInventoryReport(
+          branchId,
+          new Date(reportDate).toISOString(),
+          undefined,
+          undefined
+        );
+      } else {
+        // no-filter mode
+        return reportsApi.getInventoryReport(branchId);
+      }
+    },
     enabled: fetchEnabled && selectedReport === 'inventory' && !!branchId,
   });
 
   // Customer Ledger
   const { data: customerLedger, isLoading: loadingLedger, isError: errorLedger } = useQuery({
-    queryKey: ['report-customer-ledger', selectedCustomerId, startDate, endDate],
+    queryKey: ['report-customer-ledger', selectedCustomerId, customerLedgerFilterMode, reportDate, startDate, endDate],
     queryFn: () => {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999); // Set to end of day
-      return reportsApi.getCustomerLedger(selectedCustomerId, start.toISOString(), end.toISOString());
+      if (customerLedgerFilterMode === 'date-range') {
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        return reportsApi.getCustomerLedger(selectedCustomerId, undefined, start.toISOString(), end.toISOString());
+      } else if (customerLedgerFilterMode === 'single-date') {
+        const d = new Date(reportDate);
+        d.setHours(23, 59, 59, 999);
+        return reportsApi.getCustomerLedger(selectedCustomerId, reportDate, undefined, d.toISOString());
+      } else {
+        // no-filter mode
+        return reportsApi.getCustomerLedger(selectedCustomerId);
+      }
     },
     enabled: fetchEnabled && selectedReport === 'customer-ledger' && !!selectedCustomerId,
     staleTime: 0,
@@ -146,41 +188,81 @@ export function Reports() {
 
   // Variance
   const { data: variance, isLoading: loadingVariance, isError: errorVariance } = useQuery({
-    queryKey: ['report-variance', branchId, startDate, endDate],
+    queryKey: ['report-variance', branchId, varianceFilterMode, reportDate, startDate, endDate],
     queryFn: () => {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999); // Set to end of day
-      return reportsApi.getVarianceReport(branchId, start.toISOString(), end.toISOString());
+      if (varianceFilterMode === 'date-range') {
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        return reportsApi.getVarianceReport(branchId, undefined, start.toISOString(), end.toISOString());
+      } else if (varianceFilterMode === 'single-date') {
+        const d = new Date(reportDate);
+        d.setHours(23, 59, 59, 999);
+        return reportsApi.getVarianceReport(branchId, reportDate, undefined, d.toISOString());
+      } else {
+        // no-filter mode
+        return reportsApi.getVarianceReport(branchId);
+      }
     },
     enabled: fetchEnabled && selectedReport === 'variance' && !!branchId,
   });
 
   // Fuel Price History
   const { data: fuelPriceHistory, isLoading: loadingFuelPrice, isError: errorFuelPrice } = useQuery({
-    queryKey: ['report-fuel-price-history', startDate, endDate],
+    queryKey: ['report-fuel-price-history', fuelPriceFilterMode, reportDate, startDate, endDate],
     queryFn: () => {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999); // Set to end of day
-      return reportsApi.getFuelPriceHistory(start.toISOString(), end.toISOString());
+      if (fuelPriceFilterMode === 'date-range') {
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        return reportsApi.getFuelPriceHistory(undefined, start.toISOString(), end.toISOString());
+      } else if (fuelPriceFilterMode === 'single-date') {
+        const d = new Date(reportDate);
+        d.setHours(23, 59, 59, 999);
+        return reportsApi.getFuelPriceHistory(reportDate, undefined, d.toISOString());
+      } else {
+        // no-filter mode
+        return reportsApi.getFuelPriceHistory();
+      }
     },
     enabled: fetchEnabled && selectedReport === 'fuel-price-history',
   });
 
   // Customer-Wise Sales
   const { data: customerWiseSales, isLoading: loadingCustomerWise, isError: errorCustomerWise } = useQuery({
-    queryKey: ['report-customer-wise-sales', branchId, startDate, endDate, selectedCustomerId],
+    queryKey: ['report-customer-wise-sales', branchId, customerWiseSalesFilterMode, reportDate, startDate, endDate, selectedCustomerId],
     queryFn: () => {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999); // Set to end of day
-      return reportsApi.getCustomerWiseSales(
-        branchId,
-        start.toISOString(),
-        end.toISOString(),
-        selectedCustomerId || undefined
-      );
+      if (customerWiseSalesFilterMode === 'date-range') {
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        return reportsApi.getCustomerWiseSales(
+          branchId,
+          undefined,
+          start.toISOString(),
+          end.toISOString(),
+          selectedCustomerId || undefined
+        );
+      } else if (customerWiseSalesFilterMode === 'single-date') {
+        const d = new Date(reportDate);
+        d.setHours(23, 59, 59, 999);
+        return reportsApi.getCustomerWiseSales(
+          branchId,
+          reportDate,
+          undefined,
+          d.toISOString(),
+          selectedCustomerId || undefined
+        );
+      } else {
+        // no-filter mode
+        return reportsApi.getCustomerWiseSales(
+          branchId,
+          undefined,
+          undefined,
+          undefined,
+          selectedCustomerId || undefined
+        );
+      }
     },
     enabled: fetchEnabled && selectedReport === 'customer-wise-sales' && !!branchId,
   });
@@ -213,11 +295,14 @@ export function Reports() {
     const summary = dailySales.summary || {};
     const payments = dailySales.paymentMethodBreakdown || [];
     const shifts = dailySales.shiftBreakdown || [];
+    const shiftFuels = dailySales.shiftFuelBreakdown || [];
     const variantPayments = dailySales.variantPaymentBreakdown || [];
     const fuelByType = summary.fuel?.byType || {};
 
-    const headers = ['Category', 'Count', 'Amount'];
     const rows: (string | number)[][] = [
+      ['Daily Sales Report', formatDate(reportDate)],
+      ['', ''],
+      ['Summary', 'Count', 'Amount'],
       ['Total Sales', summary.totalTransactions || 0, Number(summary.totalAmount || 0)],
       ['Fuel Sales', summary.fuel?.count || 0, Number(summary.fuel?.amount || 0)],
       ['Non-Fuel Sales', summary.nonFuel?.count || 0, Number(summary.nonFuel?.amount || 0)],
@@ -235,11 +320,14 @@ export function Reports() {
       ['Product Variant', 'Payment Type', 'Count', 'Amount'],
       ...variantPayments.map((vp: any) => [vp.variant, vp.paymentMethod, vp.count, Number(vp.amount)]),
       ['', '', '', ''],
-      ['Shift', 'Cashier', 'Amount'],
-      ...shifts.map((s: any) => [s.shiftNumber || s.name || '-', s.cashier?.fullName || s.cashier || '-', Number(s.totalAmount || s.amount || 0)]),
+      ['Shift', 'Cashier', 'Sales', 'Amount'],
+      ...shifts.map((s: any) => [s.shiftNumber || s.name || '-', s.cashier?.fullName || s.cashier || '-', s.count || 0, Number(s.totalAmount || s.amount || 0)]),
+      ['', '', '', ''],
+      ['Shift', 'Fuel Type', 'Liters', 'Count', 'Amount'],
+      ...shiftFuels.map((sf: any) => [sf.shiftName || '-', sf.fuelType || '-', Number(sf.liters || 0).toFixed(2), sf.count || 0, Number(sf.amount || 0)]),
     ];
 
-    downloadCSV(`daily-sales-${reportDate}.csv`, toCSV(headers, rows));
+    downloadCSV(`daily-sales-${reportDate}.csv`, toCSV(['', '', '', '', ''], rows));
   };
 
   const printDailySales = () => {
@@ -247,6 +335,7 @@ export function Reports() {
     const summary = dailySales.summary || {};
     const payments = dailySales.paymentMethodBreakdown || [];
     const shifts = dailySales.shiftBreakdown || [];
+    const shiftFuels = dailySales.shiftFuelBreakdown || [];
     const variantPayments = dailySales.variantPaymentBreakdown || [];
 
     let html = `
@@ -269,8 +358,13 @@ export function Reports() {
       </table>
       <h2>Shift Breakdown</h2>
       <table>
-        <tr><th>Shift</th><th>Cashier</th><th class="right">Amount</th></tr>
-        ${shifts.map((s: any) => `<tr><td>${s.shiftNumber || s.name || '-'}</td><td>${s.cashier?.fullName || s.cashier || '-'}</td><td class="right">${formatCurrency(Number(s.totalAmount || s.amount || 0))}</td></tr>`).join('')}
+        <tr><th>Shift</th><th>Cashier</th><th class="right">Sales</th><th class="right">Amount</th></tr>
+        ${shifts.map((s: any) => `<tr><td>${s.shiftNumber || s.name || '-'}</td><td>${s.cashier?.fullName || s.cashier || '-'}</td><td class="right">${s.count || 0}</td><td class="right">${formatCurrency(Number(s.totalAmount || s.amount || 0))}</td></tr>`).join('')}
+      </table>
+      <h2>Shift-wise Fuel Type Breakdown</h2>
+      <table>
+        <tr><th>Shift</th><th>Fuel Type</th><th class="right">Liters</th><th class="right">Count</th><th class="right">Amount</th></tr>
+        ${shiftFuels.map((sf: any) => `<tr><td>${sf.shiftName || '-'}</td><td>${sf.fuelType || '-'}</td><td class="right">${Number(sf.liters || 0).toFixed(2)} L</td><td class="right">${sf.count || 0}</td><td class="right">${formatCurrency(Number(sf.amount || 0))}</td></tr>`).join('')}
       </table>`;
     printReport(`Daily Sales Report - ${formatDate(reportDate)}`, html);
   };
@@ -393,10 +487,39 @@ export function Reports() {
             </div>
 
             {selectedReport === 'daily-sales' && (
-              <div className="space-y-2">
-                <Label>Date</Label>
-                <Input type="date" value={reportDate} onChange={(e) => { setReportDate(e.target.value); setFetchEnabled(false); }} />
-              </div>
+              <>
+                <div className="space-y-2">
+                  <Label>Filter Mode</Label>
+                  <Select value={dailySalesFilterMode} onValueChange={(v) => { setDailySalesFilterMode(v as FilterMode); setFetchEnabled(false); }}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="no-filter">All Data (No Filter)</SelectItem>
+                      <SelectItem value="single-date">Single Date</SelectItem>
+                      <SelectItem value="date-range">Date Range</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {dailySalesFilterMode === 'single-date' && (
+                  <div className="space-y-2">
+                    <Label>Date</Label>
+                    <Input type="date" value={reportDate} onChange={(e) => { setReportDate(e.target.value); setFetchEnabled(false); }} />
+                  </div>
+                )}
+                {dailySalesFilterMode === 'date-range' && (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Start Date</Label>
+                      <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setFetchEnabled(false); }} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>End Date</Label>
+                      <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setFetchEnabled(false); }} />
+                    </div>
+                  </>
+                )}
+              </>
             )}
 
             {selectedReport === 'shift' && (
@@ -443,29 +566,144 @@ export function Reports() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Start Date</Label>
-                  <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setFetchEnabled(false); }} />
+                  <Label>Filter Mode</Label>
+                  <Select value={customerLedgerFilterMode} onValueChange={(v) => { setCustomerLedgerFilterMode(v as FilterMode); setFetchEnabled(false); }}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="no-filter">All Data (No Filter)</SelectItem>
+                      <SelectItem value="single-date">Single Date</SelectItem>
+                      <SelectItem value="date-range">Date Range</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
-                <div className="space-y-2">
-                  <Label>End Date</Label>
-                  <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setFetchEnabled(false); }} />
-                </div>
+                {customerLedgerFilterMode === 'single-date' && (
+                  <div className="space-y-2">
+                    <Label>Date</Label>
+                    <Input type="date" value={reportDate} onChange={(e) => { setReportDate(e.target.value); setFetchEnabled(false); }} />
+                  </div>
+                )}
+                {customerLedgerFilterMode === 'date-range' && (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Start Date</Label>
+                      <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setFetchEnabled(false); }} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>End Date</Label>
+                      <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setFetchEnabled(false); }} />
+                    </div>
+                  </>
+                )}
               </>
             )}
 
-            {(selectedReport === 'variance' || selectedReport === 'fuel-price-history' || selectedReport === 'inventory') && (
+            {selectedReport === 'variance' && (
               <>
                 <div className="space-y-2">
-                  <Label>
-                    {selectedReport === 'inventory' ? 'Start Date (Optional)' : 'Start Date'}
-                    {selectedReport === 'inventory' && <span className="text-xs text-muted-foreground ml-2">(or single date for snapshot)</span>}
-                  </Label>
-                  <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setFetchEnabled(false); }} />
+                  <Label>Filter Mode</Label>
+                  <Select value={varianceFilterMode} onValueChange={(v) => { setVarianceFilterMode(v as FilterMode); setFetchEnabled(false); }}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="no-filter">All Data (No Filter)</SelectItem>
+                      <SelectItem value="single-date">Single Date</SelectItem>
+                      <SelectItem value="date-range">Date Range</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
+                {varianceFilterMode === 'single-date' && (
+                  <div className="space-y-2">
+                    <Label>Date</Label>
+                    <Input type="date" value={reportDate} onChange={(e) => { setReportDate(e.target.value); setFetchEnabled(false); }} />
+                  </div>
+                )}
+                {varianceFilterMode === 'date-range' && (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Start Date</Label>
+                      <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setFetchEnabled(false); }} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>End Date</Label>
+                      <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setFetchEnabled(false); }} />
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
+            {selectedReport === 'fuel-price-history' && (
+              <>
                 <div className="space-y-2">
-                  <Label>End Date{selectedReport === 'inventory' ? ' (Optional)' : ''}</Label>
-                  <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setFetchEnabled(false); }} />
+                  <Label>Filter Mode</Label>
+                  <Select value={fuelPriceFilterMode} onValueChange={(v) => { setFuelPriceFilterMode(v as FilterMode); setFetchEnabled(false); }}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="no-filter">All Data (No Filter)</SelectItem>
+                      <SelectItem value="single-date">Single Date</SelectItem>
+                      <SelectItem value="date-range">Date Range</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
+                {fuelPriceFilterMode === 'single-date' && (
+                  <div className="space-y-2">
+                    <Label>Date</Label>
+                    <Input type="date" value={reportDate} onChange={(e) => { setReportDate(e.target.value); setFetchEnabled(false); }} />
+                  </div>
+                )}
+                {fuelPriceFilterMode === 'date-range' && (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Start Date</Label>
+                      <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setFetchEnabled(false); }} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>End Date</Label>
+                      <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setFetchEnabled(false); }} />
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
+            {selectedReport === 'inventory' && (
+              <>
+                <div className="space-y-2">
+                  <Label>Filter Mode</Label>
+                  <Select value={inventoryFilterMode} onValueChange={(v) => { setInventoryFilterMode(v as FilterMode); setFetchEnabled(false); }}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="no-filter">All Data (No Filter)</SelectItem>
+                      <SelectItem value="single-date">Snapshot (Single Date)</SelectItem>
+                      <SelectItem value="date-range">Date Range (Purchases)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {inventoryFilterMode === 'single-date' && (
+                  <div className="space-y-2">
+                    <Label>Date</Label>
+                    <Input type="date" value={reportDate} onChange={(e) => { setReportDate(e.target.value); setFetchEnabled(false); }} />
+                  </div>
+                )}
+                {inventoryFilterMode === 'date-range' && (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Start Date</Label>
+                      <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setFetchEnabled(false); }} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>End Date</Label>
+                      <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setFetchEnabled(false); }} />
+                    </div>
+                  </>
+                )}
               </>
             )}
 
@@ -502,13 +740,36 @@ export function Reports() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Start Date</Label>
-                  <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setFetchEnabled(false); }} />
+                  <Label>Filter Mode</Label>
+                  <Select value={customerWiseSalesFilterMode} onValueChange={(v) => { setCustomerWiseSalesFilterMode(v as FilterMode); setFetchEnabled(false); }}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="no-filter">All Data (No Filter)</SelectItem>
+                      <SelectItem value="single-date">Single Date</SelectItem>
+                      <SelectItem value="date-range">Date Range</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
-                <div className="space-y-2">
-                  <Label>End Date</Label>
-                  <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setFetchEnabled(false); }} />
-                </div>
+                {customerWiseSalesFilterMode === 'single-date' && (
+                  <div className="space-y-2">
+                    <Label>Date</Label>
+                    <Input type="date" value={reportDate} onChange={(e) => { setReportDate(e.target.value); setFetchEnabled(false); }} />
+                  </div>
+                )}
+                {customerWiseSalesFilterMode === 'date-range' && (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Start Date</Label>
+                      <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setFetchEnabled(false); }} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>End Date</Label>
+                      <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setFetchEnabled(false); }} />
+                    </div>
+                  </>
+                )}
               </>
             )}
 
@@ -688,6 +949,41 @@ export function Reports() {
                         <TableCell>{s.cashier?.fullName || s.cashier || '-'}</TableCell>
                         <TableCell className="text-right">{s.salesCount || s.count || 0}</TableCell>
                         <TableCell className="text-right font-medium">{formatCurrency(Number(s.totalAmount || s.amount || 0))}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Shift-wise Fuel Type Breakdown */}
+          {dailySales.shiftFuelBreakdown?.length > 0 && (
+            <Card>
+              <CardHeader><CardTitle className="text-base">Shift-wise Fuel Type Breakdown</CardTitle></CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Shift</TableHead>
+                      <TableHead>Fuel Type</TableHead>
+                      <TableHead className="text-right">Liters</TableHead>
+                      <TableHead className="text-right">Transactions</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {dailySales.shiftFuelBreakdown.map((sf: any, i: number) => (
+                      <TableRow key={i}>
+                        <TableCell className="font-medium">{sf.shiftName || '-'}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{sf.fuelType || '-'}</Badge>
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {typeof sf.liters === 'number' ? `${Number(sf.liters).toFixed(2)} L` : '-'}
+                        </TableCell>
+                        <TableCell className="text-right">{sf.count || 0}</TableCell>
+                        <TableCell className="text-right font-medium">{formatCurrency(Number(sf.amount || 0))}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

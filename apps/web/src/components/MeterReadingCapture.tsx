@@ -47,7 +47,7 @@ export function MeterReadingCapture({
   nozzleId,
   fuelTypeId: _fuelTypeId,
   nozzleName,
-  previousReading = 0,
+  previousReading,
   onCapture,
   onCancel,
 }: MeterReadingCaptureProps) {
@@ -71,9 +71,9 @@ export function MeterReadingCapture({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const referenceFileInputRef = useRef<HTMLInputElement>(null);
 
-  // Calculate liters
+  // Calculate liters - use 0 if previousReading is missing, else subtract previous from current
   const calculatedLiters = currentReading
-    ? Math.max(0, parseFloat(currentReading) - previousReading)
+    ? Math.max(0, parseFloat(currentReading) - (previousReading ?? 0))
     : 0;
 
   // Start camera
@@ -320,13 +320,14 @@ export function MeterReadingCapture({
   // Confirm reading
   const confirmReading = () => {
     const current = parseFloat(currentReading);
+    const prevReading = previousReading ?? 0; // Default to 0 if not provided
 
     if (isNaN(current) || current < 0) {
       setError('Please enter a valid meter reading');
       return;
     }
 
-    if (current < previousReading) {
+    if (current < prevReading) {
       setError('Current reading cannot be less than previous reading');
       return;
     }
@@ -335,7 +336,7 @@ export function MeterReadingCapture({
     const isManualReading = manualEdit || mode === 'manual' || captureMode === 'manual';
 
     onCapture({
-      previousReading,
+      previousReading: prevReading,
       currentReading: current,
       calculatedLiters,
       imageUrl: imageDataUrl || undefined,
@@ -365,7 +366,7 @@ export function MeterReadingCapture({
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
             <span className="text-sm font-medium">Previous Reading</span>
-            <span className="text-2xl font-bold">{previousReading.toFixed(2)}L</span>
+            <span className="text-2xl font-bold">{previousReading !== undefined && previousReading !== null ? `${previousReading.toFixed(2)}L` : 'N/A'}</span>
           </div>
 
           {error && (
@@ -498,7 +499,7 @@ export function MeterReadingCapture({
           {/* Previous reading */}
           <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
             <span className="text-sm font-medium">Previous Reading</span>
-            <span className="text-lg font-bold">{previousReading.toFixed(2)}L</span>
+            <span className="text-lg font-bold">{previousReading !== undefined && previousReading !== null ? `${previousReading.toFixed(2)}L` : 'N/A'}</span>
           </div>
 
           {/* Current reading input */}
@@ -642,7 +643,7 @@ export function MeterReadingCapture({
         {/* Previous reading */}
         <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
           <span className="text-sm font-medium">Previous Reading</span>
-          <span className="text-lg font-bold">{previousReading.toFixed(2)}L</span>
+          <span className="text-lg font-bold">{previousReading !== undefined && previousReading !== null ? `${previousReading.toFixed(2)}L` : 'N/A'}</span>
         </div>
 
         {/* OCR Result Summary (only in OCR mode, not manual) */}
