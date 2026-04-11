@@ -320,13 +320,14 @@ export function MeterReadingCapture({
   // Confirm reading
   const confirmReading = () => {
     const current = parseFloat(currentReading);
+    const prevReading = previousReading ?? 0; // Default to 0 if not provided
 
     if (isNaN(current) || current < 0) {
       setError('Please enter a valid meter reading');
       return;
     }
 
-    if (current < previousReading) {
+    if (current < prevReading) {
       setError('Current reading cannot be less than previous reading');
       return;
     }
@@ -335,7 +336,7 @@ export function MeterReadingCapture({
     const isManualReading = manualEdit || mode === 'manual' || captureMode === 'manual';
 
     onCapture({
-      previousReading,
+      previousReading: prevReading,
       currentReading: current,
       calculatedLiters,
       imageUrl: imageDataUrl || undefined,
