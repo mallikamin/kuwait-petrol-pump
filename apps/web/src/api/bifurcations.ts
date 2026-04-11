@@ -107,4 +107,39 @@ export const bifurcationsApi = {
     const response = await apiClient.get('/api/bifurcation/summary', { params });
     return response.data.summary;
   },
+
+  getReconciliationSummaryRange: async (params: {
+    startDate: string;
+    endDate: string;
+    branchId: string;
+  }): Promise<{
+    startDate: string;
+    endDate: string;
+    branchId: string;
+    dateRange: {
+      fullyReconciled: number;
+      partiallyReconciled: number;
+      notReconciled: number;
+    };
+    summary: {
+      totalDays: number;
+      totalMissing: number;
+      totalReadingsExpected: number;
+    };
+    dailyBreakdown: Array<{
+      date: string;
+      entered: number;
+      derived: number;
+      missing: number;
+      total: number;
+      percentage: number;
+      status: 'fully_reconciled' | 'partially_reconciled' | 'not_reconciled';
+    }>;
+    nozzles: number;
+    shiftsPerDay: number;
+    readingsPerDay: number;
+  }> => {
+    const response = await apiClient.get('/api/bifurcations/summary-range', { params });
+    return response.data.summary;
+  },
 };

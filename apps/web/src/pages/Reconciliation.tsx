@@ -56,6 +56,16 @@ export function Reconciliation() {
   const [posData, setPosData] = useState<any>(null);
   const [lagData, setLagData] = useState<any>(null);
 
+  // Date range reconciliation summary
+  const [dateRangeStartDate, setDateRangeStartDate] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 4); // Default: last 5 days
+    return d.toISOString().split('T')[0];
+  });
+  const [dateRangeEndDate, setDateRangeEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [reconciliationSummary, setReconciliationSummary] = useState<any>(null);
+  const [loadingReconciliationSummary, setLoadingReconciliationSummary] = useState(false);
+
   const [formData, setFormData] = useState<BifurcationFormData>({
     branchId: '',
     date: new Date().toISOString().split('T')[0],
@@ -306,6 +316,35 @@ export function Reconciliation() {
     // Don't auto-reload on date change, user must click "Load Summary" button
   };
 
+  const loadReconciliationSummary = async () => {
+    if (!user?.branch_id) {
+      toast({
+        title: 'Error',
+        description: 'Branch not found. Please log in again.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setLoadingReconciliationSummary(true);
+    try {
+      const summary = await bifurcationsApi.getReconciliationSummaryRange({
+        startDate: dateRangeStartDate,
+        endDate: dateRangeEndDate,
+        branchId: user.branch_id,
+      });
+      setReconciliationSummary(summary);
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error?.message || 'Failed to load reconciliation summary',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoadingReconciliationSummary(false);
+    }
+  };
+
   const variance = formData.actualTotal - formData.expectedTotal;
   const varianceColor = variance === 0 ? 'text-green-600' : variance < 0 ? 'text-red-600' : 'text-yellow-600';
 
@@ -324,9 +363,157 @@ export function Reconciliation() {
 
       <Tabs defaultValue="records" className="space-y-4">
         <TabsList>
+          <TabsTrigger value="summary">Reconciliation Summary</TabsTrigger>
           <TabsTrigger value="records">Records</TabsTrigger>
           <TabsTrigger value="guide">How It Works</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="summary" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Reconciliation Dashboard (Date Range)</CardTitle>
+              <p className="text-sm text-muted-foreground mt-2">View meter reading status across multiple days - shows how many readings have been entered vs auto-derived vs missing</p>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Date Range Filter */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <Label htmlFor="start-date">Start Date</Label>
+                  <Input
+                    id="start-date"
+                    type="date"
+                    value={dateRangeStartDate}
+                    onChange={(e) => setDateRangeStartDate(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="end-date">End Date</Label>
+                  <Input
+                    id="end-date"
+                    type="date"
+                    value={dateRangeEndDate}
+                    onChange={(e) => setDateRangeEndDate(e.target.value)}
+                  />
+                </div>
+                <div className="flex items-end">
+                  <Button
+                    onClick={loadReconciliationSummary}
+                    disabled={loadingReconciliationSummary}
+                    className="w-full"
+                  >
+                    {loadingReconciliationSummary ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Loading...
+                      </>
+                    ) : (
+                      'Load Summary'
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Summary Cards */}
+              {reconciliationSummary && (
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Card className="bg-green-50 border-green-200">
+                      <CardContent className="pt-6">
+                        <div className="text-center">
+                          <div className="text-3xl font-bold text-green-600">{reconciliationSummary.dateRange.fullyReconciled}</div>
+                          <div className="text-sm text-muted-foreground">Fully Reconciled</div>
+                          <div className="text-xs text-green-600 mt-1">100% readings entered/derived</div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-yellow-50 border-yellow-200">
+                      <CardContent className="pt-6">
+                        <div className="text-center">
+                          <div className="text-3xl font-bold text-yellow-600">{reconciliationSummary.dateRange.partiallyReconciled}</div>
+                          <div className="text-sm text-muted-foreground">Partially Reconciled</div>
+                          <div className="text-xs text-yellow-600 mt-1">Some readings missing</div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-red-50 border-red-200">
+                      <CardContent className="pt-6">
+                        <div className="text-center">
+                          <div className="text-3xl font-bold text-red-600">{reconciliationSummary.dateRange.notReconciled}</div>
+                          <div className="text-sm text-muted-foreground">Not Reconciled</div>
+                          <div className="text-xs text-red-600 mt-1">No data entered</div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  {/* Daily Breakdown Table */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Daily Reconciliation Status</CardTitle>
+                      <p className="text-sm text-muted-foreground">Entered: manually submitted | Derived: auto-populated from previous shift | Missing: not entered</p>
+                    </CardHeader>
+                    <CardContent>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Date</TableHead>
+                            <TableHead className="text-center">Entered</TableHead>
+                            <TableHead className="text-center">Derived</TableHead>
+                            <TableHead className="text-center">Missing</TableHead>
+                            <TableHead className="text-center">Progress</TableHead>
+                            <TableHead>Status</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {reconciliationSummary.dailyBreakdown.map((day: any) => (
+                            <TableRow key={day.date}>
+                              <TableCell className="font-medium">{formatDate(day.date)}</TableCell>
+                              <TableCell className="text-center text-blue-600 font-semibold">{day.entered}</TableCell>
+                              <TableCell className="text-center text-purple-600 font-semibold">{day.derived}</TableCell>
+                              <TableCell className="text-center text-red-600 font-semibold">{day.missing}</TableCell>
+                              <TableCell className="text-center">
+                                <div className="flex items-center justify-center gap-2">
+                                  <div className="w-24 bg-gray-200 rounded-full h-2">
+                                    <div
+                                      className={`h-2 rounded-full transition-all ${
+                                        day.percentage === 100 ? 'bg-green-600' :
+                                        day.percentage >= 50 ? 'bg-yellow-600' :
+                                        'bg-red-600'
+                                      }`}
+                                      style={{ width: `${day.percentage}%` }}
+                                    />
+                                  </div>
+                                  <span className="text-xs font-semibold w-10 text-right">{day.percentage}%</span>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                                  day.status === 'fully_reconciled' ? 'bg-green-100 text-green-800' :
+                                  day.status === 'partially_reconciled' ? 'bg-yellow-100 text-yellow-800' :
+                                  'bg-red-100 text-red-800'
+                                }`}>
+                                  {day.status === 'fully_reconciled' ? '✓ Complete' :
+                                   day.status === 'partially_reconciled' ? '◐ Partial' :
+                                   '✗ Missing'}
+                                </span>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {loadingReconciliationSummary && (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="records" className="space-y-4">
           <Card>
