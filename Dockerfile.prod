@@ -12,6 +12,8 @@ RUN pnpm install --frozen-lockfile --prod=false
 # Copy only backend-relevant source (not frontend) to avoid unnecessary cache busting.
 COPY apps/backend apps/backend
 COPY packages/database packages/database
+# Re-link backend workspace deps after source copy so TypeScript can resolve local type packages.
+RUN pnpm install --frozen-lockfile --prod=false --filter @petrol-pump/backend...
 
 WORKDIR /app/packages/database
 RUN pnpm exec prisma generate
