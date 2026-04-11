@@ -89,6 +89,8 @@ function printReport(title: string, contentHtml: string) {
   win.document.close();
 }
 
+type FilterMode = 'no-filter' | 'single-date' | 'date-range';
+
 export function Reports() {
   const { user } = useAuthStore();
   const branchId = user?.branch_id || (user as any)?.branch?.id || (user as any)?.branchId;
@@ -103,15 +105,26 @@ export function Reports() {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [fetchEnabled, setFetchEnabled] = useState(false);
 
-  // Daily Sales (supports both single date and date range)
+  // Filter mode state for each report
+  const [dailySalesFilterMode, setDailySalesFilterMode] = useState<FilterMode>('single-date');
+  const [varianceFilterMode, setVarianceFilterMode] = useState<FilterMode>('date-range');
+  const [customerLedgerFilterMode, setCustomerLedgerFilterMode] = useState<FilterMode>('date-range');
+  const [fuelPriceFilterMode, setFuelPriceFilterMode] = useState<FilterMode>('date-range');
+  const [customerWiseSalesFilterMode, setCustomerWiseSalesFilterMode] = useState<FilterMode>('date-range');
+  const [inventoryFilterMode, setInventoryFilterMode] = useState<FilterMode>('date-range');
+
+  // Daily Sales (supports no-filter, single date, and date range)
   const { data: dailySales, isLoading: loadingDaily, isError: errorDaily } = useQuery({
-    queryKey: ['report-daily-sales', branchId, reportDate, startDate, endDate],
+    queryKey: ['report-daily-sales', branchId, dailySalesFilterMode, reportDate, startDate, endDate],
     queryFn: () => {
-      // Check if using date range or single date
-      if (selectedReport === 'daily-sales' && startDate && endDate) {
+      if (dailySalesFilterMode === 'date-range') {
         return reportsApi.getDailySales(branchId, undefined, startDate, endDate);
+      } else if (dailySalesFilterMode === 'single-date') {
+        return reportsApi.getDailySales(branchId, reportDate);
+      } else {
+        // no-filter mode
+        return reportsApi.getDailySales(branchId);
       }
-      return reportsApi.getDailySales(branchId, reportDate);
     },
     enabled: fetchEnabled && selectedReport === 'daily-sales' && !!branchId,
   });
@@ -125,24 +138,47 @@ export function Reports() {
 
   // Inventory
   const { data: inventory, isLoading: loadingInventory, isError: errorInventory } = useQuery({
-    queryKey: ['report-inventory', branchId, startDate, endDate],
-    queryFn: () => reportsApi.getInventoryReport(
-      branchId,
-      undefined, // asOfDate - not used when date range provided
-      startDate ? new Date(startDate).toISOString() : undefined,
-      endDate ? new Date(endDate).toISOString() : undefined
-    ),
+    queryKey: ['report-inventory', branchId, inventoryFilterMode, reportDate, startDate, endDate],
+    queryFn: () => {
+      if (inventoryFilterMode === 'date-range') {
+        return reportsApi.getInventoryReport(
+          branchId,
+          undefined,
+          startDate ? new Date(startDate).toISOString() : undefined,
+          endDate ? new Date(endDate).toISOString() : undefined
+        );
+      } else if (inventoryFilterMode === 'single-date') {
+        return reportsApi.getInventoryReport(
+          branchId,
+          new Date(reportDate).toISOString(),
+          undefined,
+          undefined
+        );
+      } else {
+        // no-filter mode
+        return reportsApi.getInventoryReport(branchId);
+      }
+    },
     enabled: fetchEnabled && selectedReport === 'inventory' && !!branchId,
   });
 
   // Customer Ledger
   const { data: customerLedger, isLoading: loadingLedger, isError: errorLedger } = useQuery({
-    queryKey: ['report-customer-ledger', selectedCustomerId, startDate, endDate],
+    queryKey: ['report-customer-ledger', selectedCustomerId, customerLedgerFilterMode, reportDate, startDate, endDate],
     queryFn: () => {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999); // Set to end of day
-      return reportsApi.getCustomerLedger(selectedCustomerId, start.toISOString(), end.toISOString());
+      if (customerLedgerFilterMode === 'date-range') {
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        return reportsApi.getCustomerLedger(selectedCustomerId, undefined, start.toISOString(), end.toISOString());
+      } else if (customerLedgerFilterMode === 'single-date') {
+        const d = new Date(reportDate);
+        d.setHours(23, 59, 59, 999);
+        return reportsApi.getCustomerLedger(selectedCustomerId, reportDate, undefined, d.toISOString());
+      } else {
+        // no-filter mode
+        return reportsApi.getCustomerLedger(selectedCustomerId);
+      }
     },
     enabled: fetchEnabled && selectedReport === 'customer-ledger' && !!selectedCustomerId,
     staleTime: 0,
@@ -152,41 +188,81 @@ export function Reports() {
 
   // Variance
   const { data: variance, isLoading: loadingVariance, isError: errorVariance } = useQuery({
-    queryKey: ['report-variance', branchId, startDate, endDate],
+    queryKey: ['report-variance', branchId, varianceFilterMode, reportDate, startDate, endDate],
     queryFn: () => {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999); // Set to end of day
-      return reportsApi.getVarianceReport(branchId, start.toISOString(), end.toISOString());
+      if (varianceFilterMode === 'date-range') {
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        return reportsApi.getVarianceReport(branchId, undefined, start.toISOString(), end.toISOString());
+      } else if (varianceFilterMode === 'single-date') {
+        const d = new Date(reportDate);
+        d.setHours(23, 59, 59, 999);
+        return reportsApi.getVarianceReport(branchId, reportDate, undefined, d.toISOString());
+      } else {
+        // no-filter mode
+        return reportsApi.getVarianceReport(branchId);
+      }
     },
     enabled: fetchEnabled && selectedReport === 'variance' && !!branchId,
   });
 
   // Fuel Price History
   const { data: fuelPriceHistory, isLoading: loadingFuelPrice, isError: errorFuelPrice } = useQuery({
-    queryKey: ['report-fuel-price-history', startDate, endDate],
+    queryKey: ['report-fuel-price-history', fuelPriceFilterMode, reportDate, startDate, endDate],
     queryFn: () => {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999); // Set to end of day
-      return reportsApi.getFuelPriceHistory(start.toISOString(), end.toISOString());
+      if (fuelPriceFilterMode === 'date-range') {
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        return reportsApi.getFuelPriceHistory(undefined, start.toISOString(), end.toISOString());
+      } else if (fuelPriceFilterMode === 'single-date') {
+        const d = new Date(reportDate);
+        d.setHours(23, 59, 59, 999);
+        return reportsApi.getFuelPriceHistory(reportDate, undefined, d.toISOString());
+      } else {
+        // no-filter mode
+        return reportsApi.getFuelPriceHistory();
+      }
     },
     enabled: fetchEnabled && selectedReport === 'fuel-price-history',
   });
 
   // Customer-Wise Sales
   const { data: customerWiseSales, isLoading: loadingCustomerWise, isError: errorCustomerWise } = useQuery({
-    queryKey: ['report-customer-wise-sales', branchId, startDate, endDate, selectedCustomerId],
+    queryKey: ['report-customer-wise-sales', branchId, customerWiseSalesFilterMode, reportDate, startDate, endDate, selectedCustomerId],
     queryFn: () => {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999); // Set to end of day
-      return reportsApi.getCustomerWiseSales(
-        branchId,
-        start.toISOString(),
-        end.toISOString(),
-        selectedCustomerId || undefined
-      );
+      if (customerWiseSalesFilterMode === 'date-range') {
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        return reportsApi.getCustomerWiseSales(
+          branchId,
+          undefined,
+          start.toISOString(),
+          end.toISOString(),
+          selectedCustomerId || undefined
+        );
+      } else if (customerWiseSalesFilterMode === 'single-date') {
+        const d = new Date(reportDate);
+        d.setHours(23, 59, 59, 999);
+        return reportsApi.getCustomerWiseSales(
+          branchId,
+          reportDate,
+          undefined,
+          d.toISOString(),
+          selectedCustomerId || undefined
+        );
+      } else {
+        // no-filter mode
+        return reportsApi.getCustomerWiseSales(
+          branchId,
+          undefined,
+          undefined,
+          undefined,
+          selectedCustomerId || undefined
+        );
+      }
     },
     enabled: fetchEnabled && selectedReport === 'customer-wise-sales' && !!branchId,
   });
@@ -413,18 +489,36 @@ export function Reports() {
             {selectedReport === 'daily-sales' && (
               <>
                 <div className="space-y-2">
-                  <Label>Single Date</Label>
-                  <Input type="date" value={reportDate} onChange={(e) => { setReportDate(e.target.value); setStartDate(''); setEndDate(''); setFetchEnabled(false); }} />
+                  <Label>Filter Mode</Label>
+                  <Select value={dailySalesFilterMode} onValueChange={(v) => { setDailySalesFilterMode(v as FilterMode); setFetchEnabled(false); }}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="no-filter">All Data (No Filter)</SelectItem>
+                      <SelectItem value="single-date">Single Date</SelectItem>
+                      <SelectItem value="date-range">Date Range</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
-                <div className="text-center text-xs text-muted-foreground">OR</div>
-                <div className="space-y-2">
-                  <Label>Date Range Start</Label>
-                  <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setReportDate(''); setFetchEnabled(false); }} />
-                </div>
-                <div className="space-y-2">
-                  <Label>Date Range End</Label>
-                  <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setReportDate(''); setFetchEnabled(false); }} />
-                </div>
+                {dailySalesFilterMode === 'single-date' && (
+                  <div className="space-y-2">
+                    <Label>Date</Label>
+                    <Input type="date" value={reportDate} onChange={(e) => { setReportDate(e.target.value); setFetchEnabled(false); }} />
+                  </div>
+                )}
+                {dailySalesFilterMode === 'date-range' && (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Start Date</Label>
+                      <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setFetchEnabled(false); }} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>End Date</Label>
+                      <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setFetchEnabled(false); }} />
+                    </div>
+                  </>
+                )}
               </>
             )}
 
@@ -472,29 +566,144 @@ export function Reports() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Start Date</Label>
-                  <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setFetchEnabled(false); }} />
+                  <Label>Filter Mode</Label>
+                  <Select value={customerLedgerFilterMode} onValueChange={(v) => { setCustomerLedgerFilterMode(v as FilterMode); setFetchEnabled(false); }}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="no-filter">All Data (No Filter)</SelectItem>
+                      <SelectItem value="single-date">Single Date</SelectItem>
+                      <SelectItem value="date-range">Date Range</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
-                <div className="space-y-2">
-                  <Label>End Date</Label>
-                  <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setFetchEnabled(false); }} />
-                </div>
+                {customerLedgerFilterMode === 'single-date' && (
+                  <div className="space-y-2">
+                    <Label>Date</Label>
+                    <Input type="date" value={reportDate} onChange={(e) => { setReportDate(e.target.value); setFetchEnabled(false); }} />
+                  </div>
+                )}
+                {customerLedgerFilterMode === 'date-range' && (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Start Date</Label>
+                      <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setFetchEnabled(false); }} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>End Date</Label>
+                      <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setFetchEnabled(false); }} />
+                    </div>
+                  </>
+                )}
               </>
             )}
 
-            {(selectedReport === 'variance' || selectedReport === 'fuel-price-history' || selectedReport === 'inventory') && (
+            {selectedReport === 'variance' && (
               <>
                 <div className="space-y-2">
-                  <Label>
-                    {selectedReport === 'inventory' ? 'Start Date (Optional)' : 'Start Date'}
-                    {selectedReport === 'inventory' && <span className="text-xs text-muted-foreground ml-2">(or single date for snapshot)</span>}
-                  </Label>
-                  <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setFetchEnabled(false); }} />
+                  <Label>Filter Mode</Label>
+                  <Select value={varianceFilterMode} onValueChange={(v) => { setVarianceFilterMode(v as FilterMode); setFetchEnabled(false); }}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="no-filter">All Data (No Filter)</SelectItem>
+                      <SelectItem value="single-date">Single Date</SelectItem>
+                      <SelectItem value="date-range">Date Range</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
+                {varianceFilterMode === 'single-date' && (
+                  <div className="space-y-2">
+                    <Label>Date</Label>
+                    <Input type="date" value={reportDate} onChange={(e) => { setReportDate(e.target.value); setFetchEnabled(false); }} />
+                  </div>
+                )}
+                {varianceFilterMode === 'date-range' && (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Start Date</Label>
+                      <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setFetchEnabled(false); }} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>End Date</Label>
+                      <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setFetchEnabled(false); }} />
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
+            {selectedReport === 'fuel-price-history' && (
+              <>
                 <div className="space-y-2">
-                  <Label>End Date{selectedReport === 'inventory' ? ' (Optional)' : ''}</Label>
-                  <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setFetchEnabled(false); }} />
+                  <Label>Filter Mode</Label>
+                  <Select value={fuelPriceFilterMode} onValueChange={(v) => { setFuelPriceFilterMode(v as FilterMode); setFetchEnabled(false); }}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="no-filter">All Data (No Filter)</SelectItem>
+                      <SelectItem value="single-date">Single Date</SelectItem>
+                      <SelectItem value="date-range">Date Range</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
+                {fuelPriceFilterMode === 'single-date' && (
+                  <div className="space-y-2">
+                    <Label>Date</Label>
+                    <Input type="date" value={reportDate} onChange={(e) => { setReportDate(e.target.value); setFetchEnabled(false); }} />
+                  </div>
+                )}
+                {fuelPriceFilterMode === 'date-range' && (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Start Date</Label>
+                      <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setFetchEnabled(false); }} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>End Date</Label>
+                      <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setFetchEnabled(false); }} />
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
+            {selectedReport === 'inventory' && (
+              <>
+                <div className="space-y-2">
+                  <Label>Filter Mode</Label>
+                  <Select value={inventoryFilterMode} onValueChange={(v) => { setInventoryFilterMode(v as FilterMode); setFetchEnabled(false); }}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="no-filter">All Data (No Filter)</SelectItem>
+                      <SelectItem value="single-date">Snapshot (Single Date)</SelectItem>
+                      <SelectItem value="date-range">Date Range (Purchases)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {inventoryFilterMode === 'single-date' && (
+                  <div className="space-y-2">
+                    <Label>Date</Label>
+                    <Input type="date" value={reportDate} onChange={(e) => { setReportDate(e.target.value); setFetchEnabled(false); }} />
+                  </div>
+                )}
+                {inventoryFilterMode === 'date-range' && (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Start Date</Label>
+                      <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setFetchEnabled(false); }} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>End Date</Label>
+                      <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setFetchEnabled(false); }} />
+                    </div>
+                  </>
+                )}
               </>
             )}
 
@@ -531,13 +740,36 @@ export function Reports() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Start Date</Label>
-                  <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setFetchEnabled(false); }} />
+                  <Label>Filter Mode</Label>
+                  <Select value={customerWiseSalesFilterMode} onValueChange={(v) => { setCustomerWiseSalesFilterMode(v as FilterMode); setFetchEnabled(false); }}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="no-filter">All Data (No Filter)</SelectItem>
+                      <SelectItem value="single-date">Single Date</SelectItem>
+                      <SelectItem value="date-range">Date Range</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
-                <div className="space-y-2">
-                  <Label>End Date</Label>
-                  <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setFetchEnabled(false); }} />
-                </div>
+                {customerWiseSalesFilterMode === 'single-date' && (
+                  <div className="space-y-2">
+                    <Label>Date</Label>
+                    <Input type="date" value={reportDate} onChange={(e) => { setReportDate(e.target.value); setFetchEnabled(false); }} />
+                  </div>
+                )}
+                {customerWiseSalesFilterMode === 'date-range' && (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Start Date</Label>
+                      <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setFetchEnabled(false); }} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>End Date</Label>
+                      <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setFetchEnabled(false); }} />
+                    </div>
+                  </>
+                )}
               </>
             )}
 

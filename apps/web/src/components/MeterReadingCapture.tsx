@@ -365,7 +365,7 @@ export function MeterReadingCapture({
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
             <span className="text-sm font-medium">Previous Reading</span>
-            <span className="text-2xl font-bold">{previousReading.toFixed(2)}L</span>
+            <span className="text-2xl font-bold">{previousReading !== undefined && previousReading !== null ? `${previousReading.toFixed(2)}L` : 'N/A'}</span>
           </div>
 
           {error && (
@@ -498,7 +498,7 @@ export function MeterReadingCapture({
           {/* Previous reading */}
           <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
             <span className="text-sm font-medium">Previous Reading</span>
-            <span className="text-lg font-bold">{previousReading.toFixed(2)}L</span>
+            <span className="text-lg font-bold">{previousReading !== undefined && previousReading !== null ? `${previousReading.toFixed(2)}L` : 'N/A'}</span>
           </div>
 
           {/* Current reading input */}
@@ -642,7 +642,7 @@ export function MeterReadingCapture({
         {/* Previous reading */}
         <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
           <span className="text-sm font-medium">Previous Reading</span>
-          <span className="text-lg font-bold">{previousReading.toFixed(2)}L</span>
+          <span className="text-lg font-bold">{previousReading !== undefined && previousReading !== null ? `${previousReading.toFixed(2)}L` : 'N/A'}</span>
         </div>
 
         {/* OCR Result Summary (only in OCR mode, not manual) */}

@@ -107,12 +107,15 @@ export class ReportsService {
 
           // Shift-wise fuel type breakdown
           let shiftName: string;
+          let isUnassigned = false;
           if (sale.shiftInstance) {
             shiftName = sale.shiftInstance.shift.name;
           } else {
             // Fallback for unassigned sales: attribute based on sale time
+            // Morning: 00:00-12:00, Evening: 12:01-23:59
             const saleHour = sale.saleDate.getHours();
-            shiftName = saleHour < 12 ? 'Morning' : 'Evening';
+            shiftName = `${saleHour < 12 ? 'Morning' : 'Evening'} (Unassigned)`;
+            isUnassigned = true;
           }
 
           const shiftFuelKey = `${shiftName}|${fuelTypeName}`;
@@ -123,6 +126,7 @@ export class ReportsService {
               liters: 0,
               amount: 0,
               count: 0,
+              isUnassigned,
             };
           }
           shiftFuelBreakdown[shiftFuelKey].liters += fuelSale.quantityLiters.toNumber();
