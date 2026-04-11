@@ -677,9 +677,9 @@ export class ReportsService {
   }
 
   /**
-   * Get inventory report with current stock levels and low-stock alerts
+   * Get inventory report with current stock levels, low-stock alerts, and purchases received
    */
-  async getInventoryReport(branchId: string, organizationId: string) {
+  async getInventoryReport(branchId: string, organizationId: string, asOfDate?: string) {
     // Verify branch belongs to organization
     const branch = await prisma.branch.findFirst({
       where: { id: branchId, organizationId },
@@ -714,6 +714,55 @@ export class ReportsService {
       },
     });
 
+    // Get purchases received (stock receipts with items)
+    const purchasesQuery: any = {
+      where: {
+        purchaseOrder: {
+          branchId,
+        },
+      },
+      include: {
+        purchaseOrder: {
+          include: {
+            supplier: true,
+            items: {
+              include: {
+                product: true,
+                fuelType: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        receiptDate: 'desc',
+      },
+    };
+
+    // Filter by date if provided
+    if (asOfDate) {
+      const asOfDateObj = new Date(asOfDate);
+      purchasesQuery.where.receiptDate = {
+        lte: asOfDateObj,
+      };
+    }
+
+    const stockReceipts = await prisma.stockReceipt.findMany(purchasesQuery);
+
+    // Transform purchases for display
+    const purchases = stockReceipts.flatMap(receipt =>
+      receipt.purchaseOrder.items.map(item => ({
+        id: item.id,
+        name: item.product?.name || item.fuelType?.name || 'Unknown',
+        sku: item.product?.sku || '',
+        supplierName: receipt.purchaseOrder.supplier?.name,
+        quantityReceived: parseFloat(item.quantityReceived.toString()),
+        costPerUnit: parseFloat(item.costPerUnit.toString()),
+        totalCost: parseFloat(item.totalCost.toString()),
+        receiptDate: receipt.receiptDate,
+      }))
+    );
+
     // Categorize products
     const lowStockProducts = stockLevels.filter(
       sl => sl.quantity < (sl.product.lowStockThreshold || 0)
@@ -727,16 +776,24 @@ export class ReportsService {
     const totalQuantity = stockLevels.reduce((sum, sl) => sum + sl.quantity, 0);
     const lowStockCount = lowStockProducts.length;
 
+    // Calculate total value
+    const totalValue = stockLevels.reduce(
+      (sum, sl) => sum + (sl.quantity * sl.product.unitPrice.toNumber()),
+      0
+    );
+
     return {
       branch: {
         id: branch.id,
         name: branch.name,
       },
+      asOfDate: asOfDate || new Date().toISOString(),
       summary: {
-        totalItems,
+        totalProducts: totalItems,
         totalQuantity,
         lowStockCount,
         lowStockPercentage: ((lowStockCount / totalItems) * 100).toFixed(2),
+        totalValue: totalValue.toFixed(2),
       },
       nonFuelProducts: {
         normal: normalStockProducts.map(sl => ({
@@ -759,6 +816,7 @@ export class ReportsService {
           shortage: (sl.product.lowStockThreshold || 0) - sl.quantity,
         })),
       },
+      purchases: purchases,
       fuelAvailability: fuelTypes.map(ft => ({
         id: ft.id,
         name: ft.name,

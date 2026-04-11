@@ -44,6 +44,12 @@ const finalizeDaySchema = z.object({
   businessDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });
 
+const restoreDeletedTransactionsSchema = z.object({
+  branchId: z.string().uuid(),
+  businessDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  transactionIds: z.array(z.string().uuid()),
+});
+
 export class DailyBackdatedEntriesController {
   private service: DailyBackdatedEntriesService;
 
@@ -250,6 +256,78 @@ export class DailyBackdatedEntriesController {
       res.status(200).json({
         success: true,
         message: result.message,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * GET /api/backdated-entries/daily/deleted
+   *
+   * List soft-deleted transactions for recovery
+   */
+  getDeletedTransactions = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      if (!hasRole(req.user, ['admin', 'manager', 'accountant'])) {
+        return res.status(403).json({ error: 'Insufficient permissions' });
+      }
+
+      const params = getDailySummaryQuerySchema.parse(req.query);
+
+      const result = await this.service.getDeletedTransactions(
+        {
+          branchId: params.branchId,
+          businessDate: params.businessDate,
+          shiftId: params.shiftId,
+        },
+        req.user.organizationId
+      );
+
+      res.json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * POST /api/backdated-entries/daily/restore
+   *
+   * Restore soft-deleted transactions
+   */
+  restoreDeletedTransactions = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      if (!hasRole(req.user, ['admin', 'manager', 'accountant'])) {
+        return res.status(403).json({ error: 'Insufficient permissions' });
+      }
+
+      const validatedData = restoreDeletedTransactionsSchema.parse(req.body);
+
+      const result = await this.service.restoreDeletedTransactions(
+        {
+          branchId: validatedData.branchId,
+          businessDate: validatedData.businessDate,
+          transactionIds: validatedData.transactionIds,
+        },
+        req.user.organizationId,
+        req.user.userId
+      );
+
+      res.status(200).json({
+        success: true,
+        message: `Restored ${result.restoredCount} transaction(s)`,
         data: result,
       });
     } catch (error) {

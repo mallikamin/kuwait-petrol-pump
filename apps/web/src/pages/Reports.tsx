@@ -119,8 +119,8 @@ export function Reports() {
 
   // Inventory
   const { data: inventory, isLoading: loadingInventory, isError: errorInventory } = useQuery({
-    queryKey: ['report-inventory', branchId],
-    queryFn: () => reportsApi.getInventoryReport(branchId),
+    queryKey: ['report-inventory', branchId, startDate],
+    queryFn: () => reportsApi.getInventoryReport(branchId, startDate ? new Date(startDate).toISOString() : undefined),
     enabled: fetchEnabled && selectedReport === 'inventory' && !!branchId,
   });
 
@@ -421,16 +421,18 @@ export function Reports() {
               </>
             )}
 
-            {(selectedReport === 'variance' || selectedReport === 'fuel-price-history') && (
+            {(selectedReport === 'variance' || selectedReport === 'fuel-price-history' || selectedReport === 'inventory') && (
               <>
                 <div className="space-y-2">
-                  <Label>Start Date</Label>
+                  <Label>{selectedReport === 'inventory' ? 'View As Of Date (Optional)' : 'Start Date'}</Label>
                   <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setFetchEnabled(false); }} />
                 </div>
-                <div className="space-y-2">
-                  <Label>End Date</Label>
-                  <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setFetchEnabled(false); }} />
-                </div>
+                {selectedReport !== 'inventory' && (
+                  <div className="space-y-2">
+                    <Label>End Date</Label>
+                    <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setFetchEnabled(false); }} />
+                  </div>
+                )}
               </>
             )}
 
@@ -985,9 +987,44 @@ export function Reports() {
             </Card>
           )}
 
+          {/* Purchases Received */}
+          {inventory.purchases && inventory.purchases.length > 0 && (
+            <Card>
+              <CardHeader><CardTitle className="text-base">Purchases Received</CardTitle></CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Product</TableHead>
+                      <TableHead>SKU</TableHead>
+                      <TableHead>Supplier</TableHead>
+                      <TableHead className="text-right">Quantity</TableHead>
+                      <TableHead className="text-right">Cost/Unit</TableHead>
+                      <TableHead className="text-right">Total Cost</TableHead>
+                      <TableHead>Receipt Date</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {inventory.purchases.map((p: any) => (
+                      <TableRow key={p.id || `${p.sku}-${p.receiptDate}`}>
+                        <TableCell className="font-medium">{p.name}</TableCell>
+                        <TableCell>{p.sku}</TableCell>
+                        <TableCell>{p.supplierName || p.supplier || '-'}</TableCell>
+                        <TableCell className="text-right">{Number(p.quantityReceived || 0).toFixed(2)}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(Number(p.costPerUnit || 0))}</TableCell>
+                        <TableCell className="text-right font-medium">{formatCurrency(Number(p.totalCost || 0))}</TableCell>
+                        <TableCell>{p.receiptDate ? formatDate(p.receiptDate) : '-'}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+
           {/* All Products */}
           <Card>
-            <CardHeader><CardTitle className="text-base">All Products</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-base">Current Stock</CardTitle></CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
@@ -997,6 +1034,7 @@ export function Reports() {
                     <TableHead>Category</TableHead>
                     <TableHead className="text-right">Quantity</TableHead>
                     <TableHead className="text-right">Unit Price</TableHead>
+                    <TableHead className="text-right">Stock Value</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1007,6 +1045,7 @@ export function Reports() {
                       <TableCell>{p.category || '-'}</TableCell>
                       <TableCell className="text-right">{p.quantity ?? p.stockLevel ?? 0}</TableCell>
                       <TableCell className="text-right">{formatCurrency(Number(p.unitPrice || 0))}</TableCell>
+                      <TableCell className="text-right font-medium">{formatCurrency(Number((p.quantity ?? p.stockLevel ?? 0) * (p.unitPrice || 0)))}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

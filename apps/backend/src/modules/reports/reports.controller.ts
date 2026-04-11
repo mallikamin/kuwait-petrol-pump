@@ -28,6 +28,7 @@ const customerLedgerQuerySchema = z.object({
 
 const inventoryReportQuerySchema = z.object({
   branchId: z.string().uuid().optional(),
+  asOfDate: z.string().datetime().optional(), // ISO date string for snapshot as-of-date
 });
 
 const fuelPriceHistoryQuerySchema = z.object({
@@ -231,7 +232,8 @@ export class ReportsController {
 
       const report = await this.reportsService.getInventoryReport(
         branchId,
-        req.user.organizationId
+        req.user.organizationId,
+        query.asOfDate
       );
 
       res.json({

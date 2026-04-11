@@ -29,10 +29,12 @@ export const reportsApi = {
     return response.data.report || response.data;
   },
 
-  getInventoryReport: async (branchId: string): Promise<any> => {
-    const response = await apiClient.get('/api/reports/inventory', {
-      params: { branchId },
-    });
+  getInventoryReport: async (branchId: string, asOfDate?: string): Promise<any> => {
+    const params: any = { branchId };
+    if (asOfDate) {
+      params.asOfDate = asOfDate;
+    }
+    const response = await apiClient.get('/api/reports/inventory', { params });
     return response.data.report || response.data;
   },
 

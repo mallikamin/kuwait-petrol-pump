@@ -184,6 +184,7 @@ model User {
   stockReceipts             StockReceipt[]          @relation("StockReceiptUser")
   createdBackdatedTxns      BackdatedTransaction[]  @relation("BackdatedTransactionCreatedBy")
   updatedBackdatedTxns      BackdatedTransaction[]  @relation("BackdatedTransactionUpdatedBy")
+  deletedBackdatedTxns      BackdatedTransaction[]  @relation("BackdatedTransactionDeletedBy")
   submittedBackdatedMeterReadings BackdatedMeterReading[] @relation("BackdatedMeterReadingSubmittedBy")
   createdBackdatedMeterReadings   BackdatedMeterReading[] @relation("BackdatedMeterReadingCreatedBy")
   updatedBackdatedMeterReadings   BackdatedMeterReading[] @relation("BackdatedMeterReadingUpdatedBy")
@@ -1164,14 +1165,17 @@ model BackdatedTransaction {
   notes               String?  @db.Text
   createdBy           String?  @map("created_by") @db.Uuid
   updatedBy           String?  @map("updated_by") @db.Uuid
+  deletedBy           String?  @map("deleted_by") @db.Uuid // Soft delete: user who deleted this transaction
   createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt           DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt           DateTime? @map("deleted_at") @db.Timestamptz // Soft delete: timestamp when deleted (NULL = not deleted)
 
   // Relations
   backdatedEntry      BackdatedEntry @relation(fields: [backdatedEntryId], references: [id], onDelete: Cascade)
   bank                Bank?          @relation(fields: [bankId], references: [id])
   createdByUser       User?          @relation("BackdatedTransactionCreatedBy", fields: [createdBy], references: [id])
   updatedByUser       User?          @relation("BackdatedTransactionUpdatedBy", fields: [updatedBy], references: [id])
+  deletedByUser       User?          @relation("BackdatedTransactionDeletedBy", fields: [deletedBy], references: [id])
   customer            Customer?      @relation(fields: [customerId], references: [id])
   product             Product?       @relation(fields: [productId], references: [id])
   fuelType            FuelType?      @relation(fields: [fuelTypeId], references: [id])
@@ -1181,6 +1185,7 @@ model BackdatedTransaction {
   @@index([transactionDateTime], name: "idx_backdated_txn_datetime")
   @@index([paymentMethod], name: "idx_backdated_txn_payment")
   @@index([qbSyncStatus], name: "idx_backdated_txn_qb_sync_status")
+  @@index([deletedAt], name: "idx_backdated_txn_deleted") // For soft delete queries (filter: deletedAt IS NULL)
   @@map("backdated_transactions")
 }
 

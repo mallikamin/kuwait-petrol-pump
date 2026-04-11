@@ -20,11 +20,17 @@ router.get('/daily', dailyController.getDailySummary);
 // GET /api/backdated-entries/daily/forensic - Forensic transaction inspection (DIAGNOSTIC)
 router.get('/daily/forensic', dailyController.getForensicTransactions);
 
+// GET /api/backdated-entries/daily/deleted - List soft-deleted transactions
+router.get('/daily/deleted', dailyController.getDeletedTransactions);
+
 // POST /api/backdated-entries/daily - Save daily draft (upsert entries + transactions)
 router.post('/daily', dailyController.saveDailyDraft);
 
 // POST /api/backdated-entries/daily/finalize - Finalize day and enqueue QB sync
 router.post('/daily/finalize', dailyController.finalizeDay);
+
+// POST /api/backdated-entries/daily/restore - Restore soft-deleted transactions
+router.post('/daily/restore', dailyController.restoreDeletedTransactions);
 
 /**
  * Backdated Entry Routes (per-nozzle level)

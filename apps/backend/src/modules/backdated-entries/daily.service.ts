@@ -126,6 +126,9 @@ export class DailyBackdatedEntriesService {
         },
         shift: true,
         transactions: {
+          where: {
+            deletedAt: null, // ✅ SOFT DELETE: Only fetch active (non-deleted) transactions
+          },
           include: {
             customer: true,
             product: true,
@@ -470,6 +473,7 @@ export class DailyBackdatedEntriesService {
           businessDate: businessDateObj,
           shiftId: shiftId || null,
         },
+        deletedAt: null, // ✅ SOFT DELETE: Only count active transactions
       },
     });
 
@@ -530,6 +534,7 @@ export class DailyBackdatedEntriesService {
             businessDate: businessDateObj,
           },
           id: { in: transactions.filter(t => t.id).map(t => t.id!) },
+          deletedAt: null, // ✅ SOFT DELETE: Only check active transactions
         },
         include: { fuelType: true },
       });
@@ -629,9 +634,12 @@ export class DailyBackdatedEntriesService {
       entryId = newDailyEntry.id;
     }
 
-    // ✅ Upsert ALL transactions into this single daily entry
+    // ✅ Upsert ALL transactions into this single daily entry (exclude soft-deleted)
     const existingTxns = await prisma.backdatedTransaction.findMany({
-      where: { backdatedEntryId: entryId },
+      where: {
+        backdatedEntryId: entryId,
+        deletedAt: null, // ✅ SOFT DELETE: Only fetch active (non-deleted) transactions
+      },
     });
 
     const existingTxnIds = new Set(existingTxns.map(t => t.id));
@@ -763,14 +771,19 @@ export class DailyBackdatedEntriesService {
           incomingCount: transactions.length,
           toDeleteCount: txnsToDelete.length,
         });
-        await prisma.backdatedTransaction.deleteMany({
+        // ✅ SOFT DELETE: Mark transactions as deleted instead of hard delete
+        await prisma.backdatedTransaction.updateMany({
           where: {
             id: { in: txnsToDelete },
             backdatedEntryId: entryId,
           },
+          data: {
+            deletedAt: new Date(),
+            deletedBy: userId, // Track who deleted these transactions
+          },
         });
         deletedCount = txnsToDelete.length;
-        console.log('[BackdatedEntries] Deleted removed transactions:', deletedCount);
+        console.log('[BackdatedEntries] Soft-deleted removed transactions:', deletedCount);
       }
     } else {
       console.log('[BackdatedEntries] Skip delete - unsafe to delete (prevents partial-save data loss)', {
@@ -1189,7 +1202,7 @@ export class DailyBackdatedEntriesService {
 
     const businessDateObj = this.normalizeBusinessDate(businessDate);
 
-    // Get all transactions with full audit trail
+    // Get all transactions with full audit trail (exclude soft-deleted)
     const transactions = await prisma.backdatedTransaction.findMany({
       where: {
         backdatedEntry: {
@@ -1197,6 +1210,7 @@ export class DailyBackdatedEntriesService {
           businessDate: businessDateObj,
           ...(shiftId ? { shiftId } : {}),
         },
+        deletedAt: null, // ✅ SOFT DELETE: Only fetch active transactions
       },
       include: {
         backdatedEntry: {
@@ -1291,6 +1305,147 @@ export class DailyBackdatedEntriesService {
       consistencyCheckResult: consistencyIssues.length === 0 ? 'PASS' : `FAIL (${consistencyIssues.length} issues)`,
       transactions: forensicTransactions,
       consistencyIssues,
+    };
+  }
+
+  /**
+   * GET /api/backdated-entries/daily/deleted
+   *
+   * List soft-deleted transactions for recovery
+   */
+  async getDeletedTransactions(params: DailyQueryParams, organizationId: string) {
+    const { branchId, businessDate, shiftId } = params;
+
+    // Validate branch
+    const branch = await prisma.branch.findFirst({
+      where: {
+        id: branchId,
+        organizationId,
+      },
+    });
+
+    if (!branch) {
+      throw new AppError(404, 'Branch not found or does not belong to organization');
+    }
+
+    const businessDateObj = this.normalizeBusinessDate(businessDate);
+
+    // Get all DELETED transactions
+    const deletedTxns = await prisma.backdatedTransaction.findMany({
+      where: {
+        backdatedEntry: {
+          branchId,
+          businessDate: businessDateObj,
+          ...(shiftId ? { shiftId } : {}),
+        },
+        deletedAt: { not: null }, // ✅ SOFT DELETE: Only fetch deleted transactions
+      },
+      include: {
+        customer: true,
+        product: true,
+        fuelType: true,
+        deletedByUser: {
+          select: { id: true, fullName: true, username: true },
+        },
+      },
+      orderBy: [{ deletedAt: 'desc' }, { transactionDateTime: 'asc' }],
+    });
+
+    return {
+      branchId,
+      businessDate,
+      shiftId: shiftId || null,
+      deletedCount: deletedTxns.length,
+      transactions: deletedTxns.map(txn => ({
+        id: txn.id,
+        productName: txn.productName,
+        quantity: parseFloat(txn.quantity.toString()),
+        unitPrice: parseFloat(txn.unitPrice.toString()),
+        lineTotal: parseFloat(txn.lineTotal.toString()),
+        paymentMethod: txn.paymentMethod,
+        fuelType: txn.fuelType?.code,
+        deletedAt: txn.deletedAt,
+        deletedBy: txn.deletedByUser ? `${txn.deletedByUser.fullName} (@${txn.deletedByUser.username})` : null,
+      })),
+    };
+  }
+
+  /**
+   * POST /api/backdated-entries/daily/restore
+   *
+   * Restore soft-deleted transactions
+   */
+  async restoreDeletedTransactions(
+    params: { branchId: string; businessDate: string; transactionIds: string[] },
+    organizationId: string,
+    userId?: string
+  ) {
+    const { branchId, businessDate, transactionIds } = params;
+
+    if (!transactionIds.length) {
+      throw new AppError(400, 'No transaction IDs provided for restore');
+    }
+
+    // Validate branch
+    const branch = await prisma.branch.findFirst({
+      where: {
+        id: branchId,
+        organizationId,
+      },
+    });
+
+    if (!branch) {
+      throw new AppError(404, 'Branch not found or does not belong to organization');
+    }
+
+    const businessDateObj = this.normalizeBusinessDate(businessDate);
+
+    // Verify all transactions to restore exist and are deleted
+    const txnsToRestore = await prisma.backdatedTransaction.findMany({
+      where: {
+        id: { in: transactionIds },
+        backdatedEntry: {
+          branchId,
+          businessDate: businessDateObj,
+        },
+        deletedAt: { not: null }, // ✅ Can only restore deleted transactions
+      },
+    });
+
+    if (txnsToRestore.length !== transactionIds.length) {
+      throw new AppError(
+        400,
+        `Only ${txnsToRestore.length} of ${transactionIds.length} transactions found and deleted`
+      );
+    }
+
+    // Restore transactions
+    const restored = await prisma.backdatedTransaction.updateMany({
+      where: {
+        id: { in: transactionIds },
+      },
+      data: {
+        deletedAt: null, // ✅ SOFT DELETE: Clear deletion marker
+        deletedBy: null, // Clear who deleted it
+      },
+    });
+
+    console.log('[BackdatedEntries] Restored deleted transactions:', {
+      branchId,
+      businessDate,
+      restoreCount: restored.count,
+      restoredBy: userId,
+    });
+
+    return {
+      branchId,
+      businessDate,
+      restoredCount: restored.count,
+      transactions: txnsToRestore.map(txn => ({
+        id: txn.id,
+        productName: txn.productName,
+        quantity: parseFloat(txn.quantity.toString()),
+      })),
     };
   }
 }
