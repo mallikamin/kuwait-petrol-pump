@@ -7,6 +7,65 @@ type CreateFuelSaleData = CreateFuelSaleInput;
 type CreateNonFuelSaleData = CreateNonFuelSaleInput;
 
 export class SalesService {
+  private buildFuelSaleSignature(sale: {
+    saleType?: string | null;
+    saleDate: Date;
+    totalAmount: Decimal | { toString(): string } | string | number | null;
+    paymentMethod?: string | null;
+    customerId?: string | null;
+    vehicleNumber?: string | null;
+    slipNumber?: string | null;
+  }): string | null {
+    if (sale.saleType !== 'fuel') return null;
+    const amount =
+      typeof sale.totalAmount === 'string' || typeof sale.totalAmount === 'number'
+        ? String(sale.totalAmount)
+        : sale.totalAmount?.toString?.() || '0';
+    return [
+      new Date(sale.saleDate).toISOString(),
+      amount,
+      sale.paymentMethod || '',
+      sale.customerId || '',
+      sale.vehicleNumber || '',
+      sale.slipNumber || '',
+    ].join('|');
+  }
+
+  private dedupeLegacyFuelDuplicates<T extends {
+    saleType?: string | null;
+    saleDate: Date;
+    totalAmount: Decimal | { toString(): string } | string | number | null;
+    paymentMethod?: string | null;
+    customerId?: string | null;
+    vehicleNumber?: string | null;
+    slipNumber?: string | null;
+    offlineQueueId?: string | null;
+    shiftInstanceId?: string | null;
+    syncStatus?: string | null;
+  }>(sales: T[]): T[] {
+    const bySignature = new Map<string, T[]>();
+    for (const sale of sales) {
+      const sig = this.buildFuelSaleSignature(sale);
+      if (!sig) continue;
+      const arr = bySignature.get(sig) || [];
+      arr.push(sale);
+      bySignature.set(sig, arr);
+    }
+
+    const stale = new Set<T>();
+    for (const grouped of bySignature.values()) {
+      const hasCanonical = grouped.some((s) => !!s.offlineQueueId);
+      if (!hasCanonical) continue;
+      grouped.forEach((s) => {
+        if (!s.offlineQueueId && !s.shiftInstanceId && s.syncStatus === 'synced') {
+          stale.add(s);
+        }
+      });
+    }
+
+    return stale.size > 0 ? sales.filter((s) => !stale.has(s)) : sales;
+  }
+
   /**
    * Create a fuel sale
    */
@@ -287,43 +346,41 @@ export class SalesService {
       if (endDate) (where.saleDate as Record<string, Date>).lte = endDate;
     }
 
-    const [sales, total] = await Promise.all([
-      prisma.sale.findMany({
-        where,
-        include: {
-          fuelSales: {
-            include: {
-              nozzle: {
-                include: {
-                  dispensingUnit: true,
-                },
+    const sales = await prisma.sale.findMany({
+      where,
+      include: {
+        fuelSales: {
+          include: {
+            nozzle: {
+              include: {
+                dispensingUnit: true,
               },
-              fuelType: true,
             },
-          },
-          nonFuelSales: {
-            include: {
-              product: true,
-            },
-          },
-          customer: true,
-          cashier: {
-            select: {
-              id: true,
-              fullName: true,
-              username: true,
-            },
+            fuelType: true,
           },
         },
-        orderBy: { saleDate: 'desc' },
-        take: limit,
-        skip: offset,
-      }),
-      prisma.sale.count({ where }),
-    ]);
+        nonFuelSales: {
+          include: {
+            product: true,
+          },
+        },
+        customer: true,
+        cashier: {
+          select: {
+            id: true,
+            fullName: true,
+            username: true,
+          },
+        },
+      },
+      orderBy: { saleDate: 'desc' },
+    });
+    const dedupedSales = this.dedupeLegacyFuelDuplicates(sales);
+    const total = dedupedSales.length;
+    const pagedSales = dedupedSales.slice(offset, offset + limit);
 
     return {
-      sales,
+      sales: pagedSales,
       pagination: {
         total,
         limit,
@@ -415,62 +472,64 @@ export class SalesService {
       if (endDate) (where.saleDate as Record<string, Date>).lte = endDate;
     }
 
-    // Get aggregated data
-    const [totalSales, fuelSales, nonFuelSales, paymentBreakdown] = await Promise.all([
-      // Total sales count and amount
-      prisma.sale.aggregate({
-        where,
-        _count: true,
-        _sum: {
-          totalAmount: true,
+    const sales = await prisma.sale.findMany({
+      where,
+      include: {
+        fuelSales: {
+          include: {
+            fuelType: true,
+          },
         },
-      }),
-      // Fuel sales summary
-      prisma.fuelSale.aggregate({
-        where: {
-          sale: where,
+        nonFuelSales: {
+          include: {
+            product: true,
+          },
         },
-        _sum: {
-          quantityLiters: true,
-          totalAmount: true,
-        },
-      }),
-      // Non-fuel sales summary
-      prisma.nonFuelSale.aggregate({
-        where: {
-          sale: where,
-        },
-        _sum: {
-          quantity: true,
-          totalAmount: true,
-        },
-      }),
-      // Payment method breakdown
-      prisma.sale.groupBy({
-        by: ['paymentMethod'],
-        where,
-        _sum: {
-          totalAmount: true,
-        },
-        _count: true,
-      }),
-    ]);
+      },
+    });
+    const dedupedSales = this.dedupeLegacyFuelDuplicates(sales);
+
+    let totalAmount = 0;
+    let fuelLiters = 0;
+    let fuelAmount = 0;
+    let nonFuelItems = 0;
+    let nonFuelAmount = 0;
+    const payment = new Map<string, { count: number; amount: number }>();
+
+    for (const sale of dedupedSales) {
+      const saleAmount = sale.totalAmount?.toNumber?.() || 0;
+      totalAmount += saleAmount;
+
+      const p = payment.get(sale.paymentMethod) || { count: 0, amount: 0 };
+      p.count += 1;
+      p.amount += saleAmount;
+      payment.set(sale.paymentMethod, p);
+
+      for (const fs of sale.fuelSales) {
+        fuelLiters += fs.quantityLiters?.toNumber?.() || 0;
+        fuelAmount += fs.totalAmount?.toNumber?.() || 0;
+      }
+      for (const nfs of sale.nonFuelSales) {
+        nonFuelItems += nfs.quantity || 0;
+        nonFuelAmount += nfs.totalAmount?.toNumber?.() || 0;
+      }
+    }
 
     return {
-      totalSales: totalSales._count,
-      totalAmount: totalSales._sum.totalAmount?.toNumber() || 0,
+      totalSales: dedupedSales.length,
+      totalAmount,
       fuelSales: {
-        totalLiters: fuelSales._sum.quantityLiters?.toNumber() || 0,
-        totalAmount: fuelSales._sum.totalAmount?.toNumber() || 0,
+        totalLiters: fuelLiters,
+        totalAmount: fuelAmount,
       },
       nonFuelSales: {
-        totalItems: nonFuelSales._sum.quantity || 0,
-        totalAmount: nonFuelSales._sum.totalAmount?.toNumber() || 0,
+        totalItems: nonFuelItems,
+        totalAmount: nonFuelAmount,
       },
-      paymentBreakdown: paymentBreakdown.map(pm => ({
-        method: pm.paymentMethod,
-        count: pm._count,
-        amount: pm._sum.totalAmount?.toNumber() || 0,
+      paymentBreakdown: Array.from(payment.entries()).map(([method, agg]) => ({
+        method,
+        count: agg.count,
+        amount: agg.amount,
       })),
     };
   }
