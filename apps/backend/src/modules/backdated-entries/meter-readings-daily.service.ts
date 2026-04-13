@@ -105,8 +105,18 @@ export interface SaveMeterReadingInput {
 const CONTINUITY_TOLERANCE = 0.01; // 0.01L tolerance
 
 export class BackdatedMeterReadingsDailyService {
+  private async getCanonicalShift(branchId: string) {
+    const shift = await prisma.shift.findFirst({
+      where: { branchId, isActive: true },
+      orderBy: { shiftNumber: 'asc' },
+    });
+    if (!shift) {
+      throw new AppError(400, 'No active shift configured for branch');
+    }
+    return shift;
+  }
   /**
-   * Get meter readings for a business date (shift-segregated)
+   * Get meter readings for a business date (single canonical shift)
    */
   async getDailyMeterReadings(
     branchId: string,
@@ -119,7 +129,6 @@ export class BackdatedMeterReadingsDailyService {
       organizationId,
     });
 
-    // Validate branch
     const branch = await prisma.branch.findFirst({
       where: { id: branchId, organizationId },
     });
@@ -127,19 +136,10 @@ export class BackdatedMeterReadingsDailyService {
       throw new AppError(404, 'Branch not found');
     }
 
-    // Parse business date
     const businessDateObj = new Date(businessDate);
     businessDateObj.setUTCHours(0, 0, 0, 0);
+    const canonicalShift = await this.getCanonicalShift(branchId);
 
-    // Get all shifts for branch (ordered by shiftNumber)
-    const shifts = await prisma.shift.findMany({
-      where: { branchId, isActive: true },
-      orderBy: { shiftNumber: 'asc' },
-    });
-
-    console.log(`[BackdatedMeterReadings] Found ${shifts.length} shifts`);
-
-    // Get all nozzles
     const nozzles = await prisma.nozzle.findMany({
       where: { dispensingUnit: { branchId }, isActive: true },
       include: { fuelType: true, dispensingUnit: true },
@@ -149,243 +149,182 @@ export class BackdatedMeterReadingsDailyService {
       ],
     });
 
-    console.log(`[BackdatedMeterReadings] Found ${nozzles.length} nozzles`);
-
-    // Get all backdated readings for this date (all shifts)
     const readings = (await prisma.backdatedMeterReading.findMany({
-      where: { branchId, businessDate: businessDateObj } as any,
+      where: { branchId, businessDate: businessDateObj, shiftId: canonicalShift.id } as any,
       include: {
         nozzle: { include: { fuelType: true, dispensingUnit: true } },
         submittedByUser: { select: { id: true, fullName: true } },
       },
     })) as any[];
 
-    console.log(`[BackdatedMeterReadings] Found ${readings.length} readings`);
-
-    // Build response per shift
-    const shiftSummaries: ShiftSummary[] = [];
+    const nozzleStatuses: ShiftMeterReadingStatus[] = [];
     let totalEntered = 0;
     let totalOpeningPropagated = 0;
     let totalPropagated = 0;
-    let totalMissing = 0;
     let totalSalesLiters = 0;
+    let hsdSalesLiters = 0;
+    let pmgSalesLiters = 0;
 
-    for (const shift of shifts) {
-      const shiftReadings = readings.filter((r) => r.shiftId === shift.id);
-      const nozzleStatuses: ShiftMeterReadingStatus[] = [];
-      let shiftTotalSales = 0;
-      let shiftHsdSales = 0; // ✅ NEW: Product-wise sales breakdown
-      let shiftPmgSales = 0; // ✅ NEW: Product-wise sales breakdown
-      let shiftEntered = 0;
-      let shiftOpeningPropagated = 0;
-      let shiftPropagated = 0;
+    for (const nozzle of nozzles) {
+      const openingReading = readings.find(
+        (r) => r.nozzleId === nozzle.id && r.readingType === 'opening'
+      );
+      const closingReading = readings.find(
+        (r) => r.nozzleId === nozzle.id && r.readingType === 'closing'
+      );
 
-      for (const nozzle of nozzles) {
-        const openingReading = shiftReadings.find(
-          (r) => r.nozzleId === nozzle.id && r.readingType === 'opening'
-        );
-        const closingReading = shiftReadings.find(
-          (r) => r.nozzleId === nozzle.id && r.readingType === 'closing'
-        );
+      let openingStatus: MeterReadingStatus;
+      let closingStatus: MeterReadingStatus;
 
-        let openingStatus: MeterReadingStatus;
-        let closingStatus: MeterReadingStatus;
-
-        // Process opening reading
-        if (openingReading) {
-          openingStatus = {
-            id: openingReading.id,
-            value: Number(openingReading.meterValue),
-            status: 'entered',
-            recordedAt: openingReading.createdAt,
-            submittedBy: openingReading.submittedBy,
-            submittedByName: openingReading.submittedByUser?.fullName,
-            submittedAt: openingReading.submittedAt,
-            attachmentUrl: openingReading.attachmentUrl || undefined,
-            ocrManuallyEdited: openingReading.ocrManuallyEdited,
-          };
-          shiftEntered++;
-        } else {
-          // Try to derive from previous shift closing
-          const propagated = await this.getPropagatedOpening(
-            nozzle.id,
-            shift,
-            businessDateObj,
-            branchId
-          );
-          if (propagated) {
-            openingStatus = {
-              value: propagated.value,
-              status: 'propagated_backward',
-              propagatedFrom: propagated.propagatedFrom,
-            };
-            shiftOpeningPropagated++;
-            shiftPropagated++;
-          } else {
-            openingStatus = { value: null, status: 'missing' };
-          }
-        }
-
-        // Process closing reading
-        if (closingReading) {
-          closingStatus = {
-            id: closingReading.id,
-            value: Number(closingReading.meterValue),
-            status: 'entered',
-            recordedAt: closingReading.createdAt,
-            submittedBy: closingReading.submittedBy,
-            submittedByName: closingReading.submittedByUser?.fullName,
-            submittedAt: closingReading.submittedAt,
-            attachmentUrl: closingReading.attachmentUrl || undefined,
-            ocrManuallyEdited: closingReading.ocrManuallyEdited,
-          };
-          shiftEntered++;
-        } else {
-          // Try to derive from next shift opening
-          const propagated = await this.getPropagatedClosing(
-            nozzle.id,
-            shift,
-            businessDateObj,
-            branchId
-          );
-          if (propagated) {
-            closingStatus = {
-              value: propagated.value,
-              status: 'propagated_forward',
-              propagatedFrom: propagated.propagatedFrom,
-            };
-            shiftPropagated++;
-          } else {
-            closingStatus = { value: null, status: 'missing' };
-          }
-        }
-
-        // ✅ CRITICAL FIX: Calculate sales if both readings EXIST (entered OR propagated)
-        // Opening can be propagated from previous shift closing - that's valid!
-        // Closing is manually entered. Both having values = complete reading pair.
-        let salesLiters: number | undefined;
-        if (
-          openingStatus.value !== null &&  // ✅ FIX: Count propagated + entered openings
-          openingStatus.value > 0 &&
-          closingStatus.value !== null &&
-          closingStatus.value > 0
-        ) {
-          salesLiters = Number(closingStatus.value) - Number(openingStatus.value);
-          shiftTotalSales += salesLiters;
-          // ✅ NEW: Segregate by fuel type
-          if (nozzle.fuelType.code === 'HSD') {
-            shiftHsdSales += salesLiters;
-          } else if (nozzle.fuelType.code === 'PMG') {
-            shiftPmgSales += salesLiters;
-          }
-        }
-
-        // Check continuity (warn if gap detected)
-        const continuityWarning = await this.checkContinuity(
+      if (openingReading) {
+        openingStatus = {
+          id: openingReading.id,
+          value: Number(openingReading.meterValue),
+          status: 'entered',
+          recordedAt: openingReading.createdAt,
+          submittedBy: openingReading.submittedBy,
+          submittedByName: openingReading.submittedByUser?.fullName,
+          submittedAt: openingReading.submittedAt,
+          attachmentUrl: openingReading.attachmentUrl || undefined,
+          ocrManuallyEdited: openingReading.ocrManuallyEdited,
+        };
+        totalEntered++;
+      } else {
+        const propagated = await this.getPropagatedOpening(
           nozzle.id,
-          shift,
+          canonicalShift,
           businessDateObj,
-          openingStatus
+          branchId
         );
-
-        nozzleStatuses.push({
-          nozzleId: nozzle.id,
-          nozzleName: `D${nozzle.dispensingUnit.unitNumber}N${nozzle.nozzleNumber}`,
-          fuelType: nozzle.fuelType.code,
-          fuelTypeName: nozzle.fuelType.name,
-          opening: openingStatus,
-          closing: closingStatus,
-          salesLiters,
-          continuityWarning,
-        });
+        if (propagated) {
+          openingStatus = {
+            value: propagated.value,
+            status: 'propagated_backward',
+            propagatedFrom: propagated.propagatedFrom,
+          };
+          totalOpeningPropagated++;
+          totalPropagated++;
+        } else {
+          openingStatus = { value: null, status: 'missing' };
+        }
       }
 
-      // Calculate shift-specific metrics
-      const filledReadings = shiftEntered + shiftOpeningPropagated;
-      const totalExpectedShift = nozzles.length * 2;
-      const totalMissingShift = totalExpectedShift - filledReadings;
+      if (closingReading) {
+        closingStatus = {
+          id: closingReading.id,
+          value: Number(closingReading.meterValue),
+          status: 'entered',
+          recordedAt: closingReading.createdAt,
+          submittedBy: closingReading.submittedBy,
+          submittedByName: closingReading.submittedByUser?.fullName,
+          submittedAt: closingReading.submittedAt,
+          attachmentUrl: closingReading.attachmentUrl || undefined,
+          ocrManuallyEdited: closingReading.ocrManuallyEdited,
+        };
+        totalEntered++;
+      } else {
+        const propagated = await this.getPropagatedClosing(
+          nozzle.id,
+          canonicalShift,
+          businessDateObj,
+          branchId
+        );
+        if (propagated) {
+          closingStatus = {
+            value: propagated.value,
+            status: 'propagated_forward',
+            propagatedFrom: propagated.propagatedFrom,
+          };
+          totalPropagated++;
+        } else {
+          closingStatus = { value: null, status: 'missing' };
+        }
+      }
 
-      totalEntered += shiftEntered;
-      totalOpeningPropagated += shiftOpeningPropagated;
-      totalPropagated += shiftPropagated;
-      totalMissing += totalMissingShift;
-      totalSalesLiters += shiftTotalSales;
+      let salesLiters: number | undefined;
+      if (
+        openingStatus.value !== null &&
+        openingStatus.value > 0 &&
+        closingStatus.value !== null &&
+        closingStatus.value > 0
+      ) {
+        salesLiters = Number(closingStatus.value) - Number(openingStatus.value);
+        totalSalesLiters += salesLiters;
+        if (nozzle.fuelType.code === 'HSD') {
+          hsdSalesLiters += salesLiters;
+        } else if (nozzle.fuelType.code === 'PMG') {
+          pmgSalesLiters += salesLiters;
+        }
+      }
 
-      // ✅ CRITICAL FIX: Completion % counts readings that EXIST (entered OR propagated)
-      // A propagated opening from previous closing IS a complete reading, not incomplete
-      // filledReadings already calculated above as (shiftEntered + shiftOpeningPropagated)
-      const completionPercent =
-        nozzles.length * 2 > 0
-          ? (filledReadings / (nozzles.length * 2)) * 100
-          : 0;
+      const continuityWarning = await this.checkContinuity(
+        nozzle.id,
+        canonicalShift,
+        businessDateObj,
+        openingStatus
+      );
 
-      shiftSummaries.push({
-        shiftId: shift.id,
-        shiftName: shift.name || `Shift ${shift.shiftNumber}`,
-        shiftNumber: shift.shiftNumber,
-        startTime: shift.startTime.toISOString(),
-        endTime: shift.endTime.toISOString(),
-        nozzles: nozzleStatuses,
-        summary: {
-          totalNozzles: nozzles.length,
-          totalReadingsExpected: nozzles.length * 2,
-          totalReadingsEntered: shiftEntered,
-          totalReadingsPropagated: shiftPropagated,
-          openingPropagatedCount: shiftOpeningPropagated,
-          filledReadings,
-          totalReadingsMissing: totalMissingShift,
-          completionPercent: Math.round(completionPercent * 100) / 100,
-          totalSalesLiters: Math.round(shiftTotalSales * 1000) / 1000,
-          // ✅ NEW: Product-wise sales breakdown
-          hsdSalesLiters: Math.round(shiftHsdSales * 1000) / 1000,
-          pmgSalesLiters: Math.round(shiftPmgSales * 1000) / 1000,
-        },
+      nozzleStatuses.push({
+        nozzleId: nozzle.id,
+        nozzleName: `D${nozzle.dispensingUnit.unitNumber}N${nozzle.nozzleNumber}`,
+        fuelType: nozzle.fuelType.code,
+        fuelTypeName: nozzle.fuelType.name,
+        opening: openingStatus,
+        closing: closingStatus,
+        salesLiters,
+        continuityWarning,
       });
     }
 
-    // Aggregate summary
-    const totalExpected = nozzles.length * shifts.length * 2;
+    const totalExpected = nozzles.length * 2;
     const totalFilled = totalEntered + totalOpeningPropagated;
-    // ✅ CRITICAL FIX: Completion % counts readings that EXIST (entered OR propagated)
-    const aggregateCompletion =
-      totalExpected > 0 ? (totalFilled / totalExpected) * 100 : 0;
-
-    // ✅ NEW: Calculate aggregate product-wise sales from all shifts
-    const aggregateHsdSales = shiftSummaries.reduce(
-      (sum, shift) => sum + (shift.summary.hsdSalesLiters || 0),
-      0
-    );
-    const aggregatePmgSales = shiftSummaries.reduce(
-      (sum, shift) => sum + (shift.summary.pmgSalesLiters || 0),
-      0
-    );
-
-    return {
-      businessDate,
-      branchId,
-      shifts: shiftSummaries,
-      aggregateSummary: {
-        totalShifts: shifts.length,
+    const totalMissing = totalExpected - totalFilled;
+    const aggregateCompletion = totalExpected > 0 ? (totalFilled / totalExpected) * 100 : 0;
+    const shiftSummary: ShiftSummary = {
+      shiftId: canonicalShift.id,
+      shiftName: canonicalShift.name || `Shift ${canonicalShift.shiftNumber}`,
+      shiftNumber: canonicalShift.shiftNumber,
+      startTime: canonicalShift.startTime.toISOString(),
+      endTime: canonicalShift.endTime.toISOString(),
+      nozzles: nozzleStatuses,
+      summary: {
         totalNozzles: nozzles.length,
         totalReadingsExpected: totalExpected,
         totalReadingsEntered: totalEntered,
         totalReadingsPropagated: totalPropagated,
         openingPropagatedCount: totalOpeningPropagated,
         filledReadings: totalFilled,
-        totalReadingsMissing: totalExpected - totalFilled,
+        totalReadingsMissing: totalMissing,
         completionPercent: Math.round(aggregateCompletion * 100) / 100,
         totalSalesLiters: Math.round(totalSalesLiters * 1000) / 1000,
-        // ✅ NEW: Product-wise sales breakdown for aggregated view
-        hsdSalesLiters: Math.round(aggregateHsdSales * 1000) / 1000,
-        pmgSalesLiters: Math.round(aggregatePmgSales * 1000) / 1000,
+        hsdSalesLiters: Math.round(hsdSalesLiters * 1000) / 1000,
+        pmgSalesLiters: Math.round(pmgSalesLiters * 1000) / 1000,
+      },
+    };
+
+    return {
+      businessDate,
+      branchId,
+      shifts: [shiftSummary],
+      aggregateSummary: {
+        totalShifts: 1,
+        totalNozzles: nozzles.length,
+        totalReadingsExpected: totalExpected,
+        totalReadingsEntered: totalEntered,
+        totalReadingsPropagated: totalPropagated,
+        openingPropagatedCount: totalOpeningPropagated,
+        filledReadings: totalFilled,
+        totalReadingsMissing: totalMissing,
+        completionPercent: Math.round(aggregateCompletion * 100) / 100,
+        totalSalesLiters: Math.round(totalSalesLiters * 1000) / 1000,
+        hsdSalesLiters: Math.round(hsdSalesLiters * 1000) / 1000,
+        pmgSalesLiters: Math.round(pmgSalesLiters * 1000) / 1000,
       },
     };
   }
 
   /**
-   * Get propagated opening reading from previous shift closing
-   * - Morning: Previous day Evening closing
-   * - Evening: Same day Morning closing
+   * Get propagated opening reading from previous day closing
    */
   private async getPropagatedOpening(
     nozzleId: string,
@@ -393,27 +332,9 @@ export class BackdatedMeterReadingsDailyService {
     businessDate: Date,
     branchId: string
   ): Promise<{ value: number; propagatedFrom: any } | null> {
-    const isMorning = shift.shiftNumber === 1;
-
-    let targetDate: Date;
-    let targetShiftNumber: number;
-
-    if (isMorning) {
-      // Morning → Previous day Evening
-      targetDate = new Date(businessDate);
-      targetDate.setDate(targetDate.getDate() - 1);
-      targetShiftNumber = 2;
-    } else {
-      // Evening → Same day Morning
-      targetDate = new Date(businessDate);
-      targetShiftNumber = 1;
-    }
-
-    const targetShift = await prisma.shift.findFirst({
-      where: { branchId, shiftNumber: targetShiftNumber, isActive: true },
-    });
-
-    if (!targetShift) return null;
+    const targetDate = new Date(businessDate);
+    targetDate.setUTCDate(targetDate.getUTCDate() - 1);
+    const targetShift = await this.getCanonicalShift(branchId);
 
     const previousClosing = await prisma.backdatedMeterReading.findFirst({
       where: {
@@ -430,7 +351,7 @@ export class BackdatedMeterReadingsDailyService {
     return {
       value: Number(previousClosing.meterValue),
       propagatedFrom: {
-        shiftName: targetShift.name || `Shift ${targetShift.shiftNumber}`,
+        shiftName: targetShift.name || 'Daily',
         date: targetDate.toISOString().split('T')[0],
         readingType: 'closing',
       },
@@ -438,9 +359,7 @@ export class BackdatedMeterReadingsDailyService {
   }
 
   /**
-   * Get propagated closing reading from next shift opening
-   * - Morning: Same day Evening opening
-   * - Evening: Next day Morning opening
+   * Get propagated closing reading from next day opening
    */
   private async getPropagatedClosing(
     nozzleId: string,
@@ -448,27 +367,9 @@ export class BackdatedMeterReadingsDailyService {
     businessDate: Date,
     branchId: string
   ): Promise<{ value: number; propagatedFrom: any } | null> {
-    const isMorning = shift.shiftNumber === 1;
-
-    let targetDate: Date;
-    let targetShiftNumber: number;
-
-    if (isMorning) {
-      // Morning → Same day Evening
-      targetDate = new Date(businessDate);
-      targetShiftNumber = 2;
-    } else {
-      // Evening → Next day Morning
-      targetDate = new Date(businessDate);
-      targetDate.setDate(targetDate.getDate() + 1);
-      targetShiftNumber = 1;
-    }
-
-    const targetShift = await prisma.shift.findFirst({
-      where: { branchId, shiftNumber: targetShiftNumber, isActive: true },
-    });
-
-    if (!targetShift) return null;
+    const targetDate = new Date(businessDate);
+    targetDate.setUTCDate(targetDate.getUTCDate() + 1);
+    const targetShift = await this.getCanonicalShift(branchId);
 
     const nextOpening = await prisma.backdatedMeterReading.findFirst({
       where: {
@@ -477,7 +378,7 @@ export class BackdatedMeterReadingsDailyService {
         shiftId: targetShift.id,
         nozzleId,
         readingType: 'opening',
-      },
+      } as any,
     });
 
     if (!nextOpening) return null;
@@ -485,7 +386,7 @@ export class BackdatedMeterReadingsDailyService {
     return {
       value: Number(nextOpening.meterValue),
       propagatedFrom: {
-        shiftName: targetShift.name || `Shift ${targetShift.shiftNumber}`,
+        shiftName: targetShift.name || 'Daily',
         date: targetDate.toISOString().split('T')[0],
         readingType: 'opening',
       },
@@ -493,8 +394,7 @@ export class BackdatedMeterReadingsDailyService {
   }
 
   /**
-   * Check continuity: opening reading matches expected (previous closing)
-   * Returns warning if gap > tolerance (0.01L)
+   * Check continuity: opening reading matches previous day closing
    */
   private async checkContinuity(
     nozzleId: string,
@@ -502,34 +402,16 @@ export class BackdatedMeterReadingsDailyService {
     businessDate: Date,
     openingStatus: MeterReadingStatus
   ): Promise<string | null> {
-    // Only check if opening is entered (not missing or propagated)
     if (openingStatus.status !== 'entered' || openingStatus.value === null) {
       return null;
     }
 
     const currentOpening = openingStatus.value;
-
-    // Get expected opening (previous shift closing)
-    const isMorning = shift.shiftNumber === 1;
-    let expectedDate: Date;
-    let expectedShiftNumber: number;
-
-    if (isMorning) {
-      expectedDate = new Date(businessDate);
-      expectedDate.setDate(expectedDate.getDate() - 1);
-      expectedShiftNumber = 2;
-    } else {
-      expectedDate = new Date(businessDate);
-      expectedShiftNumber = 1;
-    }
+    const expectedDate = new Date(businessDate);
+    expectedDate.setUTCDate(expectedDate.getUTCDate() - 1);
 
     const branchId = shift.branchId || (await this.getBranchFromShift(shift.id));
-
-    const expectedShift = await prisma.shift.findFirst({
-      where: { branchId, shiftNumber: expectedShiftNumber, isActive: true },
-    });
-
-    if (!expectedShift) return null;
+    const expectedShift = await this.getCanonicalShift(branchId);
 
     const expectedReading = await prisma.backdatedMeterReading.findFirst({
       where: {
@@ -538,7 +420,7 @@ export class BackdatedMeterReadingsDailyService {
         shiftId: expectedShift.id,
         nozzleId,
         readingType: 'closing',
-      },
+      } as any,
     });
 
     if (!expectedReading) return null;
@@ -547,14 +429,14 @@ export class BackdatedMeterReadingsDailyService {
     const gap = Math.abs(currentOpening - expectedValue);
 
     if (gap > CONTINUITY_TOLERANCE) {
-      return `Gap of ${gap.toFixed(3)}L detected with ${expectedShift.name || `Shift ${expectedShift.shiftNumber}`} closing on ${expectedDate.toISOString().split('T')[0]}`;
+      return `Gap of ${gap.toFixed(3)}L detected with ${expectedShift.name || 'Daily'} closing on ${expectedDate.toISOString().split('T')[0]}`;
     }
 
     return null;
   }
 
   /**
-   * Save a single meter reading with auto-propagation
+   * Save a single meter reading with daily auto-propagation
    */
   async saveSingleMeterReading(
     branchId: string,
@@ -573,7 +455,6 @@ export class BackdatedMeterReadingsDailyService {
       meterValue: input.meterValue,
     });
 
-    // Validate branch
     const branch = await prisma.branch.findFirst({
       where: { id: branchId, organizationId },
     });
@@ -581,15 +462,8 @@ export class BackdatedMeterReadingsDailyService {
       throw new AppError(404, 'Branch not found');
     }
 
-    // Validate shift
-    const shift = await prisma.shift.findFirst({
-      where: { id: shiftId, branchId, isActive: true },
-    });
-    if (!shift) {
-      throw new AppError(404, 'Shift not found');
-    }
+    const shift = await this.getCanonicalShift(branchId);
 
-    // Validate nozzle
     const nozzle = await prisma.nozzle.findFirst({
       where: { id: input.nozzleId, dispensingUnit: { branchId } },
     });
@@ -600,13 +474,12 @@ export class BackdatedMeterReadingsDailyService {
     const businessDateObj = new Date(businessDate);
     businessDateObj.setUTCHours(0, 0, 0, 0);
 
-    // Save the reading
     const reading = await prisma.backdatedMeterReading.upsert({
       where: {
         unique_branch_date_shift_nozzle_type: {
           branchId,
           businessDate: businessDateObj,
-          shiftId,
+          shiftId: shift.id,
           nozzleId: input.nozzleId,
           readingType: input.readingType,
         } as any,
@@ -615,7 +488,7 @@ export class BackdatedMeterReadingsDailyService {
         organizationId,
         branchId,
         businessDate: businessDateObj,
-        shiftId,
+        shiftId: shift.id,
         nozzleId: input.nozzleId,
         readingType: input.readingType,
         meterValue: new Decimal(input.meterValue),
@@ -640,7 +513,6 @@ export class BackdatedMeterReadingsDailyService {
       },
     });
 
-    // AUTO-PROPAGATE (non-blocking, try-catch)
     try {
       if (input.readingType === 'closing') {
         await this.propagateClosingToNextOpening(
@@ -663,7 +535,6 @@ export class BackdatedMeterReadingsDailyService {
       }
     } catch (error: any) {
       console.warn('[Auto-Propagate] Non-blocking error:', error.message);
-      // Don't fail the save operation
     }
 
     return {
@@ -675,9 +546,7 @@ export class BackdatedMeterReadingsDailyService {
   }
 
   /**
-   * Propagate closing to next shift opening
-   * - Morning closing → Same day Evening opening
-   * - Evening closing → Next day Morning opening
+   * Propagate closing to next day opening (update existing if present)
    */
   private async propagateClosingToNextOpening(
     nozzleId: string,
@@ -687,69 +556,44 @@ export class BackdatedMeterReadingsDailyService {
     meterValue: number,
     userId: string
   ): Promise<void> {
-    const isMorning = shift.shiftNumber === 1;
+    const targetDate = new Date(businessDate);
+    targetDate.setUTCDate(targetDate.getUTCDate() + 1);
+    const targetShift = await this.getCanonicalShift(branchId);
 
-    let targetDate: Date;
-    let targetShiftNumber: number;
-
-    if (isMorning) {
-      targetDate = new Date(businessDate);
-      targetShiftNumber = 2;
-    } else {
-      targetDate = new Date(businessDate);
-      targetDate.setDate(targetDate.getDate() + 1);
-      targetShiftNumber = 1;
-    }
-
-    const targetShift = await prisma.shift.findFirst({
-      where: { branchId, shiftNumber: targetShiftNumber, isActive: true },
-    });
-
-    if (!targetShift) {
-      console.log(`[FORWARD] Target shift not found for propagation`);
-      return;
-    }
-
-    // Check if opening already exists
-    const existing = await prisma.backdatedMeterReading.findFirst({
+    await prisma.backdatedMeterReading.upsert({
       where: {
-        branchId,
-        businessDate: targetDate,
-        shiftId: targetShift.id,
-        nozzleId,
-        readingType: 'opening',
-      },
-    });
-
-    if (!existing) {
-      const org = await prisma.branch.findFirst({
-        where: { id: branchId },
-        select: { organizationId: true },
-      });
-
-      await prisma.backdatedMeterReading.create({
-        data: {
-          organizationId: org!.organizationId,
+        unique_branch_date_shift_nozzle_type: {
           branchId,
           businessDate: targetDate,
           shiftId: targetShift.id,
           nozzleId,
           readingType: 'opening',
-          meterValue: new Decimal(meterValue),
-          source: 'manual',
-          createdBy: userId,
-          submittedBy: userId,
-          submittedAt: new Date(),
-        },
-      });
-      console.log(
-        `✅ [FORWARD] Propagated ${shift.name} closing → ${targetShift.name} opening = ${meterValue}L`
-      );
-    }
+        } as any,
+      },
+      create: {
+        organizationId: shift.organizationId,
+        branchId,
+        businessDate: targetDate,
+        shiftId: targetShift.id,
+        nozzleId,
+        readingType: 'opening',
+        meterValue: new Decimal(meterValue),
+        source: 'manual',
+        createdBy: userId,
+        submittedBy: userId,
+        submittedAt: new Date(),
+      } as any,
+      update: {
+        meterValue: new Decimal(meterValue),
+        updatedBy: userId,
+        submittedBy: userId,
+        submittedAt: new Date(),
+      },
+    });
   }
 
   /**
-   * Propagate opening to previous shift closing (backward)
+   * Propagate opening to previous day closing (update existing if present)
    */
   private async propagateOpeningToPreviousClosing(
     nozzleId: string,
@@ -759,65 +603,40 @@ export class BackdatedMeterReadingsDailyService {
     meterValue: number,
     userId: string
   ): Promise<void> {
-    const isMorning = shift.shiftNumber === 1;
+    const targetDate = new Date(businessDate);
+    targetDate.setUTCDate(targetDate.getUTCDate() - 1);
+    const targetShift = await this.getCanonicalShift(branchId);
 
-    let targetDate: Date;
-    let targetShiftNumber: number;
-
-    if (isMorning) {
-      targetDate = new Date(businessDate);
-      targetDate.setDate(targetDate.getDate() - 1);
-      targetShiftNumber = 2;
-    } else {
-      targetDate = new Date(businessDate);
-      targetShiftNumber = 1;
-    }
-
-    const targetShift = await prisma.shift.findFirst({
-      where: { branchId, shiftNumber: targetShiftNumber, isActive: true },
-    });
-
-    if (!targetShift) {
-      console.log(`[BACKWARD] Target shift not found for propagation`);
-      return;
-    }
-
-    // Check if closing already exists
-    const existing = await prisma.backdatedMeterReading.findFirst({
+    await prisma.backdatedMeterReading.upsert({
       where: {
-        branchId,
-        businessDate: targetDate,
-        shiftId: targetShift.id,
-        nozzleId,
-        readingType: 'closing',
-      },
-    });
-
-    if (!existing) {
-      const org = await prisma.branch.findFirst({
-        where: { id: branchId },
-        select: { organizationId: true },
-      });
-
-      await prisma.backdatedMeterReading.create({
-        data: {
-          organizationId: org!.organizationId,
+        unique_branch_date_shift_nozzle_type: {
           branchId,
           businessDate: targetDate,
           shiftId: targetShift.id,
           nozzleId,
           readingType: 'closing',
-          meterValue: new Decimal(meterValue),
-          source: 'manual',
-          createdBy: userId,
-          submittedBy: userId,
-          submittedAt: new Date(),
-        },
-      });
-      console.log(
-        `✅ [BACKWARD] Propagated ${shift.name} opening → ${targetShift.name} closing = ${meterValue}L`
-      );
-    }
+        } as any,
+      },
+      create: {
+        organizationId: shift.organizationId,
+        branchId,
+        businessDate: targetDate,
+        shiftId: targetShift.id,
+        nozzleId,
+        readingType: 'closing',
+        meterValue: new Decimal(meterValue),
+        source: 'manual',
+        createdBy: userId,
+        submittedBy: userId,
+        submittedAt: new Date(),
+      } as any,
+      update: {
+        meterValue: new Decimal(meterValue),
+        updatedBy: userId,
+        submittedBy: userId,
+        submittedAt: new Date(),
+      },
+    });
   }
 
   /**
@@ -895,9 +714,7 @@ export class BackdatedMeterReadingsDailyService {
   }
 
   /**
-   * Get modal previous reading (shift-aware)
-   * For CLOSING: previous = current shift OPENING (entered or propagated)
-   * For OPENING: previous = previous shift CLOSING (same day) OR previous day last shift closing
+   * Get modal previous reading for daily chain
    */
   async getModalPreviousReading(
     branchId: string,
@@ -906,22 +723,17 @@ export class BackdatedMeterReadingsDailyService {
     nozzleId: string,
     readingType: 'opening' | 'closing'
   ): Promise<{ value: number | null; status: 'entered' | 'propagated' | 'not_found' } | null> {
-    const shift = await prisma.shift.findFirst({
-      where: { id: shiftId },
-    });
-
-    if (!shift) return null;
+    const shift = await this.getCanonicalShift(branchId);
 
     const businessDateObj = new Date(businessDate);
     businessDateObj.setUTCHours(0, 0, 0, 0);
 
     if (readingType === 'closing') {
-      // For closing: get current shift opening (entered or propagated)
       const opening = await prisma.backdatedMeterReading.findFirst({
         where: {
           branchId,
           businessDate: businessDateObj,
-          shiftId,
+          shiftId: shift.id,
           nozzleId,
           readingType: 'opening',
         } as any,
@@ -934,7 +746,6 @@ export class BackdatedMeterReadingsDailyService {
         };
       }
 
-      // If no entered opening, try to get propagated opening
       const propagated = await this.getPropagatedOpening(
         nozzleId,
         shift,
@@ -950,66 +761,29 @@ export class BackdatedMeterReadingsDailyService {
       }
 
       return { value: null, status: 'not_found' };
-    } else {
-      // For opening: get previous shift closing (same day) or previous day last shift closing
-      const isMorning = shift.shiftNumber === 1;
-
-      if (isMorning) {
-        // Morning opening: get previous day evening closing
-        const previousDate = new Date(businessDateObj);
-        previousDate.setDate(previousDate.getDate() - 1);
-
-        const eveningShift = await prisma.shift.findFirst({
-          where: { branchId, shiftNumber: 2, isActive: true },
-        });
-
-        if (!eveningShift) return null;
-
-        const previousClosing = await prisma.backdatedMeterReading.findFirst({
-          where: {
-            branchId,
-            businessDate: previousDate,
-            shiftId: eveningShift.id,
-            nozzleId,
-            readingType: 'closing',
-          } as any,
-        });
-
-        if (previousClosing) {
-          return {
-            value: Number(previousClosing.meterValue),
-            status: 'entered',
-          };
-        }
-
-        return { value: null, status: 'not_found' };
-      } else {
-        // Evening opening: get same day morning closing
-        const morningShift = await prisma.shift.findFirst({
-          where: { branchId, shiftNumber: 1, isActive: true },
-        });
-
-        if (!morningShift) return null;
-
-        const morningClosing = await prisma.backdatedMeterReading.findFirst({
-          where: {
-            branchId,
-            businessDate: businessDateObj,
-            shiftId: morningShift.id,
-            nozzleId,
-            readingType: 'closing',
-          } as any,
-        });
-
-        if (morningClosing) {
-          return {
-            value: Number(morningClosing.meterValue),
-            status: 'entered',
-          };
-        }
-
-        return { value: null, status: 'not_found' };
-      }
     }
+
+    const previousDate = new Date(businessDateObj);
+    previousDate.setUTCDate(previousDate.getUTCDate() - 1);
+
+    const previousClosing = await prisma.backdatedMeterReading.findFirst({
+      where: {
+        branchId,
+        businessDate: previousDate,
+        shiftId: shift.id,
+        nozzleId,
+        readingType: 'closing',
+      } as any,
+    });
+
+    if (previousClosing) {
+      return {
+        value: Number(previousClosing.meterValue),
+        status: 'entered',
+      };
+    }
+
+    return { value: null, status: 'not_found' };
   }
 }
+

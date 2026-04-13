@@ -183,16 +183,12 @@ export function BackdatedEntries() {
     const params = new URLSearchParams(window.location.search);
     const dateParam = params.get('date');
     const branchParam = params.get('branchId');
-    const shiftParam = params.get('shiftId');
 
     if (dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
       setBusinessDate(dateParam);
     }
     if (branchParam) {
       setSelectedBranchId(branchParam);
-    }
-    if (shiftParam) {
-      setSelectedShiftId(shiftParam);
     }
   }, []);
 
@@ -202,7 +198,7 @@ export function BackdatedEntries() {
     queryClient.invalidateQueries({
       queryKey: ['backdated-entries-daily'],
     });
-  }, [businessDate, selectedBranchId, selectedShiftId, queryClient]);
+  }, [businessDate, selectedBranchId, queryClient]);
 
   // Keep URL in sync with selected context to avoid date/branch/shift persistence loss.
   useEffect(() => {
@@ -210,13 +206,10 @@ export function BackdatedEntries() {
     if (businessDate) params.set('date', businessDate);
     if (selectedBranchId) params.set('branchId', selectedBranchId);
     else params.delete('branchId');
-    if (selectedShiftId) params.set('shiftId', selectedShiftId);
-    else params.delete('shiftId');
-
     const nextQuery = params.toString();
     const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}`;
     window.history.replaceState({}, '', nextUrl);
-  }, [businessDate, selectedBranchId, selectedShiftId]);
+  }, [businessDate, selectedBranchId]);
 
   // Fetch branches
   const { data: branchesData } = useQuery({
@@ -325,7 +318,7 @@ export function BackdatedEntries() {
   // Fetch daily summary from new consolidated API
   // ✅ DETERMINISTIC BEHAVIOR: Always refetch on mount/focus, never cache stale data
   const { data: dailySummaryData, refetch: refetchDailySummary, isLoading: isDailySummaryLoading } = useQuery({
-    queryKey: ['backdated-entries-daily', selectedBranchId, businessDate, selectedShiftId || 'all'],
+    queryKey: ['backdated-entries-daily', selectedBranchId, businessDate],
     enabled: !!selectedBranchId && !!businessDate,
     staleTime: 0, // Never treat data as fresh (forces refetch)
     refetchOnMount: 'always', // Always refetch on component mount
@@ -337,7 +330,6 @@ export function BackdatedEntries() {
         params: {
           branchId: selectedBranchId,
           businessDate: businessDate,
-          shiftId: selectedShiftId || undefined,
         },
       });
       return res.data?.data;
@@ -878,15 +870,6 @@ export function BackdatedEntries() {
     }
   };
 
-  const mappedShiftOptions = useMemo(
-    () =>
-      (shiftInstancesData || []).map((instance) => ({
-        id: instance.id,
-        label: instance.shift?.name || `Shift ${instance.shift?.shiftNumber || ''}`.trim(),
-      })),
-    [shiftInstancesData]
-  );
-
   // REMOVED: Duplicate useEffect that was overwriting transactions after save.
 
   // Mark dirty only on user edits, not when hydrating from API/session.
@@ -1215,13 +1198,12 @@ export function BackdatedEntries() {
         totalLiters,
         branchId: selectedBranchId,
         businessDate,
-        shiftId: selectedShiftId || undefined,
+        shiftId: undefined,
       });
 
       const res = await apiClient.post('/api/backdated-entries/daily', {
         branchId: selectedBranchId,
         businessDate,
-        shiftId: selectedShiftId || undefined,
         transactions: outboundTransactions,
         deletedTransactionIds: deletedIdsToSave,
       });
@@ -1638,7 +1620,7 @@ export function BackdatedEntries() {
       </div>
 
       {/* Active Filters Display */}
-      {(selectedBranchId || businessDate || selectedShiftId) && (
+      {(selectedBranchId || businessDate) && (
         <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 border border-blue-200 rounded-lg">
           <span className="text-sm font-medium text-blue-900">Active Filters:</span>
           {businessDate && (
@@ -1649,16 +1631,6 @@ export function BackdatedEntries() {
           {selectedBranchId && branchesData && (
             <Badge variant="secondary" className="bg-blue-100 text-blue-900">
               Branch: {branchesData.find((b: any) => b.id === selectedBranchId)?.name || 'Unknown'}
-            </Badge>
-          )}
-          {selectedShiftId && shiftTemplatesData && (
-            <Badge variant="secondary" className="bg-blue-100 text-blue-900">
-              Shift: {shiftTemplatesData.find((s: any) => s.id === selectedShiftId)?.name || 'Unknown'}
-            </Badge>
-          )}
-          {!selectedShiftId && (
-            <Badge variant="secondary" className="bg-green-100 text-green-900">
-              All Shifts
             </Badge>
           )}
         </div>
@@ -1713,22 +1685,6 @@ export function BackdatedEntries() {
                     </Select>
                   </div>
 
-                  <div className="flex-1 min-w-[160px]">
-                    <Label className="text-xs text-muted-foreground mb-1">Shift</Label>
-                    <Select value={selectedShiftId || '__none__'} onValueChange={(v) => setSelectedShiftId(v === '__none__' ? '' : v)}>
-                      <SelectTrigger className="h-9">
-                        <SelectValue placeholder="Any shift" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">Any shift</SelectItem>
-                        {mappedShiftOptions.map((shiftOption) => (
-                          <SelectItem key={shiftOption.id} value={shiftOption.id}>
-                            {shiftOption.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
                 </div>
 
                 {/* Right: Action buttons */}
@@ -1855,37 +1811,19 @@ export function BackdatedEntries() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-2">
-                      <Label className="text-sm">Shift (Optional)</Label>
-                      <Select value={selectedShiftId || '__none__'} onValueChange={(v) => setSelectedShiftId(v === '__none__' ? '' : v)}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Any shift" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__none__">Any shift</SelectItem>
-                          {mappedShiftOptions.map((shiftOption) => (
-                            <SelectItem key={shiftOption.id} value={shiftOption.id}>
-                              {shiftOption.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
                 </CardContent>
               </Card>
             </CollapsibleContent>
           </Collapsible>
 
-          {/* Meter Readings Section - Shift-Segregated */}
+          {/* Meter Readings Section - Daily */}
           {selectedBranchId && businessDate ? (
             <Card className="border rounded-lg">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle className="flex items-center gap-2">
                     <Gauge className="h-5 w-5" />
-                    Backdated Meter Readings (Shift-Wise)
+                    Backdated Meter Readings (Daily)
                   </CardTitle>
                   <Badge variant="outline" className="text-blue-600 border-blue-600">
                     <Camera className="h-3 w-3 mr-1" />
@@ -1898,7 +1836,7 @@ export function BackdatedEntries() {
                 <Alert className="mb-4 border-blue-200 bg-blue-50">
                   <CheckCircle className="h-4 w-4 text-blue-600" />
                   <AlertDescription className="text-sm text-blue-900">
-                    <strong>Shift-Level Readings:</strong> Each shift (Morning, Evening) has separate opening/closing. Opening auto-fills from previous shift closing. Gaps detected are shown as warnings.
+                    <strong>Daily Chain:</strong> Opening auto-fills from previous day closing and closing can auto-fill next day opening. Gaps are shown as warnings.
                   </AlertDescription>
                 </Alert>
 
@@ -1926,7 +1864,7 @@ export function BackdatedEntries() {
                 {(backdatedMeterReadingsData as any)?.aggregateSummary && (
                   <div className="grid grid-cols-4 gap-4 mb-6 p-4 bg-slate-50 rounded-lg border border-slate-200">
                     <div>
-                      <div className="text-xs text-muted-foreground">Total Sales (All Shifts)</div>
+                      <div className="text-xs text-muted-foreground">Total Sales (Daily)</div>
                       <div className="text-2xl font-bold text-green-600">
                         {formatLiters((backdatedMeterReadingsData as any).aggregateSummary.totalSalesLiters || 0)} L
                       </div>

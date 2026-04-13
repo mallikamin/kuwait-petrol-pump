@@ -145,10 +145,6 @@ export class BackdatedMeterReadingsDailyController {
         throw new AppError(400, 'businessDate is required (format: YYYY-MM-DD)');
       }
 
-      if (!shiftId || typeof shiftId !== 'string') {
-        throw new AppError(400, 'shiftId is required');
-      }
-
       if (!nozzleId || typeof nozzleId !== 'string') {
         throw new AppError(400, 'nozzleId is required');
       }
@@ -171,7 +167,7 @@ export class BackdatedMeterReadingsDailyController {
       const data = await service.saveSingleMeterReading(
         branchId,
         businessDate,
-        shiftId,
+        typeof shiftId === 'string' ? shiftId : '',
         organizationId,
         {
           nozzleId,
@@ -325,10 +321,6 @@ export class BackdatedMeterReadingsDailyController {
         throw new AppError(400, 'businessDate is required (YYYY-MM-DD)');
       }
 
-      if (!shiftId || typeof shiftId !== 'string') {
-        throw new AppError(400, 'shiftId is required');
-      }
-
       if (!nozzleId || typeof nozzleId !== 'string') {
         throw new AppError(400, 'nozzleId is required');
       }
@@ -340,7 +332,7 @@ export class BackdatedMeterReadingsDailyController {
       const result = await service.getModalPreviousReading(
         branchId,
         businessDate,
-        shiftId,
+        typeof shiftId === 'string' ? shiftId : '',
         nozzleId,
         readingType as 'opening' | 'closing'
       );
