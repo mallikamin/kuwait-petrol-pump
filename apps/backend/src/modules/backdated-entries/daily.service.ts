@@ -105,7 +105,7 @@ export class DailyBackdatedEntriesService {
     }
 
     // Expected readings/day: nozzles × shifts × opening+closing
-    const [activeShiftCount, activeNozzleCount] = await Promise.all([
+    const [configuredShiftCount, activeNozzleCount] = await Promise.all([
       prisma.shift.count({ where: { branchId, isActive: true } }),
       prisma.nozzle.count({
         where: {
@@ -114,7 +114,7 @@ export class DailyBackdatedEntriesService {
         },
       }),
     ]);
-    const expectedReadingsPerDay = activeNozzleCount * activeShiftCount * 2;
+    const expectedReadingsPerDay = activeNozzleCount * 2;
 
     type DaySummary = {
       businessDate: string;
@@ -337,7 +337,7 @@ export class DailyBackdatedEntriesService {
       endDate,
       config: {
         activeNozzles: activeNozzleCount,
-        activeShifts: activeShiftCount,
+        activeShifts: configuredShiftCount,
         expectedReadingsPerDay,
       },
       dateRange: dateRangeStats,
@@ -1768,4 +1768,3 @@ export class DailyBackdatedEntriesService {
     };
   }
 }
-
