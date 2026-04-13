@@ -867,7 +867,7 @@ export function BackdatedEntries() {
 
     // Auto-save to server immediately
     try {
-      await saveDailyDraftMutation.mutateAsync();
+      await saveDailyDraftMutation.mutateAsync(undefined);
       toast.success('Row saved successfully');
     } catch (error: any) {
       console.error('Auto-save failed:', error);
@@ -1052,7 +1052,7 @@ export function BackdatedEntries() {
     if (!isDirty || (transactions.length === 0 && deletedTransactionIds.length === 0) || !selectedBranchId || isDailySummaryLoading) return;
     const timer = setTimeout(async () => {
       try {
-        await saveDailyDraftMutation.mutateAsync();
+        await saveDailyDraftMutation.mutateAsync(undefined);
         console.log('Auto-saved draft at', new Date().toLocaleTimeString());
       } catch (error) {
         console.error('Auto-save failed:', error);
@@ -1070,15 +1070,29 @@ export function BackdatedEntries() {
 
   // Remove transaction row
   const removeTransaction = (index: number) => {
-    setTransactions((prev) => {
-      const txnToRemove = prev[index];
-      if (txnToRemove?.id) {
-        setDeletedTransactionIds((deletedPrev) =>
-          deletedPrev.includes(txnToRemove.id as string) ? deletedPrev : [...deletedPrev, txnToRemove.id as string]
-        );
-      }
-      return prev.filter((_, i) => i !== index);
-    });
+    const txnToRemove = transactions[index];
+    const nextTransactions = transactions.filter((_, i) => i !== index);
+    const nextDeletedIds = txnToRemove?.id
+      ? (deletedTransactionIds.includes(txnToRemove.id) ? deletedTransactionIds : [...deletedTransactionIds, txnToRemove.id])
+      : deletedTransactionIds;
+
+    setTransactions(nextTransactions);
+    setDeletedTransactionIds(nextDeletedIds);
+
+    if (txnToRemove?.id && selectedBranchId) {
+      saveDailyDraftMutation.mutate(
+        { transactions: nextTransactions, deletedTransactionIds: nextDeletedIds },
+        {
+          onSuccess: () => {
+            toast.success('Transaction deleted and synced');
+          },
+          onError: (error: any) => {
+            const errorMsg = error?.response?.data?.error || error?.message || 'Failed to sync deletion';
+            toast.error(errorMsg);
+          },
+        }
+      );
+    }
   };
 
   // Update transaction field
@@ -1141,11 +1155,14 @@ export function BackdatedEntries() {
 
   // Save daily draft mutation (new consolidated API)
   const saveDailyDraftMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (override?: { transactions?: Transaction[]; deletedTransactionIds?: string[] }) => {
+      const txnsToSave = override?.transactions ?? transactions;
+      const deletedIdsToSave = override?.deletedTransactionIds ?? deletedTransactionIds;
+
       console.log('[Save Draft] Starting...', {
         branchId: selectedBranchId,
         businessDate,
-        transactionCount: transactions.length,
+        transactionCount: txnsToSave.length,
       });
 
       if (!selectedBranchId) {
@@ -1154,14 +1171,14 @@ export function BackdatedEntries() {
         throw new Error(error);
       }
 
-      if (transactions.length === 0 && deletedTransactionIds.length === 0) {
+      if (txnsToSave.length === 0 && deletedIdsToSave.length === 0) {
         const error = 'No transactions to save';
         console.error('[Save Draft] Validation failed:', error);
         throw new Error(error);
       }
 
       // Validate credit customer requirements
-      for (const txn of transactions) {
+      for (const txn of txnsToSave) {
         const error = getCreditCustomerValidationError(txn);
         if (error) {
           console.error('[Save Draft] Validation failed:', error);
@@ -1170,7 +1187,7 @@ export function BackdatedEntries() {
       }
 
       // Build outbound payload with detailed tracking
-      const outboundTransactions = transactions.map(txn => ({
+      const outboundTransactions = txnsToSave.map(txn => ({
         id: txn.id || undefined,
         nozzleId: txn.nozzleId || undefined,
         customerId: txn.customerId || undefined,
@@ -1192,7 +1209,7 @@ export function BackdatedEntries() {
       console.log('[Save Draft] Sending to API:', {
         endpoint: '/api/backdated-entries/daily',
         totalTransactions: outboundTransactions.length,
-        deletedTransactions: deletedTransactionIds.length,
+        deletedTransactions: deletedIdsToSave.length,
         withNozzleIds,
         withoutNozzleIds,
         totalLiters,
@@ -1206,7 +1223,7 @@ export function BackdatedEntries() {
         businessDate,
         shiftId: selectedShiftId || undefined,
         transactions: outboundTransactions,
-        deletedTransactionIds,
+        deletedTransactionIds: deletedIdsToSave,
       });
 
       console.log('[Save Draft] API response:', {
@@ -1344,7 +1361,7 @@ export function BackdatedEntries() {
       branchId: selectedBranchId,
       businessDate,
     });
-    await saveDailyDraftMutation.mutateAsync();
+    await saveDailyDraftMutation.mutateAsync(undefined);
   };
 
   const handleFinalizeDay = async () => {
