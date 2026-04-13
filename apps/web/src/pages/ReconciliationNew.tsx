@@ -52,6 +52,17 @@ interface DailySummary {
 }
 
 export function ReconciliationNew() {
+  const toNumber = (value: unknown): number => {
+    if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+    if (typeof value === 'string') {
+      const parsed = parseFloat(value);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+    return 0;
+  };
+
+  const asArray = <T,>(value: unknown): T[] => (Array.isArray(value) ? value as T[] : []);
+
   const { user } = useAuthStore();
   const branchId = user?.branch_id || (user as any)?.branch?.id;
 
@@ -106,7 +117,7 @@ export function ReconciliationNew() {
       s.totalReadingsEntered,
       s.totalReadingsDerived,
       s.totalReadingsMissing,
-      s.completionPercent.toFixed(0) + '%',
+      toNumber(s.completionPercent).toFixed(0) + '%',
     ]);
 
     const csv = [headers, ...rows].map(row => row.join(',')).join('\n');
@@ -258,7 +269,21 @@ export function ReconciliationNew() {
             </div>
           ) : (
             <div className="space-y-2">
-              {summaries.map((day) => (
+              {summaries.map((day) => {
+                const completionPercent = toNumber(day?.completionPercent);
+                const totalReadingsEntered = toNumber(day?.totalReadingsEntered);
+                const totalReadingsDerived = toNumber(day?.totalReadingsDerived);
+                const totalReadingsExpected = toNumber(day?.totalReadingsExpected);
+                const totalReadingsMissing = toNumber(day?.totalReadingsMissing);
+                const postingChecks = day?.postingChecks || {
+                  transactionsByFuel: { HSD: 0, PMG: 0 },
+                  creditOrBankByFuel: { HSD: 0, PMG: 0 },
+                  cashByFuel: { HSD: 0, PMG: 0 },
+                  meterComplete: false,
+                  coreChecksPassed: false,
+                };
+
+                return (
                 <Collapsible
                   key={day.businessDate}
                   open={expandedDays.has(day.businessDate)}
@@ -280,17 +305,17 @@ export function ReconciliationNew() {
                           <div>
                             <h3 className="font-semibold">{formatDate(day.businessDate)}</h3>
                             <p className="text-sm text-muted-foreground">
-                              {day.totalReadingsEntered} entered, {day.totalReadingsDerived} derived, {day.totalReadingsMissing} missing
+                              {totalReadingsEntered} entered, {totalReadingsDerived} derived, {totalReadingsMissing} missing
                             </p>
                           </div>
                         </div>
                         <div className="flex items-center gap-3">
                           <div className="text-right">
                             <div className="text-2xl font-bold">
-                              {day.completionPercent.toFixed(0)}%
+                              {completionPercent.toFixed(0)}%
                             </div>
                             <p className="text-xs text-muted-foreground">
-                              {day.totalReadingsEntered + day.totalReadingsDerived}/{day.totalReadingsExpected} readings
+                              {totalReadingsEntered + totalReadingsDerived}/{totalReadingsExpected} readings
                             </p>
                           </div>
                           <Badge variant={
@@ -311,17 +336,17 @@ export function ReconciliationNew() {
                         <div className="space-y-3">
                           <h4 className="font-semibold text-sm">Posting Checklist:</h4>
                           <div className="text-sm text-muted-foreground">
-                            Txn count: HSD {day.postingChecks.transactionsByFuel.HSD}, PMG {day.postingChecks.transactionsByFuel.PMG}
+                            Txn count: HSD {toNumber(postingChecks.transactionsByFuel?.HSD)}, PMG {toNumber(postingChecks.transactionsByFuel?.PMG)}
                           </div>
                           <div className="text-sm text-muted-foreground">
-                            Credit/Bank count: HSD {day.postingChecks.creditOrBankByFuel.HSD}, PMG {day.postingChecks.creditOrBankByFuel.PMG}
+                            Credit/Bank count: HSD {toNumber(postingChecks.creditOrBankByFuel?.HSD)}, PMG {toNumber(postingChecks.creditOrBankByFuel?.PMG)}
                           </div>
                           <div className="text-sm text-muted-foreground">
-                            Cash count: HSD {day.postingChecks.cashByFuel.HSD}, PMG {day.postingChecks.cashByFuel.PMG}
+                            Cash count: HSD {toNumber(postingChecks.cashByFuel?.HSD)}, PMG {toNumber(postingChecks.cashByFuel?.PMG)}
                           </div>
                           <div className="flex items-center gap-2">
-                            <Badge variant={day.postingChecks.coreChecksPassed ? 'default' : 'destructive'}>
-                              {day.postingChecks.coreChecksPassed ? 'Core Posting Checks Passed' : 'Posting Checks Pending'}
+                            <Badge variant={postingChecks.coreChecksPassed ? 'default' : 'destructive'}>
+                              {postingChecks.coreChecksPassed ? 'Core Posting Checks Passed' : 'Posting Checks Pending'}
                             </Badge>
                             <Badge variant={day.finalizeStatus === 'finalized' ? 'default' : 'secondary'}>
                               {day.finalizeStatus === 'finalized'
@@ -362,12 +387,12 @@ export function ReconciliationNew() {
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
-                                {day.missingDetails.map((detail, idx) => (
+                                {asArray<any>(day.missingDetails).map((detail, idx) => (
                                   <TableRow key={idx}>
                                     <TableCell>{detail.shiftName}</TableCell>
                                     <TableCell className="font-medium">{detail.nozzleName}</TableCell>
                                     <TableCell>
-                                      {detail.missingReadings.map(r => (
+                                      {asArray<string>(detail.missingReadings).map(r => (
                                         <Badge key={r} variant="outline" className="mr-1">
                                           {r}
                                         </Badge>
@@ -393,7 +418,7 @@ export function ReconciliationNew() {
                     </CollapsibleContent>
                   </div>
                 </Collapsible>
-              ))}
+              )})}
             </div>
           )}
         </CardContent>

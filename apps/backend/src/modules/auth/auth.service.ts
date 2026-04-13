@@ -1,10 +1,28 @@
 import bcrypt from 'bcrypt';
 import { prisma } from '../../config/database';
 import { redis } from '../../config/redis';
+import { env } from '../../config/env';
 import { generateAccessToken, generateRefreshToken, verifyRefreshToken } from '../../utils/jwt';
 import { AppError } from '../../middleware/error.middleware';
 
 export class AuthService {
+  private getRefreshTokenTtlSeconds(): number {
+    const raw = (env.JWT_REFRESH_EXPIRY || '30d').trim().toLowerCase();
+    const match = raw.match(/^(\d+)\s*([smhd])$/);
+    if (!match) return 30 * 24 * 60 * 60;
+
+    const value = parseInt(match[1], 10);
+    const unit = match[2];
+
+    const multiplier =
+      unit === 's' ? 1 :
+      unit === 'm' ? 60 :
+      unit === 'h' ? 3600 :
+      86400; // 'd'
+
+    return Math.max(60, value * multiplier);
+  }
+
   async login(username: string, password: string) {
     // Use findFirst since compound unique requires organizationId
     // For single-org system, this finds the user by username
@@ -33,8 +51,8 @@ export class AuthService {
     const accessToken = generateAccessToken(payload);
     const refreshToken = generateRefreshToken(payload);
 
-    // Store refresh token in Redis (30 days - matching JWT_REFRESH_EXPIRY)
-    await redis.setEx(`refresh_token:${user.id}`, 30 * 24 * 60 * 60, refreshToken);
+    // Store refresh token in Redis with TTL aligned to configured refresh expiry.
+    await redis.setEx(`refresh_token:${user.id}`, this.getRefreshTokenTtlSeconds(), refreshToken);
 
     return {
       user: {

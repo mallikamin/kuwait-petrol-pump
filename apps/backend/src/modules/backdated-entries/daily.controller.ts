@@ -27,6 +27,7 @@ const saveDailyDraftSchema = z.object({
   branchId: z.string().uuid(),
   businessDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   shiftId: z.string().uuid().optional(),
+  deletedTransactionIds: z.array(z.string().uuid()).optional().default([]),
   transactions: z.array(
     z.object({
       id: z.string().uuid().optional(), // ✅ NEW: Client-side stable ID for upsert (prevents data loss)
@@ -166,6 +167,7 @@ export class DailyBackdatedEntriesController {
       // ✅ IDEMPOTENCY GUARD: Prevent duplicate saves from rapid clicks/retries/multi-tab
       const payloadHash = createHash('sha256')
         .update(JSON.stringify({
+          deletedTransactionIds: [...(validatedData.deletedTransactionIds || [])].sort(),
           transactions: validatedData.transactions.map(t => ({
             id: t.id,
             productName: t.productName,
@@ -195,6 +197,7 @@ export class DailyBackdatedEntriesController {
           branchId: validatedData.branchId,
           businessDate: validatedData.businessDate,
           shiftId: validatedData.shiftId,
+          deletedTransactionIds: validatedData.deletedTransactionIds || [],
           transactions: validatedData.transactions as any[], // Zod validation ensures shape
         },
         req.user.organizationId,
@@ -215,6 +218,7 @@ export class DailyBackdatedEntriesController {
         const validatedData = saveDailyDraftSchema.parse(req.body);
         const payloadHash = createHash('sha256')
           .update(JSON.stringify({
+            deletedTransactionIds: [...(validatedData.deletedTransactionIds || [])].sort(),
             transactions: validatedData.transactions.map(t => ({
               id: t.id,
               productName: t.productName,

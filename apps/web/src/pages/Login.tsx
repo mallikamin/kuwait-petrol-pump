@@ -20,7 +20,7 @@ export function Login() {
   const loginMutation = useMutation({
     mutationFn: authApi.login,
     onSuccess: (data) => {
-      setAuth(data.user, data.access_token);
+      setAuth(data.user, data.access_token, data.refresh_token || null);
       toast({
         title: 'Login successful',
         description: `Welcome back, ${data.user.full_name}!`,
