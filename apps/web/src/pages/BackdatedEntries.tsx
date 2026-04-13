@@ -847,7 +847,8 @@ export function BackdatedEntries() {
 
   // Save individual transaction row (triggers auto-save to server)
   const saveTransactionRow = async (index: number) => {
-    const validationError = getCreditCustomerValidationError(transactions[index]);
+    const row = transactions[index];
+    const validationError = getCreditCustomerValidationError(row);
     if (validationError) {
       toast.error(validationError);
       return;
@@ -857,9 +858,12 @@ export function BackdatedEntries() {
     updated[index] = { ...updated[index], _localStatus: 'saved' };
     setTransactions(updated);
 
-    // Auto-save to server immediately
+    // Save this row immediately without being blocked by unrelated incomplete rows.
     try {
-      await saveDailyDraftMutation.mutateAsync(undefined);
+      await saveDailyDraftMutation.mutateAsync({
+        transactions: [row],
+        deletedTransactionIds: [],
+      });
       toast.success('Row saved successfully');
     } catch (error: any) {
       console.error('Auto-save failed:', error);

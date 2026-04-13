@@ -558,8 +558,8 @@ export class DailyBackdatedEntriesService {
         return 'PMG';
       }
 
-      // No fuel code could be resolved
-      return '';
+      // Explicit non-fuel bucket for transactions without fuel mapping.
+      return 'OTHER';
     };
 
     // Collect all transactions
@@ -1272,21 +1272,7 @@ export class DailyBackdatedEntriesService {
       });
 
       if (existingSalesCount >= txnCount) {
-        // All transactions already have sales - day is finalized
-        console.log(`[Finalize] Day already finalized for ${businessDate}. No changes detected.`);
-        return {
-          success: true,
-          message: 'Day already finalized',
-          alreadyFinalized: true,
-          salesCreated: 0,
-          transactionsProcessed: 0,
-          paymentBreakdown: {
-            cash: { liters: 0, amount: 0 },
-            credit: { liters: 0, amount: 0 },
-            bankCard: { liters: 0, amount: 0 },
-            psoCard: { liters: 0, amount: 0 },
-          },
-        };
+        console.log(`[Finalize] Day ${businessDate} already finalized. Re-running idempotent sales backfill check.`);
       }
     }
 
@@ -1387,7 +1373,6 @@ export class DailyBackdatedEntriesService {
 
         if (existingSale) {
           console.log(`[Finalize] Skipping transaction ${txn.id} - sale already exists (${existingSale.id})`);
-          createdSales.push(existingSale.id); // Count existing sale
           continue;
         }
 
