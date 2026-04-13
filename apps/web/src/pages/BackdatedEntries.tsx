@@ -890,6 +890,7 @@ export function BackdatedEntries() {
     try {
       await saveDailyDraftMutation.mutateAsync({
         transactions: [row],
+        partialSave: true,
         deletedTransactionIds: [],
       });
       toast.success('Row saved successfully');
@@ -1172,9 +1173,10 @@ export function BackdatedEntries() {
 
   // Save daily draft mutation (new consolidated API)
   const saveDailyDraftMutation = useMutation({
-    mutationFn: async (override?: { transactions?: Transaction[]; deletedTransactionIds?: string[] }) => {
+    mutationFn: async (override?: { transactions?: Transaction[]; deletedTransactionIds?: string[]; partialSave?: boolean }) => {
       const txnsToSave = override?.transactions ?? transactions;
       const deletedIdsToSave = override?.deletedTransactionIds ?? deletedTransactionIds;
+      const partialSave = override?.partialSave ?? false;
 
       console.log('[Save Draft] Starting...', {
         branchId: selectedBranchId,
@@ -1227,6 +1229,7 @@ export function BackdatedEntries() {
         endpoint: '/api/backdated-entries/daily',
         totalTransactions: outboundTransactions.length,
         deletedTransactions: deletedIdsToSave.length,
+        partialSave,
         withNozzleIds,
         withoutNozzleIds,
         totalLiters,
@@ -1238,6 +1241,7 @@ export function BackdatedEntries() {
       const res = await apiClient.post('/api/backdated-entries/daily', {
         branchId: selectedBranchId,
         businessDate,
+        partialSave,
         transactions: outboundTransactions,
         deletedTransactionIds: deletedIdsToSave,
       });

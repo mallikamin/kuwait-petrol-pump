@@ -41,6 +41,7 @@ interface DailySaveInput {
   branchId: string;
   businessDate: string; // YYYY-MM-DD
   shiftId?: string;
+  partialSave?: boolean;
   deletedTransactionIds?: string[];
   transactions: DailyTransactionInput[];
 }
@@ -749,6 +750,7 @@ export class DailyBackdatedEntriesService {
       branchId,
       businessDate,
       shiftId,
+      partialSave = false,
       transactions,
       deletedTransactionIds = [],
     } = input;
@@ -760,6 +762,7 @@ export class DailyBackdatedEntriesService {
       userId,
       transactionCount: transactions.length,
       organizationId,
+      partialSave,
     });
 
     // Validate branch
@@ -790,7 +793,7 @@ export class DailyBackdatedEntriesService {
       },
     });
 
-    if (transactions.length < existingTxnCount && transactions.length > 0 && !input.shiftId) {
+    if (!partialSave && transactions.length < existingTxnCount && transactions.length > 0 && !input.shiftId) {
       // Only allow shrinking if all incoming rows have IDs (explicit delete via omission is disallowed)
       const allHaveIds = transactions.every(t => !!t.id);
       if (!allHaveIds) {
@@ -1108,7 +1111,7 @@ export class DailyBackdatedEntriesService {
     // ✅ Legacy fallback deletion: delete rows missing from incoming only when safe.
     const allIncomingHaveIds = transactions.length > 0 && transactions.every((txn) => !!txn.id);
     const incomingCountGreaterOrEqual = transactions.length >= existingTxnIds.size;
-    const canDeleteMissing = allIncomingHaveIds && incomingCountGreaterOrEqual;
+    const canDeleteMissing = !partialSave && allIncomingHaveIds && incomingCountGreaterOrEqual;
 
     if (canDeleteMissing) {
       const txnsToDelete = Array.from(existingTxnIds).filter(id => !incomingTxnIds.has(id));
@@ -1141,7 +1144,11 @@ export class DailyBackdatedEntriesService {
         incomingCount: transactions.length,
         allIncomingHaveIds,
         incomingCountGreaterOrEqual,
-        reason: !allIncomingHaveIds ? 'incoming has rows without IDs' : 'incoming count < existing count (partial save)',
+        reason: partialSave
+          ? 'partial save mode'
+          : (!allIncomingHaveIds
+              ? 'incoming has rows without IDs'
+              : 'incoming count < existing count (partial save)'),
       });
     }
 
