@@ -755,6 +755,34 @@ export function BackdatedEntries() {
     );
   }, [customersData, customerSearchQuery]);
 
+  const nonFuelProductOptions = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; unitPrice?: number; isLegacy?: boolean }>();
+
+    (productsData || []).forEach((p: any) => {
+      if (!p?.name) return;
+      map.set(p.name, {
+        id: p.id || p.name,
+        name: p.name,
+        unitPrice: p.unitPrice,
+        isLegacy: false,
+      });
+    });
+
+    // Preserve visibility of already-saved non-fuel products even if they are no longer in master data.
+    transactions.forEach((t) => {
+      if (t.fuelCode !== 'OTHER') return;
+      const name = (t.productName || '').trim();
+      if (!name || map.has(name)) return;
+      map.set(name, {
+        id: `legacy-${name}`,
+        name,
+        isLegacy: true,
+      });
+    });
+
+    return Array.from(map.values());
+  }, [productsData, transactions]);
+
   const addTransactionToCustomer = (customerId: string, customerName: string) => {
     setTransactions([
       ...transactions,
@@ -2531,7 +2559,7 @@ export function BackdatedEntries() {
                                         <Select
                                           value={txn.productName || ''}
                                           onValueChange={(v) => {
-                                            const product = productsData?.find((p: any) => p.name === v);
+                                            const product = nonFuelProductOptions.find((p: any) => p.name === v);
                                             updateTransaction(globalIdx, 'productName', v);
                                             if (product && product.unitPrice) {
                                               updateTransaction(globalIdx, 'unitPrice', product.unitPrice.toString());
@@ -2542,10 +2570,12 @@ export function BackdatedEntries() {
                                             <SelectValue placeholder="Choose a product..." />
                                           </SelectTrigger>
                                           <SelectContent>
-                                            {productsData && productsData.length > 0 ? (
-                                              productsData.map((product: any) => (
+                                            {nonFuelProductOptions.length > 0 ? (
+                                              nonFuelProductOptions.map((product: any) => (
                                                 <SelectItem key={product.id} value={product.name}>
-                                                  {product.name} {product.unitPrice ? `- PKR ${product.unitPrice}` : ''}
+                                                  {product.name}
+                                                  {product.unitPrice ? ` - PKR ${product.unitPrice}` : ''}
+                                                  {product.isLegacy ? ' (Saved)' : ''}
                                                 </SelectItem>
                                               ))
                                             ) : (

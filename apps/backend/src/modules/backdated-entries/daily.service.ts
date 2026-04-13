@@ -1354,6 +1354,34 @@ export class DailyBackdatedEntriesService {
       }))
     );
 
+    // Keep Sales tab in sync with current backdated transactions:
+    // remove stale backdated sales for this day that no longer map to an active transaction.
+    const expectedOfflineQueueIds = new Set(
+      allTransactions
+        .filter((txn) => !!txn.fuelTypeId)
+        .map((txn) => `backdated-${txn.id}`)
+    );
+    const existingBackdatedSalesForDay = await prisma.sale.findMany({
+      where: {
+        branchId,
+        saleDate: {
+          gte: businessDateObj,
+          lt: new Date(businessDateObj.getTime() + 86400000),
+        },
+        offlineQueueId: { startsWith: 'backdated-' },
+      },
+      select: { id: true, offlineQueueId: true },
+    });
+    const staleSaleIds = existingBackdatedSalesForDay
+      .filter((sale) => !sale.offlineQueueId || !expectedOfflineQueueIds.has(sale.offlineQueueId))
+      .map((sale) => sale.id);
+    if (staleSaleIds.length > 0) {
+      await prisma.sale.deleteMany({
+        where: { id: { in: staleSaleIds } },
+      });
+      console.log(`[Finalize] Removed ${staleSaleIds.length} stale backdated sales for ${businessDate}`);
+    }
+
     // ✅ CREATE SALE RECORDS (so transactions appear in Sales tab)
     const createdSales: string[] = [];
 
