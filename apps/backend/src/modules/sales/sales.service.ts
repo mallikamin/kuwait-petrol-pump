@@ -43,8 +43,17 @@ export class SalesService {
     shiftInstanceId?: string | null;
     syncStatus?: string | null;
   }>(sales: T[]): T[] {
+    const isLegacyMidnightFuelStub = (s: T) =>
+      s.saleType === 'fuel' &&
+      !s.offlineQueueId &&
+      !s.shiftInstanceId &&
+      s.syncStatus === 'synced' &&
+      new Date(s.saleDate).toISOString().endsWith('T00:00:00.000Z');
+
+    const withoutLegacyMidnight = sales.filter((s) => !isLegacyMidnightFuelStub(s));
+
     const bySignature = new Map<string, T[]>();
-    for (const sale of sales) {
+    for (const sale of withoutLegacyMidnight) {
       const sig = this.buildFuelSaleSignature(sale);
       if (!sig) continue;
       const arr = bySignature.get(sig) || [];
@@ -63,7 +72,7 @@ export class SalesService {
       });
     }
 
-    return stale.size > 0 ? sales.filter((s) => !stale.has(s)) : sales;
+    return stale.size > 0 ? withoutLegacyMidnight.filter((s) => !stale.has(s)) : withoutLegacyMidnight;
   }
 
   /**
