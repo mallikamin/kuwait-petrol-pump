@@ -1080,60 +1080,62 @@ export function BackdatedEntries() {
 
   // Update transaction field
   const updateTransaction = (index: number, field: keyof Transaction, value: any) => {
-    const updated = [...transactions];
-    updated[index] = { ...updated[index], [field]: value };
+    setTransactions((prev) => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
 
-    // ✅ NOZZLE-FUEL CONSISTENCY GUARD
-    // When fuel code changes, verify it matches the selected nozzle's fuel type
-    // If mismatch, clear nozzleId to force user to select compatible nozzle
-    if (field === 'fuelCode' && updated[index].nozzleId) {
-      const nozzleFuelMap = (dailySummaryData?.nozzleStatuses || []).reduce((map: any, ns: any) => {
-        map[ns.nozzleId] = ns.fuelType;
-        return map;
-      }, {});
+      // ✅ NOZZLE-FUEL CONSISTENCY GUARD
+      // When fuel code changes, verify it matches the selected nozzle's fuel type
+      // If mismatch, clear nozzleId to force user to select compatible nozzle
+      if (field === 'fuelCode' && updated[index].nozzleId) {
+        const nozzleFuelMap = (dailySummaryData?.nozzleStatuses || []).reduce((map: any, ns: any) => {
+          map[ns.nozzleId] = ns.fuelType;
+          return map;
+        }, {});
 
-      const nozzleFuelType = nozzleFuelMap[updated[index].nozzleId];
-      if (nozzleFuelType && nozzleFuelType !== value) {
-        console.warn('[Frontend Guard] Fuel type mismatch detected, clearing nozzleId:', {
-          nozzleId: updated[index].nozzleId,
-          nozzleFuelType,
-          selectedFuelCode: value,
-        });
-        updated[index].nozzleId = ''; // Clear incompatible nozzle selection
+        const nozzleFuelType = nozzleFuelMap[updated[index].nozzleId];
+        if (nozzleFuelType && nozzleFuelType !== value) {
+          console.warn('[Frontend Guard] Fuel type mismatch detected, clearing nozzleId:', {
+            nozzleId: updated[index].nozzleId,
+            nozzleFuelType,
+            selectedFuelCode: value,
+          });
+          updated[index].nozzleId = ''; // Clear incompatible nozzle selection
+        }
       }
-    }
 
-    // Auto-fill product name and unit price when fuel type selected
-    if (field === 'fuelCode') {
-      const fuelPrice = (fuelPricesData || []).find((fp: any) => fp.fuelType?.code === value);
-      if (value === 'HSD') {
-        updated[index].productName = 'High Speed Diesel';
-        updated[index].unitPrice = fuelPrice?.pricePerLiter?.toString() || '340'; // Live price or fallback
-      } else if (value === 'PMG') {
-        updated[index].productName = 'Premium Motor Gasoline';
-        updated[index].unitPrice = fuelPrice?.pricePerLiter?.toString() || '458'; // Live price or fallback
-      } else if (value === 'OTHER') {
-        updated[index].productName = 'Other Fuel';
-        updated[index].unitPrice = fuelPrice?.pricePerLiter?.toString() || '0.00';
+      // Auto-fill product name and unit price when fuel type selected
+      if (field === 'fuelCode') {
+        const fuelPrice = (fuelPricesData || []).find((fp: any) => fp.fuelType?.code === value);
+        if (value === 'HSD') {
+          updated[index].productName = 'High Speed Diesel';
+          updated[index].unitPrice = fuelPrice?.pricePerLiter?.toString() || '340'; // Live price or fallback
+        } else if (value === 'PMG') {
+          updated[index].productName = 'Premium Motor Gasoline';
+          updated[index].unitPrice = fuelPrice?.pricePerLiter?.toString() || '458'; // Live price or fallback
+        } else if (value === 'OTHER') {
+          updated[index].productName = '';
+          updated[index].unitPrice = fuelPrice?.pricePerLiter?.toString() || '0.00';
+        }
       }
-    }
 
-    // Auto-calculate line total when quantity or unit price changes
-    if (field === 'quantity' || field === 'unitPrice' || field === 'fuelCode') {
-      const qty = toNumber(updated[index].quantity);
-      const price = toNumber(updated[index].unitPrice);
-      updated[index].lineTotal = (qty * price).toFixed(2);
-    }
-
-    // Auto-fill customer name
-    if (field === 'customerId') {
-      const customer = customersData?.find((c: any) => c.id === value);
-      if (customer) {
-        updated[index].customerName = customer.name;
+      // Auto-calculate line total when quantity or unit price changes
+      if (field === 'quantity' || field === 'unitPrice' || field === 'fuelCode') {
+        const qty = toNumber(updated[index].quantity);
+        const price = toNumber(updated[index].unitPrice);
+        updated[index].lineTotal = (qty * price).toFixed(2);
       }
-    }
 
-    setTransactions(updated);
+      // Auto-fill customer name
+      if (field === 'customerId') {
+        const customer = customersData?.find((c: any) => c.id === value);
+        if (customer) {
+          updated[index].customerName = customer.name;
+        }
+      }
+
+      return updated;
+    });
   };
 
   // Save daily draft mutation (new consolidated API)

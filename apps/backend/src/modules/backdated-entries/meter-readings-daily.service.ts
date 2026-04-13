@@ -277,15 +277,15 @@ export class BackdatedMeterReadingsDailyService {
     }
 
     const totalExpected = nozzles.length * 2;
-    const totalFilled = totalEntered + totalOpeningPropagated;
+    const totalFilled = totalEntered + totalPropagated;
     const totalMissing = totalExpected - totalFilled;
     const aggregateCompletion = totalExpected > 0 ? (totalFilled / totalExpected) * 100 : 0;
     const shiftSummary: ShiftSummary = {
       shiftId: canonicalShift.id,
-      shiftName: canonicalShift.name || `Shift ${canonicalShift.shiftNumber}`,
+      shiftName: 'Daily',
       shiftNumber: canonicalShift.shiftNumber,
-      startTime: canonicalShift.startTime.toISOString(),
-      endTime: canonicalShift.endTime.toISOString(),
+      startTime: `${businessDate}T00:00:00.000Z`,
+      endTime: `${businessDate}T23:59:59.000Z`,
       nozzles: nozzleStatuses,
       summary: {
         totalNozzles: nozzles.length,
@@ -517,18 +517,18 @@ export class BackdatedMeterReadingsDailyService {
       if (input.readingType === 'closing') {
         await this.propagateClosingToNextOpening(
           input.nozzleId,
-          shift,
           businessDateObj,
           branchId,
+          organizationId,
           Number(reading.meterValue),
           userId
         );
       } else if (input.readingType === 'opening') {
         await this.propagateOpeningToPreviousClosing(
           input.nozzleId,
-          shift,
           businessDateObj,
           branchId,
+          organizationId,
           Number(reading.meterValue),
           userId
         );
@@ -550,9 +550,9 @@ export class BackdatedMeterReadingsDailyService {
    */
   private async propagateClosingToNextOpening(
     nozzleId: string,
-    shift: any,
     businessDate: Date,
     branchId: string,
+    organizationId: string,
     meterValue: number,
     userId: string
   ): Promise<void> {
@@ -571,7 +571,7 @@ export class BackdatedMeterReadingsDailyService {
         } as any,
       },
       create: {
-        organizationId: shift.organizationId,
+        organizationId,
         branchId,
         businessDate: targetDate,
         shiftId: targetShift.id,
@@ -597,9 +597,9 @@ export class BackdatedMeterReadingsDailyService {
    */
   private async propagateOpeningToPreviousClosing(
     nozzleId: string,
-    shift: any,
     businessDate: Date,
     branchId: string,
+    organizationId: string,
     meterValue: number,
     userId: string
   ): Promise<void> {
@@ -618,7 +618,7 @@ export class BackdatedMeterReadingsDailyService {
         } as any,
       },
       create: {
-        organizationId: shift.organizationId,
+        organizationId,
         branchId,
         businessDate: targetDate,
         shiftId: targetShift.id,
