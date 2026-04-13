@@ -970,7 +970,7 @@ export function BackdatedEntries() {
           fuelCode: (txn.fuelCode || '') as any, // ✅ CRITICAL: Use exact API value (NEVER fall back to nozzle fuel type)
           vehicleNumber: txn.vehicleNumber || '',
           slipNumber: txn.slipNumber || '',
-          productName: txn.productName || 'Fuel', // Keep exact API value
+          productName: txn.productName || '', // Keep exact API value
           quantity: toNumber(txn.quantity).toString(),
           unitPrice: toNumber(txn.unitPrice).toFixed(2), // Keep exact API value
           lineTotal: toNumber(txn.lineTotal).toFixed(2),
@@ -1305,6 +1305,15 @@ export function BackdatedEntries() {
       } else {
         toast.success('Day finalized successfully!');
       }
+
+      // Ensure Sales tab reflects newly posted finalized transactions.
+      queryClient.invalidateQueries({
+        predicate: (query) => {
+          const key = query.queryKey?.[0];
+          return key === 'sales' || key === 'sales-summary';
+        },
+      });
+
       refetchDailySummary();
     },
     onError: (error: any) => {

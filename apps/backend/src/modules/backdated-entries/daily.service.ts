@@ -164,18 +164,22 @@ export class DailyBackdatedEntriesService {
       });
     }
 
-    const [meterReadingCounts, transactions, entries] = await Promise.all([
-      prisma.backdatedMeterReading.groupBy({
-        by: ['businessDate'],
-        where: {
-          branchId,
-          businessDate: {
-            gte: startDateObj,
-            lte: endDateObj,
-          },
-        },
-        _count: { _all: true },
-      }),
+    const businessDates = Array.from(dayMap.keys());
+
+    const [dailyMeterSummaries, transactions, entries] = await Promise.all([
+      Promise.all(
+        businessDates.map(async (dateStr) => {
+          const daily = await this.meterReadingsDailyService.getDailyMeterReadings(
+            branchId,
+            dateStr,
+            organizationId
+          );
+          return {
+            businessDate: dateStr,
+            summary: daily.aggregateSummary,
+          };
+        })
+      ),
       prisma.backdatedTransaction.findMany({
         where: {
           deletedAt: null,
@@ -222,12 +226,13 @@ export class DailyBackdatedEntriesService {
       }),
     ]);
 
-    for (const meterRow of meterReadingCounts) {
-      const dateStr = meterRow.businessDate.toISOString().split('T')[0];
-      const summary = dayMap.get(dateStr);
+    for (const meterRow of dailyMeterSummaries) {
+      const summary = dayMap.get(meterRow.businessDate);
       if (!summary) continue;
 
-      summary.totalReadingsEntered = meterRow._count._all;
+      summary.totalReadingsExpected = meterRow.summary.totalReadingsExpected || summary.totalReadingsExpected;
+      summary.totalReadingsEntered = meterRow.summary.totalReadingsEntered || 0;
+      summary.totalReadingsDerived = meterRow.summary.totalReadingsPropagated || 0;
     }
 
     for (const txn of transactions) {
@@ -266,13 +271,6 @@ export class DailyBackdatedEntriesService {
           summary.totalReadingsExpected > 0
             ? Math.round((filled / summary.totalReadingsExpected) * 100)
             : 0;
-        summary.status =
-          summary.completionPercent === 100
-            ? 'fully_reconciled'
-            : summary.completionPercent > 0
-              ? 'partially_reconciled'
-              : 'not_reconciled';
-
         const finalizeAggregate = entryFinalizeMap.get(summary.businessDate);
         if (!finalizeAggregate || finalizeAggregate.total === 0) {
           summary.finalizeStatus = 'no_entries';
@@ -298,6 +296,23 @@ export class DailyBackdatedEntriesService {
           pmgCreditOrBankPosted &&
           hsdCashPosted &&
           pmgCashPosted;
+
+        const hasAnyPostingSignal =
+          summary.postingChecks.transactionsByFuel.HSD > 0 ||
+          summary.postingChecks.transactionsByFuel.PMG > 0 ||
+          summary.postingChecks.creditOrBankByFuel.HSD > 0 ||
+          summary.postingChecks.creditOrBankByFuel.PMG > 0 ||
+          summary.postingChecks.cashByFuel.HSD > 0 ||
+          summary.postingChecks.cashByFuel.PMG > 0;
+
+        // Reconciliation status must represent both dimensions:
+        // meter completeness and posting/finalization completeness.
+        summary.status =
+          meterComplete && summary.postingChecks.coreChecksPassed && summary.finalizeStatus === 'finalized'
+            ? 'fully_reconciled'
+            : (meterComplete || hasAnyPostingSignal || summary.finalizeStatus === 'finalized')
+              ? 'partially_reconciled'
+              : 'not_reconciled';
 
         const blockers: string[] = [];
         if (!hsdTxnPosted) blockers.push('0 transactions posted for HSD');
@@ -793,8 +808,9 @@ export class DailyBackdatedEntriesService {
     // This ensures walk-in + nozzle paths use consistent fuel type resolution
     const allFuelCodes = new Set<string>();
     transactions.forEach(txn => {
-      if (txn.fuelCode) {
-        allFuelCodes.add((txn.fuelCode || '').toUpperCase());
+      const fuelCode = (txn.fuelCode || '').toUpperCase();
+      if (fuelCode === 'HSD' || fuelCode === 'PMG') {
+        allFuelCodes.add(fuelCode);
       }
     });
 
@@ -810,15 +826,25 @@ export class DailyBackdatedEntriesService {
       });
     }
 
-    // ✅ VALIDATION: Every transaction MUST have a valid fuel code
+    // ✅ VALIDATION: Every transaction MUST declare a supported code.
+    // Fuel-reconciled rows: HSD/PMG (must map to master fuel type)
+    // Non-fuel rows: OTHER (stored with null fuelTypeId)
     for (const txn of transactions) {
       const fuelCode = (txn.fuelCode || '').toUpperCase();
-      if (!fuelCode || !fuelTypesMap.has(fuelCode)) {
+      if (fuelCode !== 'HSD' && fuelCode !== 'PMG' && fuelCode !== 'OTHER') {
         throw new AppError(
           400,
           `Transaction with ${txn.quantity}L and product "${txn.productName}" has invalid/missing fuel code: "${txn.fuelCode}". ` +
-          `Valid codes are: ${Array.from(fuelTypesMap.keys()).join(', ')}`
+          `Valid codes are: HSD, PMG, OTHER`
         );
+      }
+
+      if ((fuelCode === 'HSD' || fuelCode === 'PMG') && !fuelTypesMap.has(fuelCode)) {
+        throw new AppError(400, `Cannot resolve fuel type for code: ${fuelCode}`);
+      }
+
+      if (fuelCode === 'OTHER' && !(txn.productName || '').trim()) {
+        throw new AppError(400, 'Non-fuel transaction requires productName');
       }
     }
 
@@ -838,14 +864,17 @@ export class DailyBackdatedEntriesService {
       });
 
       const existingFuelById = new Map(
-        existingFuelMap.map(txn => [txn.id, txn.fuelType.code])
+        existingFuelMap.map(txn => [txn.id, (txn.fuelType?.code || '').toUpperCase()])
       );
 
       // Find any transactions where fuel type is changing
       const fuelChanges = transactions.filter(incoming => {
         if (!incoming.id || !existingFuelById.has(incoming.id)) return false;
-        const existingFuelCode = existingFuelById.get(incoming.id);
+        const existingFuelCode = (existingFuelById.get(incoming.id) || '').toUpperCase();
         const incomingFuelCode = (incoming.fuelCode || '').toUpperCase();
+
+        // Non-fuel edits must not be blocked by cross-fuel guard.
+        if (existingFuelCode === '' && incomingFuelCode === 'OTHER') return false;
         return existingFuelCode !== incomingFuelCode;
       });
 
@@ -950,9 +979,10 @@ export class DailyBackdatedEntriesService {
     for (const txn of transactions) {
       // ✅ Resolve fuel type from txn.fuelCode only (no nozzle fallback)
       const fuelCode = (txn.fuelCode || '').toUpperCase();
-      const resolvedFuelTypeId = fuelTypesMap.get(fuelCode);
+      const resolvedFuelTypeId =
+        fuelCode === 'OTHER' ? null : (fuelTypesMap.get(fuelCode) || null);
 
-      if (!resolvedFuelTypeId) {
+      if ((fuelCode === 'HSD' || fuelCode === 'PMG') && !resolvedFuelTypeId) {
         throw new AppError(400, `Cannot resolve fuel type for code: ${txn.fuelCode}`);
       }
 
