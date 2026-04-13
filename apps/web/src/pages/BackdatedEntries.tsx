@@ -904,15 +904,16 @@ export function BackdatedEntries() {
 
   // Save transactions to sessionStorage on every change (prevents data loss on navigation)
   useEffect(() => {
-    if (selectedBranchId && businessDate && transactions.length > 0) {
+    if (selectedBranchId && businessDate && (transactions.length > 0 || deletedTransactionIds.length > 0)) {
       const key = `backdated_transactions_${selectedBranchId}_${businessDate}_${selectedShiftId || 'all'}`;
       sessionStorage.setItem(key, JSON.stringify({
         transactions,
+        deletedTransactionIds,
         timestamp: Date.now(),
       }));
       console.log('[SessionStorage] Saved', transactions.length, 'transactions');
     }
-  }, [transactions, selectedBranchId, businessDate, selectedShiftId]);
+  }, [transactions, deletedTransactionIds, selectedBranchId, businessDate, selectedShiftId]);
 
 
   // Load transactions from API on branch/date/shift change
@@ -964,7 +965,13 @@ export function BackdatedEntries() {
       return; // Don't update state until API data arrives
     }
 
-    // ✅ PRIORITY: Always load from API first (server is source of truth)
+    // ✅ SAFETY: Never overwrite local unsaved edits/deletes with periodic refetch data.
+    if (isDirty && !dateChanged && !justSavedRef.current) {
+      console.log('[Transactions] Skipping API hydration (local unsaved changes present)');
+      return;
+    }
+
+    // ✅ PRIORITY: Load from API when clean state or after save.
     if (dailySummaryData?.transactions && dailySummaryData.transactions.length > 0) {
       console.log('[Transactions] Loading from API (server truth):', dailySummaryData.transactions.length);
 
@@ -1010,7 +1017,6 @@ export function BackdatedEntries() {
 
       hydratingTransactionsRef.current = true;
       setTransactions(hydratedTransactions);
-      setDeletedTransactionIds([]);
 
       console.log('[Transactions] Hydration complete:', {
         count: hydratedTransactions.length,
@@ -1027,7 +1033,6 @@ export function BackdatedEntries() {
       console.log('[Transactions] API loaded: no transactions found');
       hydratingTransactionsRef.current = true;
       setTransactions([]);
-      setDeletedTransactionIds([]);
       setSyncMessage('No existing transactions. Start adding customer groups.');
       setLoadedKey(currentKey); // Mark as loaded even if empty
     }
@@ -1044,7 +1049,7 @@ export function BackdatedEntries() {
   // Auto-save timer (2 minutes)
   // ✅ SAFETY: Disable auto-save while API is loading (prevents overwriting server data with stale local)
   useEffect(() => {
-    if (!isDirty || transactions.length === 0 || !selectedBranchId || isDailySummaryLoading) return;
+    if (!isDirty || (transactions.length === 0 && deletedTransactionIds.length === 0) || !selectedBranchId || isDailySummaryLoading) return;
     const timer = setTimeout(async () => {
       try {
         await saveDailyDraftMutation.mutateAsync();
@@ -1054,7 +1059,7 @@ export function BackdatedEntries() {
       }
     }, 120000); // 2 minutes
     return () => clearTimeout(timer);
-  }, [isDirty, transactions, selectedBranchId]);
+  }, [isDirty, transactions, deletedTransactionIds, selectedBranchId, isDailySummaryLoading]);
 
   // Track viewport height for responsive sticky behavior
   useEffect(() => {
@@ -1065,13 +1070,15 @@ export function BackdatedEntries() {
 
   // Remove transaction row
   const removeTransaction = (index: number) => {
-    const txnToRemove = transactions[index];
-    if (txnToRemove?.id) {
-      setDeletedTransactionIds((prev) =>
-        prev.includes(txnToRemove.id as string) ? prev : [...prev, txnToRemove.id as string]
-      );
-    }
-    setTransactions(transactions.filter((_, i) => i !== index));
+    setTransactions((prev) => {
+      const txnToRemove = prev[index];
+      if (txnToRemove?.id) {
+        setDeletedTransactionIds((deletedPrev) =>
+          deletedPrev.includes(txnToRemove.id as string) ? deletedPrev : [...deletedPrev, txnToRemove.id as string]
+        );
+      }
+      return prev.filter((_, i) => i !== index);
+    });
   };
 
   // Update transaction field
@@ -1147,7 +1154,7 @@ export function BackdatedEntries() {
         throw new Error(error);
       }
 
-      if (transactions.length === 0) {
+      if (transactions.length === 0 && deletedTransactionIds.length === 0) {
         const error = 'No transactions to save';
         console.error('[Save Draft] Validation failed:', error);
         throw new Error(error);
