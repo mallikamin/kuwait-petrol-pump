@@ -10,8 +10,8 @@ const envSchema = z.object({
   REDIS_URL: z.string(),
   JWT_SECRET: z.string(),
   JWT_REFRESH_SECRET: z.string(),
-  JWT_EXPIRY: z.string().default('8h'), // Access token valid for 8 hours (increased from 15 minutes)
-  JWT_REFRESH_EXPIRY: z.string().default('30d'), // Refresh token valid for 30 days (increased from 7 days)
+  JWT_EXPIRY: z.string().default('24h'), // POS-friendly default: keep access token alive for a full operating day
+  JWT_REFRESH_EXPIRY: z.string().default('90d'), // Long-lived refresh window to minimize forced re-logins
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
   QUICKBOOKS_CLIENT_ID: z.string().optional(),
   QUICKBOOKS_CLIENT_SECRET: z.string().optional(),

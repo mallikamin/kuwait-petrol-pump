@@ -28,6 +28,14 @@ export const apiClient: AxiosInstance = axios.create({
   },
 });
 
+let isRefreshing = false;
+let pendingRequests: Array<(token: string | null) => void> = [];
+
+const flushPendingRequests = (token: string | null) => {
+  pendingRequests.forEach((cb) => cb(token));
+  pendingRequests = [];
+};
+
 // Request interceptor
 apiClient.interceptors.request.use(
   (config) => {
@@ -55,10 +63,73 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
-    if (error.response?.status === 401) {
+    const status = error.response?.status;
+    const originalRequest = error.config as (typeof error.config & { _retry?: boolean }) | undefined;
+    const requestUrl = originalRequest?.url || '';
+    const isAuthRoute = requestUrl.includes('/auth/login') || requestUrl.includes('/auth/refresh');
+
+    if (status === 401 && originalRequest && !originalRequest._retry && !isAuthRoute) {
+      const { refreshToken, setToken, logout } = useAuthStore.getState();
+
+      if (!refreshToken) {
+        logout();
+        window.location.href = '/login';
+        return Promise.reject(error);
+      }
+
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          pendingRequests.push((newToken) => {
+            if (!newToken) {
+              reject(error);
+              return;
+            }
+            originalRequest.headers = originalRequest.headers || {};
+            originalRequest.headers.Authorization = `Bearer ${newToken}`;
+            resolve(apiClient(originalRequest));
+          });
+        });
+      }
+
+      originalRequest._retry = true;
+      isRefreshing = true;
+
+      return axios
+        .post(`${FINAL_API_URL}/auth/refresh`, { refreshToken }, {
+          headers: { 'Content-Type': 'application/json' },
+        })
+        .then((refreshResponse) => {
+          const newAccessToken =
+            refreshResponse.data?.accessToken ||
+            refreshResponse.data?.access_token;
+
+          if (!newAccessToken || typeof newAccessToken !== 'string') {
+            throw new Error('Refresh response missing access token');
+          }
+
+          setToken(newAccessToken);
+          flushPendingRequests(newAccessToken);
+
+          originalRequest.headers = originalRequest.headers || {};
+          originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+          return apiClient(originalRequest);
+        })
+        .catch((refreshErr) => {
+          flushPendingRequests(null);
+          logout();
+          window.location.href = '/login';
+          return Promise.reject(refreshErr);
+        })
+        .finally(() => {
+          isRefreshing = false;
+        });
+    }
+
+    if (status === 401) {
       useAuthStore.getState().logout();
       window.location.href = '/login';
     }
+
     return Promise.reject(error);
   }
 );

@@ -96,6 +96,13 @@ const formatLiters = (liters: number): string => {
   return str.replace(/\.?0+$/, ''); // Remove trailing zeros and decimal point if needed
 };
 
+const safeFormatDateTime = (value: unknown, pattern = 'MMM dd, yyyy HH:mm'): string => {
+  if (!value) return 'N/A';
+  const date = value instanceof Date ? value : new Date(String(value));
+  if (Number.isNaN(date.getTime())) return 'N/A';
+  return format(date, pattern);
+};
+
 const openAttachmentInNewTab = (rawUrl?: string | null) => {
   if (!rawUrl) return;
 
@@ -135,6 +142,7 @@ export function BackdatedEntries() {
 
   // Transaction fields
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [deletedTransactionIds, setDeletedTransactionIds] = useState<string[]>([]);
   const [syncMessage, setSyncMessage] = useState('');
 
   // Auto-save state
@@ -922,6 +930,7 @@ export function BackdatedEntries() {
       console.log('[Transactions] Clearing (no branch/date selected)');
       hydratingTransactionsRef.current = true;
       setTransactions([]);
+      setDeletedTransactionIds([]);
       setSyncMessage('');
       setLoadedKey('');
       return;
@@ -1001,6 +1010,7 @@ export function BackdatedEntries() {
 
       hydratingTransactionsRef.current = true;
       setTransactions(hydratedTransactions);
+      setDeletedTransactionIds([]);
 
       console.log('[Transactions] Hydration complete:', {
         count: hydratedTransactions.length,
@@ -1017,6 +1027,7 @@ export function BackdatedEntries() {
       console.log('[Transactions] API loaded: no transactions found');
       hydratingTransactionsRef.current = true;
       setTransactions([]);
+      setDeletedTransactionIds([]);
       setSyncMessage('No existing transactions. Start adding customer groups.');
       setLoadedKey(currentKey); // Mark as loaded even if empty
     }
@@ -1054,6 +1065,12 @@ export function BackdatedEntries() {
 
   // Remove transaction row
   const removeTransaction = (index: number) => {
+    const txnToRemove = transactions[index];
+    if (txnToRemove?.id) {
+      setDeletedTransactionIds((prev) =>
+        prev.includes(txnToRemove.id as string) ? prev : [...prev, txnToRemove.id as string]
+      );
+    }
     setTransactions(transactions.filter((_, i) => i !== index));
   };
 
@@ -1168,6 +1185,7 @@ export function BackdatedEntries() {
       console.log('[Save Draft] Sending to API:', {
         endpoint: '/api/backdated-entries/daily',
         totalTransactions: outboundTransactions.length,
+        deletedTransactions: deletedTransactionIds.length,
         withNozzleIds,
         withoutNozzleIds,
         totalLiters,
@@ -1181,6 +1199,7 @@ export function BackdatedEntries() {
         businessDate,
         shiftId: selectedShiftId || undefined,
         transactions: outboundTransactions,
+        deletedTransactionIds,
       });
 
       console.log('[Save Draft] API response:', {
@@ -1201,6 +1220,7 @@ export function BackdatedEntries() {
       // Clear sessionStorage since data is now on server
       const sessionKey = `backdated_transactions_${selectedBranchId}_${businessDate}_${selectedShiftId || 'all'}`;
       sessionStorage.removeItem(sessionKey);
+      setDeletedTransactionIds([]);
       console.log('[SessionStorage] Cleared after successful save');
 
       refetchDailySummary();
@@ -1571,6 +1591,7 @@ export function BackdatedEntries() {
     setSelectedShiftId('');
     hydratingTransactionsRef.current = true;
     setTransactions([]);
+    setDeletedTransactionIds([]);
     setSyncMessage('');
   };
 
@@ -1929,19 +1950,19 @@ export function BackdatedEntries() {
                               <div>
                                 <div className="font-semibold text-lg text-left">{shift.shiftName}</div>
                                 <div className="text-xs text-muted-foreground text-left">
-                                  {shift.startTime.substring(11, 16)} - {shift.endTime.substring(11, 16)}
+                                  {(typeof shift.startTime === 'string' && shift.startTime.length >= 16) ? shift.startTime.substring(11, 16) : 'N/A'} - {(typeof shift.endTime === 'string' && shift.endTime.length >= 16) ? shift.endTime.substring(11, 16) : 'N/A'}
                                 </div>
                               </div>
                             </div>
                             <div className="flex items-center gap-3">
-                              <Badge variant={shift.summary.completionPercent === 100 ? 'default' : 'secondary'} className="text-sm">
-                                {shift.summary.completionPercent.toFixed(0)}% Complete
+                              <Badge variant={toNumber(shift?.summary?.completionPercent) === 100 ? 'default' : 'secondary'} className="text-sm">
+                                {toNumber(shift?.summary?.completionPercent).toFixed(0)}% Complete
                               </Badge>
                               <div className="text-sm text-muted-foreground">
                                 {/* ✅ NEW: Product-wise sales breakdown */}
-                                HSD: <span className="font-semibold text-blue-600">{formatLiters(shift.summary.hsdSalesLiters || 0)} L</span>
-                                {' '}| PMG: <span className="font-semibold text-orange-600">{formatLiters(shift.summary.pmgSalesLiters || 0)} L</span>
-                                {' '}| Total: <span className="font-semibold text-green-600">{formatLiters(shift.summary.totalSalesLiters || 0)} L</span>
+                                HSD: <span className="font-semibold text-blue-600">{formatLiters(toNumber(shift?.summary?.hsdSalesLiters))} L</span>
+                                {' '}| PMG: <span className="font-semibold text-orange-600">{formatLiters(toNumber(shift?.summary?.pmgSalesLiters))} L</span>
+                                {' '}| Total: <span className="font-semibold text-green-600">{formatLiters(toNumber(shift?.summary?.totalSalesLiters))} L</span>
                               </div>
                             </div>
                           </div>
@@ -1949,7 +1970,7 @@ export function BackdatedEntries() {
                         <AccordionContent className="px-4 pb-4">
                           {/* Nozzles for this shift */}
                           <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2">
-                            {shift.nozzles.map((nozzle: any) => {
+                            {(Array.isArray(shift?.nozzles) ? shift.nozzles : []).map((nozzle: any) => {
                               const hasEnteredOpening = nozzle.opening?.status === 'entered';
                               const hasEnteredClosing = nozzle.closing?.status === 'entered';
                               const isPropagatedOpening = nozzle.opening?.status === 'propagated_backward' || nozzle.opening?.status === 'propagated_forward';
@@ -2103,7 +2124,7 @@ export function BackdatedEntries() {
                                     {nozzle.opening?.submittedAt && (
                                       <div className="flex items-center gap-1 text-gray-700">
                                         <Clock className="h-3 w-3 text-blue-600" />
-                                        <span>{format(new Date(nozzle.opening.submittedAt), 'MMM dd, yyyy HH:mm')}</span>
+                                        <span>{safeFormatDateTime(nozzle.opening.submittedAt)}</span>
                                       </div>
                                     )}
                                     {nozzle.opening?.ocrManuallyEdited && (
@@ -2210,7 +2231,7 @@ export function BackdatedEntries() {
                                     {nozzle.closing?.submittedAt && (
                                       <div className="flex items-center gap-1 text-gray-700">
                                         <Clock className="h-3 w-3 text-blue-600" />
-                                        <span>{format(new Date(nozzle.closing.submittedAt), 'MMM dd, yyyy HH:mm')}</span>
+                                        <span>{safeFormatDateTime(nozzle.closing.submittedAt)}</span>
                                       </div>
                                     )}
                                     {nozzle.closing?.ocrManuallyEdited && (

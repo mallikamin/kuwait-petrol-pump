@@ -41,6 +41,7 @@ interface DailySaveInput {
   branchId: string;
   businessDate: string; // YYYY-MM-DD
   shiftId?: string;
+  deletedTransactionIds?: string[];
   transactions: DailyTransactionInput[];
 }
 
@@ -729,7 +730,13 @@ export class DailyBackdatedEntriesService {
    * - Return updated daily summary
    */
   async saveDailyDraft(input: DailySaveInput, organizationId: string, userId?: string) {
-    const { branchId, businessDate, shiftId, transactions } = input;
+    const {
+      branchId,
+      businessDate,
+      shiftId,
+      transactions,
+      deletedTransactionIds = [],
+    } = input;
 
     console.log('[BackdatedEntries] saveDailyDraft called:', {
       branchId,
@@ -1047,8 +1054,28 @@ export class DailyBackdatedEntriesService {
       upsertedCount++;
     }
 
-    // ✅ Safe deletion: Only delete missing transactions if all incoming have IDs and count >= existing
+    // ✅ Explicit deletion path: honor client intent even when incoming rows include unsaved draft rows.
     let deletedCount = 0;
+    if (deletedTransactionIds.length > 0) {
+      const explicitDelete = await prisma.backdatedTransaction.updateMany({
+        where: {
+          id: { in: deletedTransactionIds },
+          backdatedEntryId: entryId,
+          deletedAt: null,
+        },
+        data: {
+          deletedAt: new Date(),
+          deletedBy: userId || null,
+        },
+      });
+      deletedCount += explicitDelete.count;
+      console.log('[BackdatedEntries] Explicit soft-deleted transactions:', {
+        requested: deletedTransactionIds.length,
+        deleted: explicitDelete.count,
+      });
+    }
+
+    // ✅ Legacy fallback deletion: delete rows missing from incoming only when safe.
     const allIncomingHaveIds = transactions.length > 0 && transactions.every((txn) => !!txn.id);
     const incomingCountGreaterOrEqual = transactions.length >= existingTxnIds.size;
     const canDeleteMissing = allIncomingHaveIds && incomingCountGreaterOrEqual;
@@ -1063,18 +1090,19 @@ export class DailyBackdatedEntriesService {
           toDeleteCount: txnsToDelete.length,
         });
         // ✅ SOFT DELETE: Mark transactions as deleted instead of hard delete
-        await prisma.backdatedTransaction.updateMany({
+        const implicitDelete = await prisma.backdatedTransaction.updateMany({
           where: {
             id: { in: txnsToDelete },
             backdatedEntryId: entryId,
+            deletedAt: null,
           },
           data: {
             deletedAt: new Date(),
             deletedBy: userId, // Track who deleted these transactions
           },
         });
-        deletedCount = txnsToDelete.length;
-        console.log('[BackdatedEntries] Soft-deleted removed transactions:', deletedCount);
+        deletedCount += implicitDelete.count;
+        console.log('[BackdatedEntries] Soft-deleted removed transactions (implicit):', implicitDelete.count);
       }
     } else {
       console.log('[BackdatedEntries] Skip delete - unsafe to delete (prevents partial-save data loss)', {
