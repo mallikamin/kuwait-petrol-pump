@@ -72,6 +72,16 @@ export function Sales() {
   const sales = data?.items ?? [];
   const summary = summaryData?.summary;
 
+  const getSaleType = (sale: any): string => sale.saleType || sale.sale_type || '-';
+  const getPaymentMethod = (sale: any): string => sale.paymentMethod || sale.payment_method || '-';
+  const getTotalAmount = (sale: any): number => Number(sale.totalAmount || sale.net_amount || 0);
+  const prettyPaymentMethod = (method: string): string => {
+    const m = (method || '').toLowerCase();
+    if (m === 'credit_customer' || m === 'credit') return 'credit';
+    if (m === 'credit_card' || m === 'bank_card' || m === 'card') return m;
+    return method || '-';
+  };
+
   const handleApplyFilters = () => {
     setAppliedFilters(filters);
     setIsFilterDialogOpen(false);
@@ -168,8 +178,15 @@ export function Sales() {
   // Helper to get payment breakdown by method
   const getPaymentAmount = (method: string) => {
     if (!summary) return 0;
-    const payment = summary.paymentBreakdown.find(pb => pb.method === method);
-    return payment?.amount || 0;
+    const normalized = method.toLowerCase();
+    return summary.paymentBreakdown
+      .filter(pb => {
+        const m = (pb.method || '').toLowerCase();
+        if (normalized === 'credit') return m === 'credit' || m === 'credit_customer';
+        if (normalized === 'card') return m === 'card' || m === 'credit_card' || m === 'bank_card';
+        return m === normalized;
+      })
+      .reduce((sum, pb) => sum + (pb.amount || 0), 0);
   };
 
   return (
@@ -250,7 +267,7 @@ export function Sales() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {formatCurrency(getPaymentAmount('cash') + getPaymentAmount('card') + getPaymentAmount('bank_card') + getPaymentAmount('pso_card'))}
+                  {formatCurrency(getPaymentAmount('cash') + getPaymentAmount('card') + getPaymentAmount('pso_card'))}
                 </div>
                 <p className="text-xs text-muted-foreground">Card & cash payments</p>
               </CardContent>
@@ -368,7 +385,7 @@ export function Sales() {
             <div className="space-y-4">
               {groupedByCustomer().map((customerGroup) => {
                 const isExpanded = expandedCustomers.has(customerGroup.customer.id);
-                const totalAmount = customerGroup.sales.reduce((sum, sale) => sum + Number(sale.totalAmount || sale.net_amount || 0), 0);
+                const totalAmount = customerGroup.sales.reduce((sum, sale) => sum + getTotalAmount(sale), 0);
                 const totalTransactions = customerGroup.sales.length;
 
                 return (
@@ -402,7 +419,7 @@ export function Sales() {
                     {isExpanded && (
                       <div className="divide-y">
                         {Array.from(customerGroup.vehicles.entries()).map(([vehicleNumber, vehicleSales]) => {
-                          const vehicleTotal = vehicleSales.reduce((sum, sale) => sum + Number(sale.totalAmount || sale.net_amount || 0), 0);
+                          const vehicleTotal = vehicleSales.reduce((sum, sale) => sum + getTotalAmount(sale), 0);
 
                           return (
                             <div key={vehicleNumber} className="bg-background">
@@ -422,14 +439,14 @@ export function Sales() {
                                     <TableRow key={sale.id} className="text-sm">
                                       <TableCell className="w-[140px]">{formatDateTime(sale.saleDate || sale.createdAt || sale.created_at)}</TableCell>
                                       <TableCell>
-                                        <Badge variant={(sale.sale_type || sale.saleType) === 'fuel' ? 'default' : 'secondary'} className="text-xs">
-                                          {sale.sale_type || sale.saleType || '-'}
+                                        <Badge variant={getSaleType(sale) === 'fuel' ? 'default' : 'secondary'} className="text-xs">
+                                          {getSaleType(sale)}
                                         </Badge>
                                       </TableCell>
                                       <TableCell>
-                                        <Badge variant="outline" className="text-xs">{sale.payment_method || sale.paymentMethod || '-'}</Badge>
+                                        <Badge variant="outline" className="text-xs">{prettyPaymentMethod(getPaymentMethod(sale))}</Badge>
                                       </TableCell>
-                                      <TableCell className="font-medium">{formatCurrency(Number(sale.totalAmount || sale.net_amount || 0))}</TableCell>
+                                      <TableCell className="font-medium">{formatCurrency(getTotalAmount(sale))}</TableCell>
                                       <TableCell className="w-[80px]">
                                         <Badge variant="success" className="text-xs">{sale.status || 'completed'}</Badge>
                                       </TableCell>
@@ -467,19 +484,19 @@ export function Sales() {
                       {formatDateTime(sale.saleDate || sale.createdAt || sale.created_at)}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={(sale.sale_type || sale.sale_type) === 'fuel' ? 'default' : 'secondary'}>
-                        {sale.sale_type || sale.sale_type || '-'}
+                      <Badge variant={getSaleType(sale) === 'fuel' ? 'default' : 'secondary'}>
+                        {getSaleType(sale)}
                       </Badge>
                     </TableCell>
                     <TableCell>{sale.customer?.name || sale.customer?.fullName || 'Walk-in'}</TableCell>
                     <TableCell>
-                      <Badge variant="outline">{sale.payment_method || sale.payment_method || '-'}</Badge>
+                      <Badge variant="outline">{prettyPaymentMethod(getPaymentMethod(sale))}</Badge>
                     </TableCell>
                     <TableCell className="font-medium">
-                      {formatCurrency(Number(sale.totalAmount || sale.net_amount || 0))}
+                      {formatCurrency(getTotalAmount(sale))}
                     </TableCell>
                     <TableCell>
-                      {(sale.sale_type || sale.sale_type) === 'fuel' && sale.fuelSales?.[0] && (
+                      {getSaleType(sale) === 'fuel' && sale.fuelSales?.[0] && (
                         <div className="flex flex-col gap-1 text-xs">
                           {sale.fuelSales[0].previousReading != null && sale.fuelSales[0].currentReading != null ? (
                             <>
@@ -567,8 +584,8 @@ export function Sales() {
                 </div>
                 <div>
                   <Label className="text-xs text-muted-foreground">Type</Label>
-                  <Badge variant={(saleDetailsDialog.sale.sale_type || saleDetailsDialog.sale.saleType) === 'fuel' ? 'default' : 'secondary'}>
-                    {saleDetailsDialog.sale.sale_type || saleDetailsDialog.sale.saleType || '-'}
+                  <Badge variant={getSaleType(saleDetailsDialog.sale) === 'fuel' ? 'default' : 'secondary'}>
+                    {getSaleType(saleDetailsDialog.sale)}
                   </Badge>
                 </div>
                 <div>
@@ -580,12 +597,12 @@ export function Sales() {
                 </div>
                 <div>
                   <Label className="text-xs text-muted-foreground">Payment Method</Label>
-                  <Badge variant="outline">{saleDetailsDialog.sale.payment_method || saleDetailsDialog.sale.paymentMethod || '-'}</Badge>
+                  <Badge variant="outline">{prettyPaymentMethod(getPaymentMethod(saleDetailsDialog.sale))}</Badge>
                 </div>
               </div>
 
               {/* Fuel Sales Details */}
-              {(saleDetailsDialog.sale.sale_type || saleDetailsDialog.sale.saleType) === 'fuel' && saleDetailsDialog.sale.fuelSales?.length > 0 && (
+              {getSaleType(saleDetailsDialog.sale) === 'fuel' && saleDetailsDialog.sale.fuelSales?.length > 0 && (
                 <div>
                   <h3 className="font-semibold mb-3">Fuel Sales</h3>
                   <Table>
@@ -612,7 +629,7 @@ export function Sales() {
               )}
 
               {/* Non-Fuel Sales Details */}
-              {(saleDetailsDialog.sale.sale_type || saleDetailsDialog.sale.saleType) === 'non_fuel' && saleDetailsDialog.sale.nonFuelSales?.length > 0 && (
+              {getSaleType(saleDetailsDialog.sale) === 'non_fuel' && saleDetailsDialog.sale.nonFuelSales?.length > 0 && (
                 <div>
                   <h3 className="font-semibold mb-3">Non-Fuel Items</h3>
                   <Table>
@@ -641,7 +658,7 @@ export function Sales() {
               {/* Total Amount */}
               <div className="flex justify-between items-center p-4 bg-muted rounded-lg">
                 <span className="font-semibold">Total Amount</span>
-                <span className="text-2xl font-bold">{formatCurrency(Number(saleDetailsDialog.sale.totalAmount || saleDetailsDialog.sale.net_amount || 0))}</span>
+                <span className="text-2xl font-bold">{formatCurrency(getTotalAmount(saleDetailsDialog.sale))}</span>
               </div>
 
               {/* Additional Info */}

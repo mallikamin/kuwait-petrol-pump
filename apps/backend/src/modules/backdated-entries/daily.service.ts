@@ -1365,7 +1365,6 @@ export class DailyBackdatedEntriesService {
     // remove stale backdated sales for this day that no longer map to an active transaction.
     const expectedOfflineQueueIds = new Set(
       allTransactions
-        .filter((txn) => !!txn.fuelTypeId)
         .map((txn) => `backdated-${txn.id}`)
     );
     const existingBackdatedSalesForDay = await prisma.sale.findMany({
@@ -1393,67 +1392,74 @@ export class DailyBackdatedEntriesService {
     const createdSales: string[] = [];
 
     for (const txn of allTransactions) {
-      // Only create sale if fuelTypeId exists (fuel transactions only)
-      if (txn.fuelTypeId) {
-        // ✅ Generate deterministic idempotency key
-        const idempotencyKey = `backdated-${txn.id}`;
+      // Deterministic idempotency key per backdated transaction
+      const idempotencyKey = `backdated-${txn.id}`;
 
-        // ✅ CHECK: Does sale already exist for this transaction?
-        const existingSale = await prisma.sale.findFirst({
-          where: {
-            branchId: txn._entry.branchId,
-            offlineQueueId: idempotencyKey,
-          },
-        });
+      const existingSale = await prisma.sale.findFirst({
+        where: {
+          branchId: txn._entry.branchId,
+          offlineQueueId: idempotencyKey,
+        },
+      });
 
-        if (existingSale) {
-          console.log(`[Finalize] Skipping transaction ${txn.id} - sale already exists (${existingSale.id})`);
-          continue;
-        }
-
-        // Find shift instance for this business date
-        let shiftInstanceId = null;
-        if (txn._entry.shiftId) {
-          const shiftInstance = await prisma.shiftInstance.findFirst({
-            where: {
-              shiftId: txn._entry.shiftId,
-              branchId: txn._entry.branchId,
-              date: txn._entry.businessDate,
-            },
-          });
-          shiftInstanceId = shiftInstance?.id || null;
-        }
-
-        const sale = await prisma.sale.create({
-          data: {
-            offlineQueueId: idempotencyKey, // ✅ Idempotency key
-            branchId: txn._entry.branchId,
-            shiftInstanceId,
-            saleDate: txn.transactionDateTime,
-            saleType: 'fuel',
-            totalAmount: txn.lineTotal,
-            paymentMethod: txn.paymentMethod,
-            customerId: txn.customerId,
-            vehicleNumber: txn.vehicleNumber,
-            slipNumber: txn.slipNumber,
-            cashierId: txn._entry.createdBy,
-            syncStatus: 'synced', // Mark as synced (from backdated/offline)
-            fuelSales: {
-              create: {
-                fuelTypeId: txn.fuelTypeId,
-                quantityLiters: txn.quantity,
-                pricePerLiter: txn.unitPrice,
-                totalAmount: txn.lineTotal,
-                isManualReading: true, // From backdated entry, not live POS
-              },
-            },
-          },
-        });
-        createdSales.push(sale.id);
+      if (existingSale) {
+        console.log(`[Finalize] Skipping transaction ${txn.id} - sale already exists (${existingSale.id})`);
+        continue;
       }
+
+      let shiftInstanceId = null;
+      if (txn._entry.shiftId) {
+        const shiftInstance = await prisma.shiftInstance.findFirst({
+          where: {
+            shiftId: txn._entry.shiftId,
+            branchId: txn._entry.branchId,
+            date: txn._entry.businessDate,
+          },
+        });
+        shiftInstanceId = shiftInstance?.id || null;
+      }
+
+      const saleData: any = {
+        offlineQueueId: idempotencyKey,
+        branchId: txn._entry.branchId,
+        shiftInstanceId,
+        saleDate: txn.transactionDateTime,
+        saleType: txn.fuelTypeId ? 'fuel' : 'non_fuel',
+        totalAmount: txn.lineTotal,
+        paymentMethod: txn.paymentMethod,
+        customerId: txn.customerId,
+        vehicleNumber: txn.vehicleNumber,
+        slipNumber: txn.slipNumber,
+        cashierId: txn._entry.createdBy,
+        syncStatus: 'synced',
+      };
+
+      if (txn.fuelTypeId) {
+        saleData.fuelSales = {
+          create: {
+            fuelTypeId: txn.fuelTypeId,
+            quantityLiters: txn.quantity,
+            pricePerLiter: txn.unitPrice,
+            totalAmount: txn.lineTotal,
+            isManualReading: true,
+          },
+        };
+      } else if (txn.productId) {
+        saleData.nonFuelSales = {
+          create: {
+            productId: txn.productId,
+            quantity: Math.max(1, Math.round(Number(txn.quantity) || 1)),
+            unitPrice: txn.unitPrice,
+            totalAmount: txn.lineTotal,
+          },
+        };
+      }
+
+      const sale = await prisma.sale.create({ data: saleData });
+      createdSales.push(sale.id);
     }
 
-    console.log(`✅ Created ${createdSales.length} sale records from ${allTransactions.length} backdated transactions`);
+    console.log(`[Finalize] Created ${createdSales.length} sale records from ${allTransactions.length} backdated transactions`);
 
     // Enqueue all transactions for QB sync
     const plainTransactions = allTransactions.map((t) => {
