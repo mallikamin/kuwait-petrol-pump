@@ -1079,9 +1079,6 @@ export class ReportsService {
     // Optional customer filter
     if (customerId) {
       whereClause.customerId = customerId;
-    } else {
-      // Only show sales with customers (exclude walk-in)
-      whereClause.customerId = { not: null };
     }
 
     // Get all sales with customer info

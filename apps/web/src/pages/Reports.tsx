@@ -1782,10 +1782,11 @@ export function Reports() {
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={() => {
                 if (!customerWiseSales) return;
-                const headers = ['Date', 'Customer Name', 'Product', 'Variant', 'Rate', 'Quantity', 'Amount', 'Payment Method', 'Vehicle#'];
+                const headers = ['Date', 'Customer Name', 'Slip#', 'Product', 'Variant', 'Rate', 'Quantity', 'Amount', 'Payment Method', 'Vehicle#'];
                 const rows: (string | number)[][] = (customerWiseSales.saleDetails || []).map((detail: any) => [
                   formatDate(detail.date),
                   detail.customerName,
+                  detail.slipNumber || '-',
                   detail.productName,
                   detail.productVariant,
                   detail.rate,
@@ -1871,6 +1872,7 @@ export function Reports() {
                     <TableRow>
                       <TableHead>Date</TableHead>
                       <TableHead>Customer</TableHead>
+                      <TableHead>Slip#</TableHead>
                       <TableHead>Product</TableHead>
                       <TableHead>Variant</TableHead>
                       <TableHead className="text-right">Rate</TableHead>
@@ -1885,6 +1887,7 @@ export function Reports() {
                       <TableRow key={i}>
                         <TableCell>{formatDate(detail.date)}</TableCell>
                         <TableCell>{detail.customerName}</TableCell>
+                        <TableCell className="text-muted-foreground">{detail.slipNumber || '-'}</TableCell>
                         <TableCell>{detail.productName}</TableCell>
                         <TableCell>
                           <Badge variant="outline">{detail.productVariant}</Badge>
