@@ -26,7 +26,15 @@ import { reportsApi, apiClient } from '@/api';
 import { useAuthStore } from '@/store/auth';
 import { formatCurrency } from '@/utils/format';
 
-type ReportType = 'daily-sales' | 'shift' | 'inventory' | 'customer-ledger' | 'variance' | 'fuel-price-history' | 'customer-wise-sales';
+type ReportType =
+  | 'daily-sales'
+  | 'shift'
+  | 'inventory'
+  | 'customer-ledger'
+  | 'variance'
+  | 'fuel-price-history'
+  | 'customer-wise-sales'
+  | 'vehicle-wise-report';
 const WALK_IN_LEDGER_ID = '__walkin__';
 
 function formatDate(date: string | Date): string {
@@ -90,6 +98,28 @@ function printReport(title: string, contentHtml: string) {
   win.document.close();
 }
 
+function normalizeFuelItemLabel(fuelType: string): string {
+  const t = (fuelType || '').toLowerCase();
+  if (t.includes('hsd') || t.includes('diesel')) return 'DIESEL';
+  if (t.includes('pmg') || t.includes('petrol') || t.includes('gasoline')) return 'PETROL';
+  return (fuelType || 'FUEL').toUpperCase();
+}
+
+function formatDateForHeader(date: string): string {
+  const d = new Date(date);
+  const day = d.getDate().toString().padStart(2, '0');
+  const month = d.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
+  const year = d.getFullYear();
+  return `${day}-${month}-${year}`;
+}
+
+function formatMonthYearForHeader(date: string): string {
+  const d = new Date(date);
+  const month = d.toLocaleDateString('en-US', { month: 'long' }).toUpperCase();
+  const year = d.getFullYear();
+  return `${month}-${year}`;
+}
+
 type FilterMode = 'no-filter' | 'single-date' | 'date-range';
 
 export function Reports() {
@@ -112,6 +142,9 @@ export function Reports() {
   const [customerLedgerFilterMode, setCustomerLedgerFilterMode] = useState<FilterMode>('date-range');
   const [fuelPriceFilterMode, setFuelPriceFilterMode] = useState<FilterMode>('date-range');
   const [customerWiseSalesFilterMode, setCustomerWiseSalesFilterMode] = useState<FilterMode>('date-range');
+  const [vehicleWiseFilterMode, setVehicleWiseFilterMode] = useState<FilterMode>('date-range');
+  const [selectedVehicleNumber, setSelectedVehicleNumber] = useState<string>('ALL');
+  const [vehicleSearch, setVehicleSearch] = useState<string>('');
   const [inventoryFilterMode, setInventoryFilterMode] = useState<FilterMode>('date-range');
 
   // Daily Sales (supports no-filter, single date, and date range)
@@ -268,7 +301,30 @@ export function Reports() {
     enabled: fetchEnabled && selectedReport === 'customer-wise-sales' && !!branchId,
   });
 
-  // Get customers list for dropdown (both ledger and customer-wise reports)
+  // Vehicle-Wise Report (statement format based on customer ledger data)
+  const { data: vehicleWiseLedger, isLoading: loadingVehicleWise, isError: errorVehicleWise } = useQuery({
+    queryKey: ['report-vehicle-wise', selectedCustomerId, vehicleWiseFilterMode, reportDate, startDate, endDate],
+    queryFn: () => {
+      if (vehicleWiseFilterMode === 'date-range') {
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        return reportsApi.getCustomerLedger(selectedCustomerId, undefined, start.toISOString(), end.toISOString());
+      } else if (vehicleWiseFilterMode === 'single-date') {
+        const d = new Date(reportDate);
+        d.setHours(23, 59, 59, 999);
+        return reportsApi.getCustomerLedger(selectedCustomerId, reportDate, undefined, d.toISOString());
+      } else {
+        return reportsApi.getCustomerLedger(selectedCustomerId);
+      }
+    },
+    enabled: fetchEnabled && selectedReport === 'vehicle-wise-report' && !!selectedCustomerId && selectedCustomerId !== WALK_IN_LEDGER_ID,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
+  });
+
+  // Get customers list for dropdown (ledger, customer-wise, and vehicle-wise reports)
   const [customerSearch, setCustomerSearch] = useState('');
   const { data: customersData } = useQuery({
     queryKey: ['customers-list'],
@@ -276,7 +332,10 @@ export function Reports() {
       apiClient
         .get('/api/customers', { params: { limit: 500, offset: 0, isActive: 'true' } })
         .then(r => r.data.customers || []),
-    enabled: selectedReport === 'customer-ledger' || selectedReport === 'customer-wise-sales',
+    enabled:
+      selectedReport === 'customer-ledger' ||
+      selectedReport === 'customer-wise-sales' ||
+      selectedReport === 'vehicle-wise-report',
   });
 
   // Filter customers by search
@@ -286,14 +345,45 @@ export function Reports() {
     (c.email && c.email.toLowerCase().includes(customerSearch.toLowerCase()))
   );
 
+  const selectedCustomer = (customersData || []).find((c: any) => c.id === selectedCustomerId);
+  const registeredVehicles = (selectedCustomer?.vehicleNumbers || [])
+    .map((v: string) => (v || '').trim())
+    .filter((v: string) => v.length > 0);
+  const ledgerVehicles = (vehicleWiseLedger?.transactions || [])
+    .map((t: any) => (t.vehicleNumber || '').trim())
+    .filter((v: string) => v.length > 0);
+  const allVehicles = Array.from(new Set([...registeredVehicles, ...ledgerVehicles])).sort((a, b) => a.localeCompare(b));
+  const filteredVehicles = allVehicles.filter((v) => v.toLowerCase().includes(vehicleSearch.toLowerCase()));
+
   useEffect(() => {
     if (selectedReport !== 'customer-ledger' && selectedCustomerId === WALK_IN_LEDGER_ID) {
       setSelectedCustomerId('');
     }
   }, [selectedReport, selectedCustomerId]);
 
-  const isLoading = loadingDaily || loadingShift || loadingInventory || loadingLedger || loadingVariance || loadingFuelPrice || loadingCustomerWise;
-  const isError = errorDaily || errorShift || errorInventory || errorLedger || errorVariance || errorFuelPrice || errorCustomerWise;
+  useEffect(() => {
+    setSelectedVehicleNumber('ALL');
+    setVehicleSearch('');
+  }, [selectedCustomerId]);
+
+  const isLoading =
+    loadingDaily ||
+    loadingShift ||
+    loadingInventory ||
+    loadingLedger ||
+    loadingVariance ||
+    loadingFuelPrice ||
+    loadingCustomerWise ||
+    loadingVehicleWise;
+  const isError =
+    errorDaily ||
+    errorShift ||
+    errorInventory ||
+    errorLedger ||
+    errorVariance ||
+    errorFuelPrice ||
+    errorCustomerWise ||
+    errorVehicleWise;
 
   const handleGenerate = () => {
     setFetchEnabled(true);
@@ -492,6 +582,7 @@ export function Reports() {
                   <SelectItem value="variance">Variance Report</SelectItem>
                   <SelectItem value="fuel-price-history">Fuel Price History</SelectItem>
                   <SelectItem value="customer-wise-sales">Customer-Wise Sales</SelectItem>
+                  <SelectItem value="vehicle-wise-report">Vehicle-Wise Report</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -775,6 +866,101 @@ export function Reports() {
                   </div>
                 )}
                 {customerWiseSalesFilterMode === 'date-range' && (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Start Date</Label>
+                      <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setFetchEnabled(false); }} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>End Date</Label>
+                      <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setFetchEnabled(false); }} />
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
+            {selectedReport === 'vehicle-wise-report' && (
+              <>
+                <div className="space-y-2 md:col-span-4">
+                  <Label>Search Customer</Label>
+                  <Input
+                    placeholder="Search by name, phone, or email..."
+                    value={customerSearch}
+                    onChange={(e) => setCustomerSearch(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {filteredCustomers.length} of {customersData?.length || 0} customers
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Customer *</Label>
+                  <Select value={selectedCustomerId} onValueChange={(v) => { setSelectedCustomerId(v); setFetchEnabled(false); }}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select customer" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-[300px]">
+                      {filteredCustomers.map((c: any) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          <div className="flex flex-col">
+                            <span>{c.name}</span>
+                            {c.phone && <span className="text-xs text-muted-foreground">{c.phone}</span>}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2 md:col-span-4">
+                  <Label>Search Vehicle (Optional)</Label>
+                  <Input
+                    placeholder="Search vehicle number..."
+                    value={vehicleSearch}
+                    onChange={(e) => setVehicleSearch(e.target.value)}
+                    disabled={!selectedCustomerId}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {selectedCustomerId ? `${filteredVehicles.length} of ${allVehicles.length} vehicles` : 'Select customer first'}
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Vehicle (Optional)</Label>
+                  <Select
+                    value={selectedVehicleNumber}
+                    onValueChange={(v) => { setSelectedVehicleNumber(v); setFetchEnabled(false); }}
+                    disabled={!selectedCustomerId}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="All vehicles" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-[300px]">
+                      <SelectItem value="ALL">All Vehicles</SelectItem>
+                      {filteredVehicles.map((vehicle) => (
+                        <SelectItem key={vehicle} value={vehicle}>{vehicle}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Filter Mode</Label>
+                  <Select value={vehicleWiseFilterMode} onValueChange={(v) => { setVehicleWiseFilterMode(v as FilterMode); setFetchEnabled(false); }}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="no-filter">All Data (No Filter)</SelectItem>
+                      <SelectItem value="single-date">Single Date</SelectItem>
+                      <SelectItem value="date-range">Date Range</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {vehicleWiseFilterMode === 'single-date' && (
+                  <div className="space-y-2">
+                    <Label>Date</Label>
+                    <Input type="date" value={reportDate} onChange={(e) => { setReportDate(e.target.value); setFetchEnabled(false); }} />
+                  </div>
+                )}
+                {vehicleWiseFilterMode === 'date-range' && (
                   <>
                     <div className="space-y-2">
                       <Label>Start Date</Label>
@@ -1722,6 +1908,168 @@ export function Reports() {
               </CardContent>
             </Card>
           )}
+        </div>
+      )}
+
+      {/* VEHICLE-WISE REPORT */}
+      {selectedReport === 'vehicle-wise-report' && vehicleWiseLedger && !isLoading && (
+        <div className="space-y-4">
+          {(() => {
+            const rows = (vehicleWiseLedger.transactions || []).flatMap((txn: any) => {
+              const vehicleNumber = txn.vehicleNumber || '-';
+              if (txn.type === 'fuel' && txn.details?.fuelSales?.length) {
+                return txn.details.fuelSales.map((fs: any) => ({
+                  date: txn.date,
+                  vehicleNumber,
+                  item: normalizeFuelItemLabel(fs.fuelType),
+                  paymentMethod: txn.paymentMethod || '-',
+                  amount: Number(fs.amount || 0),
+                }));
+              }
+              if (txn.type === 'non_fuel' && txn.details?.items?.length) {
+                return txn.details.items.map((item: any) => ({
+                  date: txn.date,
+                  vehicleNumber,
+                  item: `NON-FUEL: ${(item.productName || 'ITEM').toUpperCase()}`,
+                  paymentMethod: txn.paymentMethod || '-',
+                  amount: Number(item.amount || 0),
+                }));
+              }
+              return [{
+                date: txn.date,
+                vehicleNumber,
+                item: 'UNKNOWN',
+                paymentMethod: txn.paymentMethod || '-',
+                amount: Number(txn.amount || 0),
+              }];
+            });
+
+            const filteredRows = selectedVehicleNumber === 'ALL'
+              ? rows
+              : rows.filter((r: any) => r.vehicleNumber === selectedVehicleNumber);
+            const sortedRows = [...filteredRows].sort((a: any, b: any) => {
+              const vehicleCmp = String(a.vehicleNumber).localeCompare(String(b.vehicleNumber));
+              if (vehicleCmp !== 0) return vehicleCmp;
+              return new Date(a.date).getTime() - new Date(b.date).getTime();
+            });
+
+            const totalAmount = sortedRows.reduce((sum: number, r: any) => sum + Number(r.amount || 0), 0);
+            const customerName = vehicleWiseLedger.customer?.name || 'Customer';
+            const displayFromDate = vehicleWiseFilterMode === 'single-date' ? reportDate : startDate;
+            const displayToDate = vehicleWiseFilterMode === 'single-date' ? reportDate : endDate;
+            const headerMonth = formatMonthYearForHeader(displayFromDate);
+            const periodStart = formatDateForHeader(displayFromDate);
+            const periodEnd = formatDateForHeader(displayToDate);
+            const branchName = 'Sundar Industrial Petrol Pump - Main Branch, Lahore';
+
+            return (
+              <>
+                <div className="flex items-center justify-between">
+                  <h2 className="text-xl font-semibold">
+                    Vehicle-Wise Report - {customerName} ({formatDate(displayFromDate)} - {formatDate(displayToDate)})
+                  </h2>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const headers = ['SR.#', 'DATE', 'VEH.#', 'ITEMS', 'PAYMENT METHOD', 'BALANCE AMOUNT'];
+                        const csvRows: (string | number)[][] = sortedRows.map((row: any, idx: number) => [
+                          idx + 1,
+                          formatDate(row.date),
+                          row.vehicleNumber,
+                          row.item,
+                          row.paymentMethod,
+                          row.amount,
+                        ]);
+                        csvRows.push(['', '', '', 'TOTAL', '', totalAmount]);
+                        downloadCSV(
+                          `vehicle-wise-${customerName}-${displayFromDate}-to-${displayToDate}.csv`,
+                          toCSV(headers, csvRows)
+                        );
+                      }}
+                    >
+                      <Download className="mr-2 h-4 w-4" /> CSV
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const html = `
+                          <div style="text-align:center; margin-bottom:12px;">
+                            <div style="font-size:16px; font-weight:700; letter-spacing:0.5px;">${branchName.toUpperCase()}</div>
+                            <div style="font-size:15px; font-weight:700; margin-top:2px;">${customerName.toUpperCase()}</div>
+                            <div style="font-size:13px; font-weight:700; margin-top:4px;">BILL FOR THE MONTH OF ${headerMonth}</div>
+                            <div style="font-size:12px; margin-top:2px;">FOR THE PERIOD FROM ${periodStart} TO ${periodEnd}</div>
+                          </div>
+                          <table>
+                            <tr><th>SR.#</th><th>DATE</th><th>VEH. #</th><th>ITEMS</th><th>PAYMENT METHOD</th><th class="right">BALANCE AMOUNT</th></tr>
+                            ${sortedRows.map((row: any, idx: number) => `
+                              <tr>
+                                <td>${idx + 1}</td>
+                                <td>${formatDate(row.date)}</td>
+                                <td>${row.vehicleNumber}</td>
+                                <td>${row.item}</td>
+                                <td>${row.paymentMethod}</td>
+                                <td class="right">${Number(row.amount || 0).toLocaleString('en-PK')}</td>
+                              </tr>
+                            `).join('')}
+                            <tr>
+                              <td colspan="5" class="bold right">TOTAL</td>
+                              <td class="right bold">${totalAmount.toLocaleString('en-PK')}</td>
+                            </tr>
+                          </table>
+                        `;
+                        printReport(`Vehicle-Wise Report (${formatDate(displayFromDate)} - ${formatDate(displayToDate)})`, html);
+                      }}
+                    >
+                      <Printer className="mr-2 h-4 w-4" /> Print / PDF
+                    </Button>
+                  </div>
+                </div>
+
+                <Card>
+                  <CardHeader><CardTitle className="text-base">Vehicle-Wise Billing</CardTitle></CardHeader>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>SR.#</TableHead>
+                          <TableHead>DATE</TableHead>
+                          <TableHead>VEH. #</TableHead>
+                          <TableHead>ITEMS</TableHead>
+                          <TableHead>PAYMENT METHOD</TableHead>
+                          <TableHead className="text-right">BALANCE AMOUNT</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {sortedRows.map((row: any, idx: number) => (
+                          <TableRow key={`${row.vehicleNumber}-${row.item}-${idx}`}>
+                            <TableCell>{idx + 1}</TableCell>
+                            <TableCell>{formatDate(row.date)}</TableCell>
+                            <TableCell className="font-medium">{row.vehicleNumber}</TableCell>
+                            <TableCell>{row.item}</TableCell>
+                            <TableCell>{row.paymentMethod}</TableCell>
+                            <TableCell className="text-right font-medium">
+                              {Number(row.amount || 0).toLocaleString('en-PK')}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                        <TableRow>
+                          <TableCell />
+                          <TableCell />
+                          <TableCell />
+                          <TableCell className="text-right font-bold">TOTAL</TableCell>
+                          <TableCell />
+                          <TableCell className="text-right font-bold">{totalAmount.toLocaleString('en-PK')}</TableCell>
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              </>
+            );
+          })()}
         </div>
       )}
 
