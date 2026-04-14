@@ -107,4 +107,26 @@ export const reportsApi = {
     const response = await apiClient.get('/api/reports/customer-wise-sales', { params });
     return response.data.report || response.data;
   },
+
+  getProductWiseSummary: async (
+    branchId: string,
+    date?: string,
+    startDate?: string,
+    endDate?: string,
+    productType: 'all' | 'fuel' | 'non_fuel' = 'all',
+    productId?: string
+  ): Promise<any> => {
+    const params: any = { branchId, productType };
+    if (productId) {
+      params.productId = productId;
+    }
+    if (startDate && endDate) {
+      params.startDate = startDate;
+      params.endDate = endDate;
+    } else if (date) {
+      params.date = date;
+    }
+    const response = await apiClient.get('/api/reports/product-wise-summary', { params });
+    return response.data.report || response.data;
+  },
 };

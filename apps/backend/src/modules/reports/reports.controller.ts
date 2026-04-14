@@ -91,6 +91,22 @@ const customerWiseSalesQuerySchema = z.object({
   { message: 'If providing date range, both startDate and endDate required' }
 );
 
+const productWiseSummaryQuerySchema = z.object({
+  branchId: z.string().uuid().optional(),
+  date: dateString.optional(),
+  startDate: dateString.optional(),
+  endDate: dateString.optional(),
+  productType: z.enum(['all', 'fuel', 'non_fuel']).optional(),
+  productId: z.string().uuid().optional(),
+}).refine(
+  (data) => {
+    if (data.startDate && !data.endDate) return false;
+    if (data.endDate && !data.startDate) return false;
+    return true;
+  },
+  { message: 'If providing date range, both startDate and endDate required' }
+);
+
 export class ReportsController {
   private reportsService: ReportsService;
 
@@ -490,6 +506,69 @@ export class ReportsController {
       res.json({
         report,
         message: 'Customer-wise sales report retrieved successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * GET /api/reports/product-wise-summary
+   * Product-wise detailed report (fuel + non-fuel)
+   */
+  getProductWiseSummaryReport = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      if (!['admin', 'manager', 'accountant'].includes(req.user.role)) {
+        return res.status(403).json({ error: 'Insufficient permissions' });
+      }
+
+      const query = productWiseSummaryQuerySchema.parse(req.query);
+      const branchId = query.branchId || req.user.branchId;
+
+      if (!branchId) {
+        return res.status(400).json({ error: 'branchId required (user has no assigned branch)' });
+      }
+
+      let startDate: Date;
+      let endDate: Date;
+
+      if (query.startDate && query.endDate) {
+        startDate = new Date(query.startDate);
+        startDate.setUTCHours(0, 0, 0, 0);
+        endDate = new Date(query.endDate);
+        endDate.setUTCHours(23, 59, 59, 999);
+
+        if (startDate > endDate) {
+          return res.status(400).json({ error: 'Start date must be before end date' });
+        }
+      } else if (query.date) {
+        startDate = new Date(query.date);
+        startDate.setUTCHours(0, 0, 0, 0);
+        endDate = new Date(query.date);
+        endDate.setUTCHours(23, 59, 59, 999);
+      } else {
+        startDate = new Date('1970-01-01');
+        startDate.setUTCHours(0, 0, 0, 0);
+        endDate = new Date('2099-12-31');
+        endDate.setUTCHours(23, 59, 59, 999);
+      }
+
+      const report = await this.reportsService.getProductWiseSummaryReport(
+        branchId,
+        startDate,
+        endDate,
+        req.user.organizationId,
+        query.productType || 'all',
+        query.productId
+      );
+
+      res.json({
+        report,
+        message: 'Product-wise summary report retrieved successfully',
       });
     } catch (error) {
       next(error);

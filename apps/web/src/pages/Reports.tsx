@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { FileText, Download, Printer, Loader2, Calendar } from 'lucide-react';
-import { reportsApi, apiClient } from '@/api';
+import { reportsApi, apiClient, productsApi } from '@/api';
 import { useAuthStore } from '@/store/auth';
 import { formatCurrency } from '@/utils/format';
 
@@ -34,7 +34,8 @@ type ReportType =
   | 'variance'
   | 'fuel-price-history'
   | 'customer-wise-sales'
-  | 'vehicle-wise-report';
+  | 'vehicle-wise-report'
+  | 'product-wise-summary';
 const WALK_IN_LEDGER_ID = '__walkin__';
 
 function formatDate(date: string | Date): string {
@@ -69,9 +70,18 @@ function downloadCSV(filename: string, csvContent: string) {
   URL.revokeObjectURL(url);
 }
 
-function printReport(title: string, contentHtml: string) {
+function printReport(
+  title: string,
+  contentHtml: string,
+  options?: {
+    branchName?: string;
+    subtitle?: string;
+    periodText?: string;
+  }
+) {
   const win = window.open('', '_blank', 'width=900,height=700');
   if (!win) return;
+  const branchName = options?.branchName || 'Sundar Industrial Petrol Pump - Main Branch, Lahore';
   win.document.write(`<!DOCTYPE html><html><head><title>${title}</title>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -88,8 +98,14 @@ function printReport(title: string, contentHtml: string) {
       .summary-item { }
       .summary-label { color: #666; font-size: 10px; }
       .summary-value { font-size: 16px; font-weight: bold; }
+      .brand { font-size: 16px; font-weight: 700; margin-bottom: 2px; text-align: center; }
+      .subtitle { font-size: 13px; text-align: center; margin-bottom: 2px; }
+      .period { font-size: 12px; text-align: center; margin-bottom: 10px; }
       @media print { body { padding: 0; } }
     </style></head><body>
+    <div class="brand">${branchName}</div>
+    ${options?.subtitle ? `<div class="subtitle">${options.subtitle}</div>` : ''}
+    ${options?.periodText ? `<div class="period">${options.periodText}</div>` : ''}
     <h1>${title}</h1>
     <p class="meta">Generated: ${new Date().toLocaleString('en-PK')} | Petrol Pump POS</p>
     ${contentHtml}
@@ -142,6 +158,9 @@ export function Reports() {
   const [customerLedgerFilterMode, setCustomerLedgerFilterMode] = useState<FilterMode>('date-range');
   const [fuelPriceFilterMode, setFuelPriceFilterMode] = useState<FilterMode>('date-range');
   const [customerWiseSalesFilterMode, setCustomerWiseSalesFilterMode] = useState<FilterMode>('date-range');
+  const [productWiseFilterMode, setProductWiseFilterMode] = useState<FilterMode>('date-range');
+  const [productWiseType, setProductWiseType] = useState<'all' | 'fuel' | 'non_fuel'>('all');
+  const [selectedNonFuelProductId, setSelectedNonFuelProductId] = useState<string>('ALL');
   const [vehicleWiseFilterMode, setVehicleWiseFilterMode] = useState<FilterMode>('date-range');
   const [selectedVehicleNumber, setSelectedVehicleNumber] = useState<string>('ALL');
   const [vehicleSearch, setVehicleSearch] = useState<string>('');
@@ -301,6 +320,48 @@ export function Reports() {
     enabled: fetchEnabled && selectedReport === 'customer-wise-sales' && !!branchId,
   });
 
+  // Product-Wise Summary
+  const { data: productWiseSummary, isLoading: loadingProductWise, isError: errorProductWise } = useQuery({
+    queryKey: ['report-product-wise-summary', branchId, productWiseFilterMode, reportDate, startDate, endDate, productWiseType, selectedNonFuelProductId],
+    queryFn: () => {
+      const productId = selectedNonFuelProductId !== 'ALL' ? selectedNonFuelProductId : undefined;
+      if (productWiseFilterMode === 'date-range') {
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        return reportsApi.getProductWiseSummary(
+          branchId,
+          undefined,
+          start.toISOString(),
+          end.toISOString(),
+          productWiseType,
+          productId
+        );
+      } else if (productWiseFilterMode === 'single-date') {
+        const d = new Date(reportDate);
+        d.setHours(23, 59, 59, 999);
+        return reportsApi.getProductWiseSummary(
+          branchId,
+          reportDate,
+          undefined,
+          d.toISOString(),
+          productWiseType,
+          productId
+        );
+      } else {
+        return reportsApi.getProductWiseSummary(
+          branchId,
+          undefined,
+          undefined,
+          undefined,
+          productWiseType,
+          productId
+        );
+      }
+    },
+    enabled: fetchEnabled && selectedReport === 'product-wise-summary' && !!branchId,
+  });
+
   // Vehicle-Wise Report (statement format based on customer ledger data)
   const { data: vehicleWiseLedger, isLoading: loadingVehicleWise, isError: errorVehicleWise } = useQuery({
     queryKey: ['report-vehicle-wise', selectedCustomerId, vehicleWiseFilterMode, reportDate, startDate, endDate],
@@ -338,6 +399,13 @@ export function Reports() {
       selectedReport === 'vehicle-wise-report',
   });
 
+  const { data: nonFuelProductsData } = useQuery({
+    queryKey: ['non-fuel-products-report'],
+    queryFn: () => productsApi.getAll({ size: 1000 }),
+    enabled: selectedReport === 'product-wise-summary',
+  });
+  const nonFuelProducts = (nonFuelProductsData?.items || []).filter((p: any) => p.isActive !== false);
+
   // Filter customers by search
   const filteredCustomers = (customersData || []).filter((c: any) =>
     c.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
@@ -366,6 +434,12 @@ export function Reports() {
     setVehicleSearch('');
   }, [selectedCustomerId]);
 
+  useEffect(() => {
+    if (productWiseType !== 'non_fuel') {
+      setSelectedNonFuelProductId('ALL');
+    }
+  }, [productWiseType]);
+
   const isLoading =
     loadingDaily ||
     loadingShift ||
@@ -374,7 +448,8 @@ export function Reports() {
     loadingVariance ||
     loadingFuelPrice ||
     loadingCustomerWise ||
-    loadingVehicleWise;
+    loadingVehicleWise ||
+    loadingProductWise;
   const isError =
     errorDaily ||
     errorShift ||
@@ -383,7 +458,8 @@ export function Reports() {
     errorVariance ||
     errorFuelPrice ||
     errorCustomerWise ||
-    errorVehicleWise;
+    errorVehicleWise ||
+    errorProductWise;
 
   const handleGenerate = () => {
     setFetchEnabled(true);
@@ -466,7 +542,9 @@ export function Reports() {
         <tr><th>Shift</th><th>Fuel Type</th><th class="right">Liters</th><th class="right">Count</th><th class="right">Amount</th></tr>
         ${shiftFuels.map((sf: any) => `<tr><td>${sf.shiftName || '-'}</td><td>${sf.fuelType || '-'}</td><td class="right">${Number(sf.liters || 0).toFixed(2)} L</td><td class="right">${sf.count || 0}</td><td class="right">${formatCurrency(Number(sf.amount || 0))}</td></tr>`).join('')}
       </table>`;
-    printReport(`Daily Sales Report - ${formatDate(reportDate)}`, html);
+    printReport(`Daily Sales Report - ${formatDate(reportDate)}`, html, {
+      branchName: dailySales?.branch?.name,
+    });
   };
 
   // CSV + Print for Inventory
@@ -525,7 +603,9 @@ export function Reports() {
           return `<tr><td>${p.name || '-'}</td><td>${p.sku || '-'}</td><td>${p.category || '-'}</td><td class="right">${qty}</td><td class="right">${formatCurrency(Number(p.unitPrice || 0))}</td><td>${low ? '<b style="color:red">LOW</b>' : 'OK'}</td></tr>`;
         }).join('')}
       </table>`;
-    printReport('Inventory Report', html);
+    printReport('Inventory Report', html, {
+      branchName: inventory?.branch?.name,
+    });
   };
 
   // CSV + Print for Variance
@@ -583,6 +663,7 @@ export function Reports() {
                   <SelectItem value="fuel-price-history">Fuel Price History</SelectItem>
                   <SelectItem value="customer-wise-sales">Customer-Wise Sales</SelectItem>
                   <SelectItem value="vehicle-wise-report">Vehicle-Wise Report</SelectItem>
+                  <SelectItem value="product-wise-summary">Product-Wise Summary</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -961,6 +1042,71 @@ export function Reports() {
                   </div>
                 )}
                 {vehicleWiseFilterMode === 'date-range' && (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Start Date</Label>
+                      <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setFetchEnabled(false); }} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>End Date</Label>
+                      <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setFetchEnabled(false); }} />
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
+            {selectedReport === 'product-wise-summary' && (
+              <>
+                <div className="space-y-2">
+                  <Label>Filter Mode</Label>
+                  <Select value={productWiseFilterMode} onValueChange={(v) => { setProductWiseFilterMode(v as FilterMode); setFetchEnabled(false); }}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="no-filter">All Data (No Filter)</SelectItem>
+                      <SelectItem value="single-date">Single Date</SelectItem>
+                      <SelectItem value="date-range">Date Range</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Product Type</Label>
+                  <Select value={productWiseType} onValueChange={(v) => { setProductWiseType(v as 'all' | 'fuel' | 'non_fuel'); setFetchEnabled(false); }}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All (Fuel + Non-Fuel)</SelectItem>
+                      <SelectItem value="fuel">Fuel Only</SelectItem>
+                      <SelectItem value="non_fuel">Non-Fuel Only</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {productWiseType === 'non_fuel' && (
+                  <div className="space-y-2">
+                    <Label>Non-Fuel Product</Label>
+                    <Select value={selectedNonFuelProductId} onValueChange={(v) => { setSelectedNonFuelProductId(v); setFetchEnabled(false); }}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="All non-fuel products" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[300px]">
+                        <SelectItem value="ALL">All Non-Fuel Products</SelectItem>
+                        {nonFuelProducts.map((p: any) => (
+                          <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {productWiseFilterMode === 'single-date' && (
+                  <div className="space-y-2">
+                    <Label>Date</Label>
+                    <Input type="date" value={reportDate} onChange={(e) => { setReportDate(e.target.value); setFetchEnabled(false); }} />
+                  </div>
+                )}
+                {productWiseFilterMode === 'date-range' && (
                   <>
                     <div className="space-y-2">
                       <Label>Start Date</Label>
@@ -1605,7 +1751,9 @@ export function Reports() {
                   });
                 });
                 html += '</table>';
-                printReport(`Variance Report - ${formatDate(startDate)} to ${formatDate(endDate)}`, html);
+                printReport(`Variance Report - ${formatDate(startDate)} to ${formatDate(endDate)}`, html, {
+                  branchName: variance?.branch?.name,
+                });
               }}>
                 <Printer className="mr-2 h-4 w-4" /> Print / PDF
               </Button>
@@ -1690,7 +1838,9 @@ export function Reports() {
                   html += `<tr><td>${formatDate(change.date)}</td><td>${change.fuelType} (${change.fuelTypeCode})</td><td class="right">${change.oldPrice !== null ? formatCurrency(change.oldPrice) : '-'}</td><td class="right">${formatCurrency(change.newPrice)}</td><td class="right">${change.priceChange !== null ? change.priceChange.toFixed(3) : '-'}</td><td class="right">${change.percentageChange !== null ? change.percentageChange.toFixed(2) + '%' : '-'}</td><td>${change.changedBy}</td></tr>`;
                 });
                 html += '</table>';
-                printReport(`Fuel Price History - ${formatDate(startDate)} to ${formatDate(endDate)}`, html);
+                printReport(`Fuel Price History - ${formatDate(startDate)} to ${formatDate(endDate)}`, html, {
+                  branchName: (user as any)?.branch?.name,
+                });
               }}>
                 <Printer className="mr-2 h-4 w-4" /> Print / PDF
               </Button>
@@ -1914,6 +2064,145 @@ export function Reports() {
         </div>
       )}
 
+      {/* PRODUCT-WISE SUMMARY REPORT */}
+      {selectedReport === 'product-wise-summary' && productWiseSummary && !isLoading && (
+        <div className="space-y-4">
+          {(() => {
+            const rows = productWiseSummary.rows || [];
+            const displayFromDate = productWiseFilterMode === 'single-date' ? reportDate : startDate;
+            const displayToDate = productWiseFilterMode === 'single-date' ? reportDate : endDate;
+            const monthText = formatMonthYearForHeader(displayFromDate);
+            const periodText = `FOR THE PERIOD FROM ${formatDateForHeader(displayFromDate)} TO ${formatDateForHeader(displayToDate)}`;
+            const branchName = productWiseSummary.branch?.name || 'Sundar Industrial Petrol Pump - Main Branch, Lahore';
+
+            return (
+              <>
+                <div className="flex items-center justify-between">
+                  <h2 className="text-xl font-semibold">
+                    Product-Wise Summary ({formatDate(displayFromDate)} - {formatDate(displayToDate)})
+                  </h2>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => {
+                      const headers = ['Product', 'Qty', 'Unit', 'Price', 'Amount', 'Slip#', 'Payment Method'];
+                      const csvRows: (string | number)[][] = rows.map((r: any) => [
+                        r.product,
+                        Number(r.qty || 0).toFixed(2),
+                        r.unit,
+                        Number(r.price || 0),
+                        Number(r.amount || 0),
+                        r.slipNumber || '-',
+                        r.paymentMethod || '-',
+                      ]);
+                      csvRows.push(['TOTAL', '', '', '', Number(productWiseSummary.totalAmount || 0), '', '']);
+                      downloadCSV(`product-wise-summary-${displayFromDate}-to-${displayToDate}.csv`, toCSV(headers, csvRows));
+                    }}>
+                      <Download className="mr-2 h-4 w-4" /> CSV
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => {
+                      const html = `
+                        <table>
+                          <tr><th>Product</th><th class="right">Qty</th><th>Unit</th><th class="right">Price</th><th class="right">Amount</th><th>Slip#</th><th>Payment Method</th></tr>
+                          ${rows.map((r: any) => `
+                            <tr>
+                              <td>${r.product}</td>
+                              <td class="right">${Number(r.qty || 0).toFixed(2)}</td>
+                              <td>${r.unit}</td>
+                              <td class="right">${Number(r.price || 0).toLocaleString('en-PK')}</td>
+                              <td class="right">${Number(r.amount || 0).toLocaleString('en-PK')}</td>
+                              <td>${r.slipNumber || '-'}</td>
+                              <td>${r.paymentMethod || '-'}</td>
+                            </tr>
+                          `).join('')}
+                          <tr>
+                            <td class="bold">Total</td>
+                            <td colspan="3"></td>
+                            <td class="right bold">${Number(productWiseSummary.totalAmount || 0).toLocaleString('en-PK')}</td>
+                            <td colspan="2"></td>
+                          </tr>
+                        </table>
+                      `;
+                      printReport(
+                        `PRODUCT WISE DETAIL`,
+                        html,
+                        {
+                          branchName,
+                          subtitle: `BILL FOR THE MONTH OF ${monthText}`,
+                          periodText,
+                        }
+                      );
+                    }}>
+                      <Printer className="mr-2 h-4 w-4" /> Print / PDF
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-3">
+                  <Card>
+                    <CardContent className="pt-6">
+                      <p className="text-sm text-muted-foreground">Total Rows</p>
+                      <p className="text-2xl font-bold">{productWiseSummary.totalRows || 0}</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="pt-6">
+                      <p className="text-sm text-muted-foreground">Branch</p>
+                      <p className="text-base font-semibold">{branchName}</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="pt-6">
+                      <p className="text-sm text-muted-foreground">Total Amount</p>
+                      <p className="text-2xl font-bold">{formatCurrency(Number(productWiseSummary.totalAmount || 0))}</p>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <Card>
+                  <CardHeader><CardTitle className="text-base">Product Wise Detail</CardTitle></CardHeader>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Product</TableHead>
+                          <TableHead className="text-right">Qty</TableHead>
+                          <TableHead>Unit</TableHead>
+                          <TableHead className="text-right">Price</TableHead>
+                          <TableHead className="text-right">Amount</TableHead>
+                          <TableHead>Slip#</TableHead>
+                          <TableHead>Payment Method</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {rows.map((r: any, i: number) => (
+                          <TableRow key={`${r.saleId}-${r.product}-${i}`}>
+                            <TableCell className="font-medium">{r.product}</TableCell>
+                            <TableCell className="text-right">{Number(r.qty || 0).toFixed(2)}</TableCell>
+                            <TableCell>{r.unit}</TableCell>
+                            <TableCell className="text-right">{formatCurrency(Number(r.price || 0))}</TableCell>
+                            <TableCell className="text-right font-medium">{formatCurrency(Number(r.amount || 0))}</TableCell>
+                            <TableCell className="text-muted-foreground">{r.slipNumber || '-'}</TableCell>
+                            <TableCell><Badge>{r.paymentMethod || '-'}</Badge></TableCell>
+                          </TableRow>
+                        ))}
+                        <TableRow>
+                          <TableCell className="font-bold">TOTAL</TableCell>
+                          <TableCell />
+                          <TableCell />
+                          <TableCell />
+                          <TableCell className="text-right font-bold">{formatCurrency(Number(productWiseSummary.totalAmount || 0))}</TableCell>
+                          <TableCell />
+                          <TableCell />
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              </>
+            );
+          })()}
+        </div>
+      )}
+
       {/* VEHICLE-WISE REPORT */}
       {selectedReport === 'vehicle-wise-report' && vehicleWiseLedger && !isLoading && (
         <div className="space-y-4">
@@ -1963,7 +2252,7 @@ export function Reports() {
             const headerMonth = formatMonthYearForHeader(displayFromDate);
             const periodStart = formatDateForHeader(displayFromDate);
             const periodEnd = formatDateForHeader(displayToDate);
-            const branchName = 'Sundar Industrial Petrol Pump - Main Branch, Lahore';
+            const branchName = vehicleWiseLedger.transactions?.[0]?.branch?.name || (user as any)?.branch?.name || 'Sundar Industrial Petrol Pump - Main Branch, Lahore';
 
             return (
               <>
@@ -1999,12 +2288,6 @@ export function Reports() {
                       size="sm"
                       onClick={() => {
                         const html = `
-                          <div style="text-align:center; margin-bottom:12px;">
-                            <div style="font-size:16px; font-weight:700; letter-spacing:0.5px;">${branchName.toUpperCase()}</div>
-                            <div style="font-size:15px; font-weight:700; margin-top:2px;">${customerName.toUpperCase()}</div>
-                            <div style="font-size:13px; font-weight:700; margin-top:4px;">BILL FOR THE MONTH OF ${headerMonth}</div>
-                            <div style="font-size:12px; margin-top:2px;">FOR THE PERIOD FROM ${periodStart} TO ${periodEnd}</div>
-                          </div>
                           <table>
                             <tr><th>SR.#</th><th>DATE</th><th>VEH. #</th><th>ITEMS</th><th>PAYMENT METHOD</th><th class="right">BALANCE AMOUNT</th></tr>
                             ${sortedRows.map((row: any, idx: number) => `
@@ -2023,7 +2306,11 @@ export function Reports() {
                             </tr>
                           </table>
                         `;
-                        printReport(`Vehicle-Wise Report (${formatDate(displayFromDate)} - ${formatDate(displayToDate)})`, html);
+                        printReport(`Vehicle-Wise Report (${formatDate(displayFromDate)} - ${formatDate(displayToDate)})`, html, {
+                          branchName,
+                          subtitle: `${customerName.toUpperCase()} - BILL FOR THE MONTH OF ${headerMonth}`,
+                          periodText: `FOR THE PERIOD FROM ${periodStart} TO ${periodEnd}`,
+                        });
                       }}
                     >
                       <Printer className="mr-2 h-4 w-4" /> Print / PDF

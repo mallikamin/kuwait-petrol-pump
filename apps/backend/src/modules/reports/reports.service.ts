@@ -1229,4 +1229,151 @@ export class ReportsService {
       customerSummary: Object.values(customerSummary), // Aggregated by customer
     };
   }
+
+  /**
+   * Get product-wise detailed summary report.
+   */
+  async getProductWiseSummaryReport(
+    branchId: string,
+    startDate: Date,
+    endDate: Date,
+    organizationId: string,
+    productType: 'all' | 'fuel' | 'non_fuel' = 'all',
+    productId?: string
+  ) {
+    const branch = await prisma.branch.findFirst({
+      where: { id: branchId, organizationId },
+    });
+
+    if (!branch) {
+      throw new AppError(404, 'Branch not found');
+    }
+
+    const whereClause: any = {
+      branchId,
+      saleDate: {
+        gte: startDate,
+        lte: endDate,
+      },
+    };
+
+    if (productType === 'fuel') {
+      whereClause.saleType = 'fuel';
+    } else if (productType === 'non_fuel') {
+      whereClause.saleType = 'non_fuel';
+    }
+
+    const sales = await prisma.sale.findMany({
+      where: whereClause,
+      include: {
+        fuelSales: {
+          include: {
+            fuelType: true,
+          },
+        },
+        nonFuelSales: {
+          include: {
+            product: true,
+          },
+        },
+      },
+      orderBy: [{ saleDate: 'asc' }],
+    });
+
+    interface ProductRow {
+      saleDate: Date;
+      saleId: string;
+      slipNumber: string | null;
+      productType: 'fuel' | 'non_fuel';
+      product: string;
+      qty: number;
+      unit: string;
+      price: number;
+      amount: number;
+      paymentMethod: string;
+      customerName: string;
+      vehicleNumber: string | null;
+    }
+
+    const rows: ProductRow[] = [];
+
+    for (const sale of sales) {
+      if (sale.saleType === 'fuel') {
+        for (const fuelSale of sale.fuelSales) {
+          rows.push({
+            saleDate: sale.saleDate,
+            saleId: sale.id,
+            slipNumber: sale.slipNumber || null,
+            productType: 'fuel',
+            product: fuelSale.fuelType.code || fuelSale.fuelType.name,
+            qty: fuelSale.quantityLiters.toNumber(),
+            unit: 'Ltrs',
+            price: fuelSale.pricePerLiter.toNumber(),
+            amount: fuelSale.totalAmount.toNumber(),
+            paymentMethod: sale.paymentMethod,
+            customerName: sale.customerId ? 'Customer Sale' : 'Walk-in',
+            vehicleNumber: sale.vehicleNumber || null,
+          });
+        }
+      }
+
+      if (sale.saleType === 'non_fuel') {
+        for (const item of sale.nonFuelSales) {
+          if (productId && item.productId !== productId) continue;
+          rows.push({
+            saleDate: sale.saleDate,
+            saleId: sale.id,
+            slipNumber: sale.slipNumber || null,
+            productType: 'non_fuel',
+            product: item.product.name,
+            qty: item.quantity,
+            unit: 'Qty',
+            price: item.unitPrice.toNumber(),
+            amount: item.totalAmount.toNumber(),
+            paymentMethod: sale.paymentMethod,
+            customerName: sale.customerId ? 'Customer Sale' : 'Walk-in',
+            vehicleNumber: sale.vehicleNumber || null,
+          });
+        }
+      }
+    }
+
+    const sortedRows = rows.sort((a, b) => {
+      const p = a.product.localeCompare(b.product);
+      if (p !== 0) return p;
+      return a.saleDate.getTime() - b.saleDate.getTime();
+    });
+
+    const productSummary: Record<string, { qty: number; amount: number; rows: number; unit: string }> = {};
+    for (const row of sortedRows) {
+      if (!productSummary[row.product]) {
+        productSummary[row.product] = { qty: 0, amount: 0, rows: 0, unit: row.unit };
+      }
+      productSummary[row.product].qty += row.qty;
+      productSummary[row.product].amount += row.amount;
+      productSummary[row.product].rows += 1;
+    }
+
+    return {
+      branch: {
+        id: branch.id,
+        name: branch.name,
+      },
+      dateRange: {
+        startDate,
+        endDate,
+      },
+      filters: {
+        productType,
+        productId: productId || null,
+      },
+      totalRows: sortedRows.length,
+      totalAmount: sortedRows.reduce((sum, r) => sum + r.amount, 0),
+      rows: sortedRows,
+      productSummary: Object.entries(productSummary).map(([product, data]) => ({
+        product,
+        ...data,
+      })),
+    };
+  }
 }
