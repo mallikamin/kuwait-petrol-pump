@@ -30,6 +30,8 @@ export const apiClient: AxiosInstance = axios.create({
 
 let isRefreshing = false;
 let pendingRequests: Array<(token: string | null) => void> = [];
+let refreshAttempts = 0;
+const MAX_REFRESH_ATTEMPTS = 2;
 
 const flushPendingRequests = (token: string | null) => {
   pendingRequests.forEach((cb) => cb(token));
@@ -61,29 +63,40 @@ apiClient.interceptors.request.use(
 
 // Response interceptor
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Reset refresh attempts on successful response
+    refreshAttempts = 0;
+    return response;
+  },
   (error: AxiosError) => {
     const status = error.response?.status;
     const originalRequest = error.config as (typeof error.config & { _retry?: boolean }) | undefined;
     const requestUrl = originalRequest?.url || '';
     const isAuthRoute = requestUrl.includes('/auth/login') || requestUrl.includes('/auth/refresh');
 
+    // Only attempt refresh for 401 on non-auth routes that haven't been retried
     if (status === 401 && originalRequest && !originalRequest._retry && !isAuthRoute) {
       const { refreshToken, setToken, logout } = useAuthStore.getState();
 
+      // No refresh token = permanently logged out, no recovery possible
       if (!refreshToken) {
         logout();
         window.location.href = '/login';
         return Promise.reject(error);
       }
 
+      // Already refreshing: queue this request to retry after refresh completes
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           pendingRequests.push((newToken) => {
+            // If refresh failed, reject with original error
             if (!newToken) {
               reject(error);
               return;
             }
+            // CRITICAL FIX: Mark as retried to prevent infinite loop
+            // If this retry also fails with 401, it won't start another refresh
+            originalRequest._retry = true;
             originalRequest.headers = originalRequest.headers || {};
             originalRequest.headers.Authorization = `Bearer ${newToken}`;
             resolve(apiClient(originalRequest));
@@ -91,8 +104,18 @@ apiClient.interceptors.response.use(
         });
       }
 
+      // Mark request as retried to prevent infinite refresh loops
       originalRequest._retry = true;
       isRefreshing = true;
+      refreshAttempts += 1;
+
+      // Prevent runaway refresh attempts (should never happen, but safety net)
+      if (refreshAttempts > MAX_REFRESH_ATTEMPTS) {
+        isRefreshing = false;
+        logout();
+        window.location.href = '/login';
+        return Promise.reject(new Error('Max refresh attempts exceeded'));
+      }
 
       return axios
         .post(`${FINAL_API_URL}/auth/refresh`, { refreshToken }, {
@@ -107,6 +130,8 @@ apiClient.interceptors.response.use(
             throw new Error('Refresh response missing access token');
           }
 
+          // Successfully refreshed: reset attempts counter
+          refreshAttempts = 0;
           setToken(newAccessToken);
           flushPendingRequests(newAccessToken);
 
@@ -115,9 +140,29 @@ apiClient.interceptors.response.use(
           return apiClient(originalRequest);
         })
         .catch((refreshErr) => {
-          flushPendingRequests(null);
-          logout();
-          window.location.href = '/login';
+          // On refresh failure: distinguish auth-invalid from transient/infrastructure errors
+          const refreshStatus = refreshErr.response?.status;
+
+          // 401 = confirmed auth failure (invalid/expired refresh token)
+          // 503 = service temporarily unavailable (Redis down, backend issue, etc.)
+          // Other 5xx, network errors = transient failures
+          const isAuthInvalid = refreshStatus === 401;
+          const isTransient = !refreshStatus || refreshStatus >= 500; // Network error or 5xx
+
+          if (isAuthInvalid) {
+            // Permanent auth failure: logout required
+            flushPendingRequests(null);
+            logout();
+            window.location.href = '/login';
+          } else if (isTransient) {
+            // Transient infrastructure error: don't logout
+            // Reject pending requests so they can be retried/handled by UI
+            flushPendingRequests(null);
+          } else {
+            // Other errors (4xx that aren't 401, etc.): flush and reject
+            flushPendingRequests(null);
+          }
+
           return Promise.reject(refreshErr);
         })
         .finally(() => {
@@ -125,7 +170,9 @@ apiClient.interceptors.response.use(
         });
     }
 
-    if (status === 401) {
+    // Catch all remaining 401s (auth routes, retried requests, etc.)
+    // Only logout on 401s not handled by refresh logic above
+    if (status === 401 && !isRefreshing) {
       useAuthStore.getState().logout();
       window.location.href = '/login';
     }

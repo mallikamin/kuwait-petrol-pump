@@ -89,7 +89,27 @@ export class AuthService {
 
       return { accessToken: newAccessToken };
     } catch (error) {
-      throw new AppError(401, 'Invalid refresh token');
+      // Distinguish auth-invalid (401) from infrastructure failures (503)
+      // Only 401 for confirmed invalid token; 503 for transient issues
+      if (error instanceof AppError) {
+        // Already explicit error (e.g., invalid token from line 84)
+        throw error;
+      }
+
+      // JWT verification failure (malformed/tampered token)
+      if (error instanceof Error && error.name === 'JsonWebTokenError') {
+        throw new AppError(401, 'Invalid refresh token');
+      }
+
+      // JWT expiration (refresh token itself expired)
+      if (error instanceof Error && error.name === 'TokenExpiredError') {
+        throw new AppError(401, 'Refresh token expired');
+      }
+
+      // Infrastructure/transient failures (Redis down, network issue, etc.)
+      // Return 503 to indicate service temporarily unavailable, not auth failure
+      console.error('[Auth] Refresh error (transient):', error instanceof Error ? error.message : error);
+      throw new AppError(503, 'Auth service temporarily unavailable');
     }
   }
 
