@@ -14,6 +14,7 @@ import { cn } from '@/utils/cn';
 import { apiClient } from '@/api/client';
 import { branchesApi, customersApi, meterReadingsApi, productsApi } from '@/api';
 import { banksApi } from '@/api/banks';
+import { useAuthStore } from '@/store/auth';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { MeterReadingCapture, type MeterReadingData } from '@/components/MeterReadingCapture';
@@ -75,6 +76,7 @@ const openAttachmentInNewTab = (rawUrl?: string | null) => {
 // ── Component ────────────────────────────────────────────────────────────────
 export function BackdatedEntries2() {
   const queryClient = useQueryClient();
+  const { user } = useAuthStore();
 
   // ── Context state ──────────────────────────────────────────────────────────
   const [businessDate, setBusinessDate] = useState(() => {
@@ -403,12 +405,25 @@ export function BackdatedEntries2() {
     },
     onSuccess: (data: any) => {
       setIsDirty(false);
+      const finalizedAt =
+        data?.finalizedAt ||
+        data?.details?.finalizedAt ||
+        data?.timestamp ||
+        new Date().toISOString();
+      const finalizedBy =
+        data?.finalizedByName ||
+        data?.finalizedBy ||
+        user?.full_name ||
+        user?.username ||
+        '—';
       setFinalizeResult({
         type: 'success', message: data?.message || 'Finalized!', alreadyFinalized: data?.alreadyFinalized,
         salesCreated: data?.postedSalesCount || data?.details?.salesCreated || 0,
         transactionsProcessed: data?.details?.transactionsProcessed || 0,
         paymentBreakdown: data?.paymentBreakdown || null,
         cashGapWarning: data?.cashGapWarning,
+        finalizedAt,
+        finalizedBy,
       });
       setFinalizeDialogOpen(true);
       queryClient.invalidateQueries({ predicate: (q) => { const k = q.queryKey?.[0]; return k === 'sales' || k === 'sales-summary'; } });
@@ -850,7 +865,16 @@ export function BackdatedEntries2() {
                   )}
                   onClick={() => {
                     setActiveCustomerId(g.customerId);
-                    document.getElementById(`group-${g.customerId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    // Expand group if collapsed
+                    setCollapsedGroups(prev => {
+                      const next = new Set(prev);
+                      if (next.has(g.customerId)) next.delete(g.customerId);
+                      return next;
+                    });
+                    // Scroll into view
+                    setTimeout(() => {
+                      document.getElementById(`group-${g.customerId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }, 0);
                   }}
                 >
                   <div className="font-medium truncate">{g.customerName}</div>
@@ -875,6 +899,11 @@ export function BackdatedEntries2() {
               {leftCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
             </Button>
             <span className="text-[10px] text-muted-foreground">{leftCollapsed ? 'Customers' : ''}</span>
+            <Button size="sm" variant="outline" className="h-6 text-[11px] gap-1 px-2"
+              onClick={() => setAddGroupOpen(true)}
+              title="Add customer group">
+              <Plus className="h-3 w-3" /> Add Group
+            </Button>
             <div className="flex-1 text-center text-[10px] text-muted-foreground font-medium">
               {transactions.length > 0 && `${transactions.length} txn | ${customerGroups.length} groups | ${fmtPKR(totalPKR)} PKR`}
               {lastSaved && <span className="ml-2 text-emerald-600">Saved {format(lastSaved, 'HH:mm')}</span>}
@@ -918,12 +947,12 @@ export function BackdatedEntries2() {
             {selectedBranchId && !isDailySummaryLoading && customerGroups.map(group => {
               const isGroupCollapsed = collapsedGroups.has(group.customerId);
               return (
-                <div key={group.customerId} id={`group-${group.customerId}`} className="border-b last:border-b-0">
+                <div key={group.customerId} id={`group-${group.customerId}`} className="mx-2 my-3 border rounded-lg bg-card shadow-sm last:mb-3">
                   {/* Group header — click to collapse */}
                   <div
                     className={cn(
-                      'px-3 py-2 bg-muted/40 flex items-center gap-2 sticky top-0 z-10 cursor-pointer select-none hover:bg-muted/60 transition-colors',
-                      activeCustomerId === group.customerId && 'bg-primary/5 border-l-2 border-l-primary'
+                      'px-3 py-2.5 bg-muted/50 flex items-center gap-2 cursor-pointer select-none hover:bg-muted/70 transition-colors rounded-t-lg border-b',
+                      activeCustomerId === group.customerId && 'bg-primary/10 border-l-2 border-l-primary pl-2.5'
                     )}
                     onClick={() => { toggleGroup(group.customerId); setActiveCustomerId(group.customerId); }}
                   >
@@ -952,7 +981,7 @@ export function BackdatedEntries2() {
 
                   {/* Transaction table — hidden when group collapsed */}
                   {!isGroupCollapsed && (
-                    <div className="overflow-x-auto">
+                    <div className="overflow-x-auto rounded-b-lg">
                       <table className="w-full text-xs" style={{ minWidth: group.customerId !== '__walkin__' ? '820px' : '650px' }}>
                         <thead>
                           <tr className="border-b bg-muted/20 text-[10px]">
@@ -1254,7 +1283,7 @@ export function BackdatedEntries2() {
 
       {/* Finalize Result Dialog */}
       <Dialog open={finalizeDialogOpen} onOpenChange={setFinalizeDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           {finalizeResult?.type === 'success' ? (
             <>
               <DialogHeader>
@@ -1262,15 +1291,106 @@ export function BackdatedEntries2() {
                   {finalizeResult.alreadyFinalized ? 'Day Already Finalized' : 'Successfully Finalized!'}
                 </DialogTitle>
               </DialogHeader>
-              <div className="space-y-2 text-sm">
-                <p>{finalizeResult.message}</p>
-                {finalizeResult.salesCreated > 0 && <p>Sales created: <strong>{finalizeResult.salesCreated}</strong></p>}
-                {finalizeResult.transactionsProcessed > 0 && <p>Transactions processed: <strong>{finalizeResult.transactionsProcessed}</strong></p>}
+              <div className="space-y-4 text-sm">
+                {/* Summary message */}
+                <p className="text-muted-foreground">{finalizeResult.message}</p>
+
+                {/* Date and Branch Info */}
+                <div className="bg-muted/30 rounded p-3 space-y-2">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Date:</span>
+                    <span className="font-semibold">{format(new Date(businessDate), 'PPP')}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Branch:</span>
+                    <span className="font-semibold">{branchesData?.find((b: any) => b.id === selectedBranchId)?.name || '—'}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Finalized by:</span>
+                    <span className="font-semibold">{finalizeResult.finalizedBy || '—'}</span>
+                  </div>
+                </div>
+
+                {/* Fuel Reconciliation */}
+                <div className="border rounded-lg p-3 space-y-3">
+                  <h4 className="font-semibold text-xs text-muted-foreground">FUEL RECONCILIATION</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    {/* HSD Column */}
+                    <div className="space-y-2">
+                      <div className="font-medium text-xs mb-1">HSD (Diesel)</div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">Meter:</span>
+                        <span className="font-mono">{fmtL(hsd)} L</span>
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">Posted:</span>
+                        <span className="font-mono text-emerald-600">{fmtL(hsdPosted)} L</span>
+                      </div>
+                      <div className="flex justify-between text-xs border-t pt-2">
+                        <span className="text-muted-foreground font-semibold">Reconciled:</span>
+                        <span className={cn('font-mono font-semibold', hsd - hsdPosted >= 0 ? 'text-green-600' : 'text-orange-600')}>
+                          {fmtL(hsd - hsdPosted)} L
+                        </span>
+                      </div>
+                    </div>
+                    {/* PMG Column */}
+                    <div className="space-y-2">
+                      <div className="font-medium text-xs mb-1">PMG (Petrol)</div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">Meter:</span>
+                        <span className="font-mono">{fmtL(pmg)} L</span>
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">Posted:</span>
+                        <span className="font-mono text-emerald-600">{fmtL(pmgPosted)} L</span>
+                      </div>
+                      <div className="flex justify-between text-xs border-t pt-2">
+                        <span className="text-muted-foreground font-semibold">Reconciled:</span>
+                        <span className={cn('font-mono font-semibold', pmg - pmgPosted >= 0 ? 'text-green-600' : 'text-orange-600')}>
+                          {fmtL(pmg - pmgPosted)} L
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sales Summary */}
+                <div className="bg-muted/30 rounded p-3 space-y-2">
+                  <h4 className="font-semibold text-xs text-muted-foreground">SALES SUMMARY</h4>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Total Transactions:</span>
+                    <span className="font-semibold">{finalizeResult.transactionsProcessed || transactions.length}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Total Amount:</span>
+                    <span className="font-mono font-semibold text-emerald-600">PKR {fmtPKR(totalPKR)}</span>
+                  </div>
+                  {finalizeResult.salesCreated > 0 && (
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted-foreground">Sales Records Created:</span>
+                      <span className="font-semibold">{finalizeResult.salesCreated}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-xs border-t pt-2">
+                    <span className="text-muted-foreground">Total Sales:</span>
+                    <span className="font-semibold">
+                      {finalizeResult.salesCreated || finalizeResult.transactionsProcessed || transactions.length} @ PKR {fmtPKR(totalPKR)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Cash Gap Warning (if present) */}
                 {finalizeResult.cashGapWarning && (
-                  <div className="bg-amber-50 border border-amber-200 rounded p-2 text-amber-800 text-xs">
-                    Cash variance: PKR {Math.abs(finalizeResult.cashGapWarning.amount).toFixed(2)}
+                  <div className="bg-amber-50 border border-amber-200 rounded p-3 text-amber-800 text-xs space-y-1">
+                    <div className="font-semibold">⚠️ Cash Variance</div>
+                    <div>PKR {Math.abs(finalizeResult.cashGapWarning.amount).toFixed(2)}</div>
                   </div>
                 )}
+
+                {/* Finalized timestamp */}
+                <div className="text-xs text-muted-foreground text-center pt-2 border-t">
+                  Finalized at {format(new Date(finalizeResult.finalizedAt || new Date().toISOString()), 'PPp')}
+                </div>
               </div>
               <DialogFooter><Button onClick={() => setFinalizeDialogOpen(false)}>Close</Button></DialogFooter>
             </>
