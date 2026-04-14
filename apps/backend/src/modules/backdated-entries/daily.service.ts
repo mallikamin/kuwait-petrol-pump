@@ -1354,8 +1354,23 @@ export class DailyBackdatedEntriesService {
       } as any,
     });
 
-    // Get all transactions with their parent entry details
-    const allTransactions = entries.flatMap((e) =>
+    // Re-fetch entries after finalization flag update so sales backfill uses the latest active rows.
+    const entriesForSales = await prisma.backdatedEntry.findMany({
+      where: {
+        branchId,
+        businessDate: businessDateObj,
+      },
+      include: {
+        transactions: {
+          where: {
+            deletedAt: null,
+          },
+        },
+      },
+    });
+
+    // Get all active transactions with their parent entry details
+    const allTransactions = entriesForSales.flatMap((e) =>
       e.transactions.map((t) => ({
         ...t,
         _entry: {
@@ -1396,6 +1411,7 @@ export class DailyBackdatedEntriesService {
 
     // ✅ CREATE SALE RECORDS (so transactions appear in Sales tab)
     const createdSales: string[] = [];
+    const productIdByNameCache = new Map<string, string | null>();
 
     for (const txn of allTransactions) {
       // Deterministic idempotency key per backdated transaction
@@ -1450,15 +1466,52 @@ export class DailyBackdatedEntriesService {
             isManualReading: true,
           },
         };
-      } else if (txn.productId) {
-        saleData.nonFuelSales = {
-          create: {
-            productId: txn.productId,
-            quantity: Math.max(1, Math.round(Number(txn.quantity) || 1)),
-            unitPrice: txn.unitPrice,
-            totalAmount: txn.lineTotal,
-          },
-        };
+      } else {
+        let resolvedProductId = txn.productId || null;
+
+        // Permanent fallback: resolve non-fuel product by productName when legacy rows missed productId.
+        if (!resolvedProductId && txn.productName?.trim()) {
+          const productNameKey = txn.productName.trim().toLowerCase();
+
+          if (productIdByNameCache.has(productNameKey)) {
+            resolvedProductId = productIdByNameCache.get(productNameKey) || null;
+          } else {
+            const matchedProduct = await prisma.product.findFirst({
+              where: {
+                organizationId,
+                isActive: true,
+                name: {
+                  equals: txn.productName.trim(),
+                  mode: 'insensitive',
+                },
+              },
+              orderBy: {
+                createdAt: 'asc',
+              },
+              select: {
+                id: true,
+              },
+            });
+
+            resolvedProductId = matchedProduct?.id || null;
+            productIdByNameCache.set(productNameKey, resolvedProductId);
+          }
+        }
+
+        if (resolvedProductId) {
+          saleData.nonFuelSales = {
+            create: {
+              productId: resolvedProductId,
+              quantity: Math.max(1, Math.round(Number(txn.quantity) || 1)),
+              unitPrice: txn.unitPrice,
+              totalAmount: txn.lineTotal,
+            },
+          };
+        } else {
+          console.warn(
+            `[Finalize] Non-fuel transaction ${txn.id} has no resolvable productId (productName="${txn.productName || ''}"). Creating sale without line item.`
+          );
+        }
       }
 
       const sale = await prisma.sale.create({ data: saleData });
