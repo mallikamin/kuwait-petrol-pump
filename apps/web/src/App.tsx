@@ -20,6 +20,7 @@ import QuickBooks from '@/pages/QuickBooks';
 import { Suppliers } from '@/pages/Suppliers';
 import { PurchaseOrders } from '@/pages/PurchaseOrders';
 import { BackdatedEntries } from '@/pages/BackdatedEntries';
+import { BackdatedEntries2 } from '@/pages/BackdatedEntries2';
 import { NotFound } from '@/pages/NotFound';
 import { useAuthStore } from '@/store/auth';
 import { useThemeStore } from '@/store/theme';
@@ -71,6 +72,7 @@ function App() {
             <Route path="shifts" element={<Shifts />} />
             <Route path="meter-readings" element={<MeterReadings />} />
             <Route path="backdated-entries" element={<BackdatedEntries />} />
+            <Route path="backdated-entries2" element={<BackdatedEntries2 />} />
             <Route path="sales" element={<Sales />} />
             <Route path="customers" element={<Customers />} />
             <Route path="products" element={<Products />} />
