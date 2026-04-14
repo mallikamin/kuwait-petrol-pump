@@ -272,7 +272,10 @@ export function Reports() {
   const [customerSearch, setCustomerSearch] = useState('');
   const { data: customersData } = useQuery({
     queryKey: ['customers-list'],
-    queryFn: () => apiClient.get('/api/customers', { params: { page: 1, size: 100 } }).then(r => r.data.customers || []),
+    queryFn: () =>
+      apiClient
+        .get('/api/customers', { params: { limit: 500, offset: 0, isActive: 'true' } })
+        .then(r => r.data.customers || []),
     enabled: selectedReport === 'customer-ledger' || selectedReport === 'customer-wise-sales',
   });
 
