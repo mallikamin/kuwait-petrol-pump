@@ -1254,7 +1254,13 @@ export class DailyBackdatedEntriesService {
         businessDate: businessDateObj,
       },
       include: {
-        transactions: true,
+        // Only active transactions should be finalized into sales.
+        // Soft-deleted transactions must never recreate stale sales rows.
+        transactions: {
+          where: {
+            deletedAt: null,
+          },
+        },
       },
     });
 
