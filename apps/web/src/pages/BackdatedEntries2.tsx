@@ -7,7 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   CalendarClock, Save, CheckCircle, Plus, Trash2, Copy, Search,
-  Loader2, ChevronDown, ChevronUp, RefreshCw, AlertCircle, Users,
+  Loader2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
+  RefreshCw, AlertCircle, Users, Paperclip,
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { apiClient } from '@/api/client';
@@ -50,6 +51,26 @@ const toNumber = (v: unknown): number => {
 const fmtL = (n: number) => { if (n === 0) return '0'; return (Math.round(n * 1000) / 1000).toFixed(3).replace(/\.?0+$/, ''); };
 const fmtPKR = (n: number) => n.toLocaleString('en-PK', { maximumFractionDigits: 0 });
 
+const openAttachmentInNewTab = (rawUrl?: string | null) => {
+  if (!rawUrl) return;
+  if (rawUrl.startsWith('data:')) {
+    try {
+      const [meta, base64] = rawUrl.split(',');
+      if (!meta || !base64) return;
+      const mimeMatch = meta.match(/data:(.*?);base64/);
+      const mime = mimeMatch?.[1] || 'application/octet-stream';
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) { bytes[i] = binary.charCodeAt(i); }
+      const blobUrl = URL.createObjectURL(new Blob([bytes], { type: mime }));
+      window.open(blobUrl, '_blank', 'noopener,noreferrer');
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+      return;
+    } catch { return; }
+  }
+  window.open(rawUrl, '_blank', 'noopener,noreferrer');
+};
+
 
 // ── Component ────────────────────────────────────────────────────────────────
 export function BackdatedEntries2() {
@@ -78,12 +99,15 @@ export function BackdatedEntries2() {
 
   // ── UI state ───────────────────────────────────────────────────────────────
   const [activeCustomerId, setActiveCustomerId] = useState<string | null>(null);
-  const [meterExpanded, setMeterExpanded] = useState(false);
+  const [meterExpanded, setMeterExpanded] = useState(true);
   const [addGroupOpen, setAddGroupOpen] = useState(false);
   const [customerSearch, setCustomerSearch] = useState('');
   const [addCustomerOpen, setAddCustomerOpen] = useState(false);
   const [newCustomer, setNewCustomer] = useState({ name: '', phone: '', email: '' });
   const [isSubmittingCustomer, setIsSubmittingCustomer] = useState(false);
+  const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const [rightCollapsed, setRightCollapsed] = useState(false);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
   // Meter reading dialog
   const [meterDialogOpen, setMeterDialogOpen] = useState(false);
@@ -566,17 +590,36 @@ export function BackdatedEntries2() {
     } catch (e: any) { toast.error(e?.response?.data?.error || 'Failed'); }
   };
 
+  const toggleGroup = (customerId: string) => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(customerId)) next.delete(customerId); else next.add(customerId);
+      return next;
+    });
+  };
+
+  // ── Pre-computed render data ───────────────────────────────────────────────
+  const meterShifts = (backdatedMeterReadingsData as any)?.shifts || [];
+  const meterSummary = (backdatedMeterReadingsData as any)?.summary;
+  const meterPct = meterSummary?.completionPercent || 0;
+  const meterEntered = meterSummary?.totalReadingsEntered || 0;
+  const meterExpected = meterSummary?.totalReadingsExpected || 0;
+
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)] overflow-hidden">
-      {/* ── HEADER BAR ──────────────────────────────────────────────────── */}
-      <div className="bg-slate-800 text-white px-4 py-2.5 flex items-center gap-4 flex-shrink-0">
-        <CalendarClock className="h-4 w-4 text-blue-300" />
-        <span className="text-sm font-semibold">Backdated Entry Posting</span>
-        <Badge variant="outline" className="text-amber-400 border-amber-500 text-[10px]">V2 WIP</Badge>
-        <div className="flex items-center gap-2 ml-4">
+    <div className="flex flex-col h-[calc(100vh-4rem)] overflow-hidden bg-background">
+
+      {/* ═══════════════════════════════════════════════════════════════════════
+          HEADER BAR
+          ═══════════════════════════════════════════════════════════════════════ */}
+      <header className="bg-slate-800 text-white px-4 py-2 flex items-center gap-3 flex-shrink-0 z-20">
+        <CalendarClock className="h-4 w-4 text-blue-300 flex-shrink-0" />
+        <span className="text-sm font-semibold tracking-tight whitespace-nowrap">Daily Posting</span>
+
+        <div className="flex items-center gap-2">
           <Input type="date" value={businessDate} onChange={e => setBusinessDate(e.target.value)}
-            max={format(new Date(), 'yyyy-MM-dd')} className="h-7 w-36 text-xs bg-slate-700 border-slate-600 text-white" />
+            max={format(new Date(), 'yyyy-MM-dd')}
+            className="h-7 w-36 text-xs bg-slate-700 border-slate-600 text-white [color-scheme:dark]" />
           <Select value={selectedBranchId} onValueChange={setSelectedBranchId}>
             <SelectTrigger className="h-7 w-44 text-xs bg-slate-700 border-slate-600 text-white">
               <SelectValue placeholder="Select branch" />
@@ -589,382 +632,554 @@ export function BackdatedEntries2() {
           </Select>
         </div>
 
-        <div className="ml-auto flex items-center gap-3">
-          {/* HSD/PMG mini bars */}
-          {selectedBranchId && businessDate && (
-            <>
-              <div className="flex items-center gap-1.5 text-[11px]">
-                <span className="text-blue-300">HSD</span>
-                <div className="w-16 h-1.5 bg-slate-600 rounded-full overflow-hidden">
-                  <div className="h-full bg-blue-400 transition-all" style={{ width: `${Math.min(hsdPct, 100)}%` }} />
-                </div>
-                <span className="font-mono">{hsdPct}%</span>
+        {selectedBranchId && businessDate && (
+          <div className="flex items-center gap-4 ml-2">
+            <div className="flex items-center gap-1.5 text-[11px]">
+              <span className="text-blue-300 font-medium">HSD</span>
+              <div className="w-20 h-2 bg-slate-600 rounded-full overflow-hidden">
+                <div className="h-full bg-blue-400 rounded-full transition-all" style={{ width: `${Math.min(hsdPct, 100)}%` }} />
               </div>
-              <div className="flex items-center gap-1.5 text-[11px]">
-                <span className="text-green-300">PMG</span>
-                <div className="w-16 h-1.5 bg-slate-600 rounded-full overflow-hidden">
-                  <div className="h-full bg-green-400 transition-all" style={{ width: `${Math.min(pmgPct, 100)}%` }} />
-                </div>
-                <span className="font-mono">{pmgPct}%</span>
+              <span className="font-mono w-8 text-right">{hsdPct}%</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-[11px]">
+              <span className="text-green-300 font-medium">PMG</span>
+              <div className="w-20 h-2 bg-slate-600 rounded-full overflow-hidden">
+                <div className="h-full bg-green-400 rounded-full transition-all" style={{ width: `${Math.min(pmgPct, 100)}%` }} />
               </div>
-            </>
-          )}
-          <div className="h-4 w-px bg-slate-600" />
-          {syncMessage && <span className="text-[10px] text-slate-400">{syncMessage}</span>}
-          {isDirty && <Badge className="bg-amber-600 text-[10px]">Unsaved</Badge>}
-          <Button size="sm" variant="secondary" className="h-7 text-xs" onClick={() => saveDraftMut.mutateAsync(undefined)}
+              <span className="font-mono w-8 text-right">{pmgPct}%</span>
+            </div>
+          </div>
+        )}
+
+        <div className="ml-auto flex items-center gap-2">
+          {syncMessage && <span className="text-[10px] text-slate-400 max-w-[160px] truncate">{syncMessage}</span>}
+          {isDirty && <Badge className="bg-amber-600 text-[10px] px-1.5">Unsaved</Badge>}
+          <Button size="sm" variant="secondary" className="h-7 text-xs gap-1" onClick={() => saveDraftMut.mutateAsync(undefined)}
             disabled={saveDraftMut.isPending || !selectedBranchId}>
-            {saveDraftMut.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Save className="h-3 w-3 mr-1" />}
+            {saveDraftMut.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
             Save
           </Button>
-          <Button size="sm" className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700" onClick={handleFinalize}
+          <Button size="sm" className="h-7 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700" onClick={handleFinalize}
             disabled={finalizeMut.isPending || isDirty || !selectedBranchId}>
-            {finalizeMut.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <CheckCircle className="h-3 w-3 mr-1" />}
+            {finalizeMut.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle className="h-3 w-3" />}
             Finalize
           </Button>
-          <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-slate-400" onClick={() => { refetchDailySummary(); refetchMeterReadings(); }}>
+          <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-slate-400 hover:text-white"
+            onClick={() => { refetchDailySummary(); refetchMeterReadings(); }}>
             <RefreshCw className="h-3 w-3" />
           </Button>
         </div>
-      </div>
+      </header>
 
-      {/* ── 3-PANEL BODY ────────────────────────────────────────────────── */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* ── LEFT: Customer Groups ──────────────────────────────────────── */}
-        <div className="w-56 border-r flex flex-col bg-muted/30 flex-shrink-0">
-          <div className="p-2 border-b flex items-center gap-1">
-            <Button size="sm" variant="outline" className="h-7 text-[11px] flex-1" onClick={() => setAddGroupOpen(true)}>
-              <Plus className="h-3 w-3 mr-1" /> Add Group
-            </Button>
-            <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => addTransactionToCustomer('__walkin__', 'Walk-in Sales')}>
-              Walk-in
-            </Button>
-          </div>
-          <div className="flex-1 overflow-y-auto">
-            {customerGroups.length === 0 && (
-              <div className="p-4 text-center text-xs text-muted-foreground">
-                {!selectedBranchId ? 'Select a branch to start' : isDailySummaryLoading ? 'Loading...' : 'No transactions yet'}
+      {/* ═══════════════════════════════════════════════════════════════════════
+          METER READINGS STRIP — full-width, collapsible, workflow step 1
+          ═══════════════════════════════════════════════════════════════════════ */}
+      <div className="flex-shrink-0 border-b bg-slate-50">
+        <button
+          className="w-full px-4 py-1.5 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500 hover:bg-slate-100 transition-colors"
+          onClick={() => setMeterExpanded(!meterExpanded)}
+        >
+          {meterExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          Meter Readings
+          {meterSummary && (
+            <Badge variant={meterPct === 100 ? 'default' : 'secondary'} className={cn('text-[10px]', meterPct === 100 && 'bg-emerald-600')}>
+              {meterEntered}/{meterExpected}
+            </Badge>
+          )}
+          {meterPct > 0 && meterPct < 100 && (
+            <div className="flex items-center gap-1.5 ml-1">
+              <div className="w-24 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                <div className="h-full bg-amber-500 rounded-full transition-all" style={{ width: `${meterPct}%` }} />
+              </div>
+              <span className="font-mono text-[10px] text-amber-700">{meterPct}%</span>
+            </div>
+          )}
+          {backdatedReadingsError && <span className="text-destructive text-[10px] ml-2 font-normal normal-case">Load failed</span>}
+        </button>
+
+        {meterExpanded && selectedBranchId && (
+          <div className="px-4 pb-3 grid grid-cols-1 xl:grid-cols-2 gap-3">
+            {meterShifts.length === 0 && !backdatedReadingsError && (
+              <div className="col-span-full text-xs text-muted-foreground py-3 text-center">
+                No shift data for this date. Ensure shifts are configured.
               </div>
             )}
-            {customerGroups.map(g => (
-              <button key={g.customerId}
-                className={cn(
-                  'w-full text-left px-3 py-2 border-b text-xs hover:bg-accent/50 transition-colors',
-                  activeCustomerId === g.customerId && 'bg-accent border-l-2 border-l-primary'
-                )}
-                onClick={() => {
-                  setActiveCustomerId(g.customerId);
-                  document.getElementById(`group-${g.customerId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }}
-              >
-                <div className="font-medium truncate">{g.customerName}</div>
-                <div className="flex items-center gap-2 text-muted-foreground mt-0.5">
-                  <span>{g.transactions.length} txn</span>
-                  <span>{fmtL(g.totalLiters)}L</span>
-                  <span className="ml-auto font-mono">{fmtPKR(g.totalAmount)}</span>
+            {meterShifts.map((shift: any) => (
+              <div key={shift.shiftId} className="border rounded-lg overflow-hidden bg-white shadow-sm">
+                {/* Shift header */}
+                <div className="bg-slate-100 px-3 py-1.5 flex items-center gap-2 border-b">
+                  <span className="text-xs font-bold text-slate-700">{shift.shiftName}</span>
+                  {shift.startTime && shift.endTime && (
+                    <span className="text-[10px] text-slate-400">
+                      {typeof shift.startTime === 'string' ? shift.startTime.substring(0, 5) : ''} – {typeof shift.endTime === 'string' ? shift.endTime.substring(0, 5) : ''}
+                    </span>
+                  )}
+                  {shift.summary && (
+                    <Badge variant={toNumber(shift.summary.completionPercent) === 100 ? 'default' : 'outline'}
+                      className={cn('text-[10px] ml-auto', toNumber(shift.summary.completionPercent) === 100 && 'bg-emerald-600 text-white')}>
+                      {toNumber(shift.summary.completionPercent).toFixed(0)}%
+                    </Badge>
+                  )}
                 </div>
-              </button>
-            ))}
-          </div>
 
-          {/* Meter readings mini-section */}
-          <div className="border-t">
-            <button className="w-full px-3 py-2 text-[11px] font-medium flex items-center gap-1 text-muted-foreground hover:bg-accent/50"
-              onClick={() => setMeterExpanded(!meterExpanded)}>
-              {meterExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-              Meter Readings
-              {(backdatedMeterReadingsData as any)?.shifts?.length ? (
-                <Badge variant="outline" className="ml-auto text-[9px] h-4">{(backdatedMeterReadingsData as any).shifts.length} shifts</Badge>
-              ) : null}
-            </button>
-            {meterExpanded && (
-              <div className="px-2 pb-2 max-h-60 overflow-y-auto space-y-1">
-                {backdatedReadingsError && <div className="text-[10px] text-destructive p-1">Failed to load readings</div>}
-                {(backdatedMeterReadingsData as any)?.shifts?.map((shift: any) => (
-                  <div key={shift.shiftId}>
-                    <div className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wider pt-1 pb-0.5 border-b">
-                      {shift.shiftName}
-                    </div>
-                    {shift.nozzles?.map((nozzle: any) => {
-                      const op = nozzle.opening?.value;
-                      const cl = nozzle.closing?.value;
-                      const sales = op != null && cl != null ? (cl - op) : null;
-                      return (
-                        <div key={`${shift.shiftId}-${nozzle.nozzleId}`} className="flex items-center gap-1 py-0.5 border-b last:border-b-0 text-[10px]">
-                          <span className="w-16 truncate">{nozzle.nozzleName || `N-${nozzle.nozzleNumber}`}</span>
-                          <span className={cn('w-8 text-center', nozzle.fuelTypeName === 'HSD' || nozzle.fuelType === 'HSD' ? 'text-blue-600' : 'text-green-600')}>
-                            {nozzle.fuelTypeName || nozzle.fuelType}
-                          </span>
-                          <button className={cn('flex-1 text-right font-mono', op != null ? 'text-foreground' : 'text-muted-foreground')}
-                            onClick={() => openMeterDialog(nozzle, 'opening', shift, nozzle.opening?.id ? nozzle.opening : null)}>
-                            {op != null ? op.toFixed(0) : '—'}
-                          </button>
-                          <span className="text-muted-foreground">→</span>
-                          <button className={cn('flex-1 text-right font-mono', cl != null ? 'text-foreground' : 'text-muted-foreground')}
-                            onClick={() => openMeterDialog(nozzle, 'closing', shift, nozzle.closing?.id ? nozzle.closing : null)}>
-                            {cl != null ? cl.toFixed(0) : '—'}
-                          </button>
-                          <span className="w-12 text-right font-mono text-muted-foreground">
-                            {sales != null ? `${sales.toFixed(0)}L` : ''}
-                          </span>
-                          <div className="flex gap-0.5 ml-0.5">
-                            {nozzle.opening?.id && (
-                              <button className="text-destructive/60 hover:text-destructive" title="Delete opening"
-                                onClick={() => { if (confirm('Delete opening reading?')) deleteMeterMut.mutate(nozzle.opening.id); }}>
-                                <Trash2 className="h-2.5 w-2.5" />
+                {/* Nozzle column headers */}
+                <div className="grid grid-cols-[minmax(100px,1fr)_140px_140px_60px] px-3 py-1 text-[10px] text-slate-400 font-semibold uppercase tracking-wider bg-slate-50/50 border-b">
+                  <span>Nozzle</span>
+                  <span className="text-center">Opening</span>
+                  <span className="text-center">Closing</span>
+                  <span className="text-right">Sales</span>
+                </div>
+
+                {/* Nozzle rows */}
+                <div className="divide-y divide-slate-100">
+                  {(shift.nozzles || []).map((nozzle: any) => {
+                    const op = nozzle.opening;
+                    const cl = nozzle.closing;
+                    const opVal = op?.value;
+                    const clVal = cl?.value;
+                    const sales = opVal != null && clVal != null ? (clVal - opVal) : null;
+                    const isHSD = nozzle.fuelTypeName === 'HSD' || nozzle.fuelType === 'HSD';
+
+                    const ReadingCell = ({ reading, readingType }: { reading: any; readingType: 'opening' | 'closing' }) => {
+                      const val = reading?.value;
+                      const hasAttach = !!(reading?.imageUrl || reading?.attachmentUrl);
+                      if (val != null) {
+                        return (
+                          <div className="flex items-center justify-center gap-1 group/cell">
+                            <button
+                              className="font-mono text-xs font-semibold px-2.5 py-1 rounded border border-slate-200 bg-white hover:border-blue-400 hover:bg-blue-50 transition-colors cursor-pointer"
+                              onClick={() => openMeterDialog(nozzle, readingType, shift, reading?.id ? reading : null)}
+                              title={`Click to edit ${readingType}`}
+                            >
+                              {val.toLocaleString()}
+                            </button>
+                            {hasAttach && (
+                              <button className="text-blue-500 hover:text-blue-700 p-0.5" title="View attachment"
+                                onClick={() => openAttachmentInNewTab(reading.attachmentUrl || reading.imageUrl)}>
+                                <Paperclip className="h-3.5 w-3.5" />
                               </button>
                             )}
-                            {nozzle.closing?.id && (
-                              <button className="text-destructive/60 hover:text-destructive" title="Delete closing"
-                                onClick={() => { if (confirm('Delete closing reading?')) deleteMeterMut.mutate(nozzle.closing.id); }}>
-                                <Trash2 className="h-2.5 w-2.5" />
+                            {reading?.id && (
+                              <button
+                                className="p-1 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all"
+                                title={`Delete ${readingType}`}
+                                onClick={() => { if (confirm(`Delete this ${readingType} reading?`)) deleteMeterMut.mutate(reading.id); }}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
                               </button>
                             )}
                           </div>
+                        );
+                      }
+                      return (
+                        <div className="flex justify-center">
+                          <button
+                            className="text-[11px] font-semibold px-3 py-1.5 rounded-md border-2 border-dashed border-amber-400 bg-amber-50 text-amber-700 hover:bg-amber-100 hover:border-amber-500 transition-colors"
+                            onClick={() => openMeterDialog(nozzle, readingType, shift)}
+                          >
+                            Enter {readingType === 'opening' ? 'Opening' : 'Closing'}
+                          </button>
                         </div>
                       );
-                    })}
-                  </div>
-                ))}
-                {(!(backdatedMeterReadingsData as any)?.shifts || (backdatedMeterReadingsData as any).shifts.length === 0) && !backdatedReadingsError && (
-                  <div className="text-[10px] text-muted-foreground p-1">No nozzle readings found</div>
-                )}
-                {(backdatedMeterReadingsData as any)?.summary && (
-                  <div className="mt-1 pt-1 border-t text-[9px] text-muted-foreground flex justify-between">
-                    <span>{(backdatedMeterReadingsData as any).summary.totalReadingsEntered}/{(backdatedMeterReadingsData as any).summary.totalReadingsExpected} readings</span>
-                    <span>{(backdatedMeterReadingsData as any).summary.completionPercent}% complete</span>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
+                    };
 
-        {/* ── CENTER: Transactions ───────────────────────────────────────── */}
-        <div className="flex-1 overflow-y-auto bg-background">
-          {!selectedBranchId && (
-            <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-              Select a branch and date to begin
-            </div>
-          )}
-          {selectedBranchId && isDailySummaryLoading && (
-            <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-              <Loader2 className="h-4 w-4 animate-spin mr-2" /> Loading...
-            </div>
-          )}
-          {selectedBranchId && !isDailySummaryLoading && customerGroups.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
-              <Users className="h-8 w-8 text-muted-foreground/50" />
-              <span className="text-sm">No transactions yet</span>
-              <Button size="sm" variant="outline" onClick={() => setAddGroupOpen(true)}>
-                <Plus className="h-3 w-3 mr-1" /> Add Customer Group
-              </Button>
-            </div>
-          )}
-          {selectedBranchId && !isDailySummaryLoading && customerGroups.map(group => (
-            <div key={group.customerId} id={`group-${group.customerId}`} className="border-b last:border-b-0">
-              {/* Group header */}
-              <div className={cn(
-                'px-4 py-2 bg-muted/40 flex items-center gap-3 sticky top-0 z-10',
-                activeCustomerId === group.customerId && 'bg-primary/5 border-l-2 border-l-primary'
-              )} onClick={() => setActiveCustomerId(group.customerId)}>
-                <span className="text-sm font-semibold">{group.customerName}</span>
-                <Badge variant="secondary" className="text-[10px]">{group.transactions.length} txn</Badge>
-                <span className="text-xs text-muted-foreground ml-auto">
-                  {fmtL(group.totalLiters)}L | {fmtPKR(group.totalAmount)} PKR
-                </span>
-                <Button size="sm" variant="ghost" className="h-6 text-[10px]"
-                  onClick={e => { e.stopPropagation(); duplicateLastInGroup(group.indices); }}>
-                  <Copy className="h-3 w-3 mr-1" /> Dup
-                </Button>
-                <Button size="sm" variant="ghost" className="h-6 text-[10px]"
-                  onClick={e => { e.stopPropagation(); addTransactionToCustomer(group.customerId, group.customerName); }}>
-                  <Plus className="h-3 w-3 mr-1" /> Add
-                </Button>
-              </div>
-              {/* Transaction rows */}
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b bg-muted/20">
-                    <th className="text-left px-2 py-1.5 w-20 font-medium text-muted-foreground">Fuel</th>
-                    {group.customerId !== '__walkin__' && (
-                      <>
-                        <th className="text-left px-2 py-1.5 w-24 font-medium text-muted-foreground">Slip#</th>
-                        <th className="text-left px-2 py-1.5 w-24 font-medium text-muted-foreground">Vehicle#</th>
-                      </>
-                    )}
-                    <th className="text-right px-2 py-1.5 w-20 font-medium text-muted-foreground">Qty (L)</th>
-                    <th className="text-right px-2 py-1.5 w-20 font-medium text-muted-foreground">Price/L</th>
-                    <th className="text-right px-2 py-1.5 w-24 font-medium text-muted-foreground">Total</th>
-                    <th className="text-left px-2 py-1.5 w-28 font-medium text-muted-foreground">Payment</th>
-                    {(group.transactions.some(t => t.paymentMethod === 'credit_card' || t.paymentMethod === 'bank_card')) && (
-                      <th className="text-left px-2 py-1.5 w-28 font-medium text-muted-foreground">Bank</th>
-                    )}
-                    <th className="px-2 py-1.5 w-16"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {group.indices.map(idx => {
-                    const txn = transactions[idx];
-                    if (!txn) return null;
-                    const showBank = txn.paymentMethod === 'credit_card' || txn.paymentMethod === 'bank_card';
-                    const groupShowsBank = group.transactions.some(t => t.paymentMethod === 'credit_card' || t.paymentMethod === 'bank_card');
                     return (
-                      <tr key={txn.id || idx} className={cn('border-b hover:bg-accent/30', txn._localStatus === 'draft' && 'bg-blue-50/50')}>
-                        <td className="px-2 py-1">
-                          <Select value={txn.fuelCode} onValueChange={v => updateTransaction(idx, 'fuelCode', v)}>
-                            <SelectTrigger className="h-7 text-[11px] w-full"><SelectValue placeholder="—" /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="HSD">HSD</SelectItem>
-                              <SelectItem value="PMG">PMG</SelectItem>
-                              <SelectItem value="OTHER">Other</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          {txn.fuelCode === 'OTHER' && (
-                            <Select value={txn.productName} onValueChange={v => {
-                              const prod = nonFuelProductOptions.find(p => p.name === v);
-                              updateTransaction(idx, 'productName', v);
-                              if (prod?.unitPrice) updateTransaction(idx, 'unitPrice', prod.unitPrice.toString());
-                            }}>
-                              <SelectTrigger className="h-6 text-[10px] mt-0.5"><SelectValue placeholder="Product" /></SelectTrigger>
-                              <SelectContent>
-                                {nonFuelProductOptions.map(p => (
-                                  <SelectItem key={p.id} value={p.name}>{p.name}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                      <div key={`${shift.shiftId}-${nozzle.nozzleId}`}
+                        className="grid grid-cols-[minmax(100px,1fr)_140px_140px_60px] items-center px-3 py-2 hover:bg-slate-50 transition-colors"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-xs font-medium text-slate-700 truncate">
+                            {nozzle.nozzleName || `N-${nozzle.nozzleNumber}`}
+                          </span>
+                          <span className={cn(
+                            'text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0',
+                            isHSD ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
+                          )}>
+                            {nozzle.fuelTypeName || nozzle.fuelType}
+                          </span>
+                        </div>
+                        <ReadingCell reading={op} readingType="opening" />
+                        <ReadingCell reading={cl} readingType="closing" />
+                        <div className="text-right">
+                          {sales != null ? (
+                            <span className={cn('font-mono text-xs font-semibold', sales < 0 ? 'text-red-600' : 'text-slate-700')}>
+                              {sales.toLocaleString()}
+                            </span>
+                          ) : (
+                            <span className="text-slate-300 text-xs">—</span>
                           )}
-                        </td>
-                        {group.customerId !== '__walkin__' && (
-                          <>
-                            <td className="px-2 py-1">
-                              <Input value={txn.slipNumber || ''} onChange={e => updateTransaction(idx, 'slipNumber', e.target.value)}
-                                className="h-7 text-[11px]" placeholder="Slip#" />
-                            </td>
-                            <td className="px-2 py-1">
-                              <Input value={txn.vehicleNumber || ''} onChange={e => updateTransaction(idx, 'vehicleNumber', e.target.value)}
-                                className="h-7 text-[11px]" placeholder="Vehicle#" />
-                            </td>
-                          </>
-                        )}
-                        <td className="px-2 py-1">
-                          <Input type="number" value={txn.quantity} onChange={e => updateTransaction(idx, 'quantity', e.target.value)}
-                            className="h-7 text-[11px] text-right font-mono" placeholder="0" />
-                        </td>
-                        <td className="px-2 py-1">
-                          <Input type="number" value={txn.unitPrice} onChange={e => updateTransaction(idx, 'unitPrice', e.target.value)}
-                            className="h-7 text-[11px] text-right font-mono" placeholder="0" />
-                        </td>
-                        <td className="px-2 py-1 text-right font-mono font-medium">
-                          {fmtPKR(toNumber(txn.lineTotal))}
-                        </td>
-                        <td className="px-2 py-1">
-                          <Select value={txn.paymentMethod} onValueChange={v => updateTransaction(idx, 'paymentMethod', v)}>
-                            <SelectTrigger className="h-7 text-[11px] w-full"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="cash">Cash</SelectItem>
-                              <SelectItem value="credit_card">Credit Card</SelectItem>
-                              <SelectItem value="bank_card">Bank Card</SelectItem>
-                              <SelectItem value="pso_card">PSO Card</SelectItem>
-                              <SelectItem value="credit_customer">Credit</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </td>
-                        {groupShowsBank && (
-                          <td className="px-2 py-1">
-                            {showBank ? (
-                              <Select value={txn.bankId || ''} onValueChange={v => updateTransaction(idx, 'bankId', v)}>
-                                <SelectTrigger className="h-7 text-[11px] w-full"><SelectValue placeholder="Bank" /></SelectTrigger>
-                                <SelectContent>
-                                  {(banksData || []).map((b: any) => (
-                                    <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            ) : <span className="text-muted-foreground">—</span>}
-                          </td>
-                        )}
-                        <td className="px-2 py-1">
-                          <div className="flex gap-1">
-                            <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-emerald-600" onClick={() => saveRow(idx)}
-                              title="Save row">
-                              <Save className="h-3 w-3" />
-                            </Button>
-                            <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-destructive" onClick={() => removeTransaction(idx)}
-                              title="Delete">
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
+                        </div>
+                      </div>
                     );
                   })}
-                </tbody>
-              </table>
-            </div>
-          ))}
-        </div>
-
-        {/* ── RIGHT: Stats Panel ─────────────────────────────────────────── */}
-        <div className="w-64 border-l flex-shrink-0 overflow-y-auto bg-muted/10 p-3 space-y-3">
-          {/* Fuel Recon */}
-          <div>
-            <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Fuel Reconciliation</div>
-            {/* HSD */}
-            <div className="space-y-1 mb-3">
-              <div className="flex justify-between text-[11px]"><span className="font-medium text-blue-700">HSD (Diesel)</span><span className="font-mono">{hsdPct}%</span></div>
-              <div className="h-1.5 bg-muted rounded-full overflow-hidden"><div className="h-full bg-blue-500 transition-all" style={{ width: `${Math.min(hsdPct, 100)}%` }} /></div>
-              <div className="grid grid-cols-3 text-[10px] text-muted-foreground">
-                <div>Meter<br /><span className="font-mono text-foreground">{fmtL(hsd)}</span></div>
-                <div className="text-center">Posted<br /><span className="font-mono text-blue-600">{fmtL(hsdPosted)}</span></div>
-                <div className="text-right">Remain<br /><span className="font-mono text-orange-600 font-semibold">{fmtL(hsdRemain)}</span></div>
+                </div>
               </div>
-            </div>
-            {/* PMG */}
-            <div className="space-y-1">
-              <div className="flex justify-between text-[11px]"><span className="font-medium text-green-700">PMG (Petrol)</span><span className="font-mono">{pmgPct}%</span></div>
-              <div className="h-1.5 bg-muted rounded-full overflow-hidden"><div className="h-full bg-green-500 transition-all" style={{ width: `${Math.min(pmgPct, 100)}%` }} /></div>
-              <div className="grid grid-cols-3 text-[10px] text-muted-foreground">
-                <div>Meter<br /><span className="font-mono text-foreground">{fmtL(pmg)}</span></div>
-                <div className="text-center">Posted<br /><span className="font-mono text-green-600">{fmtL(pmgPosted)}</span></div>
-                <div className="text-right">Remain<br /><span className="font-mono text-orange-600 font-semibold">{fmtL(pmgRemain)}</span></div>
-              </div>
-            </div>
+            ))}
           </div>
-
-          <div className="h-px bg-border" />
-
-          {/* Payment Breakdown */}
-          <div>
-            <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Payments</div>
-            <div className="space-y-1 text-[11px]">
-              <div className="flex justify-between"><span>Cash</span><span className="font-mono">{fmtPKR(paymentBreakdown.cash)}</span></div>
-              <div className="flex justify-between"><span>Credit Card</span><span className="font-mono">{fmtPKR(paymentBreakdown.credit_card)}</span></div>
-              <div className="flex justify-between"><span>Bank Card</span><span className="font-mono">{fmtPKR(paymentBreakdown.bank_card)}</span></div>
-              <div className="flex justify-between"><span>PSO Card</span><span className="font-mono">{fmtPKR(paymentBreakdown.pso_card)}</span></div>
-              <div className="flex justify-between"><span>Credit Cust.</span><span className="font-mono">{fmtPKR(paymentBreakdown.credit_customer)}</span></div>
-              <div className="flex justify-between font-semibold border-t pt-1 mt-1"><span>Total</span><span className="font-mono">{fmtPKR(totalPKR)} PKR</span></div>
-            </div>
-          </div>
-
-          <div className="h-px bg-border" />
-
-          {/* Transaction summary */}
-          <div>
-            <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Summary</div>
-            <div className="space-y-1 text-[11px]">
-              <div className="flex justify-between"><span>Groups</span><span className="font-mono">{customerGroups.length}</span></div>
-              <div className="flex justify-between"><span>Transactions</span><span className="font-mono">{transactions.length}</span></div>
-              <div className="flex justify-between"><span>Total Liters</span><span className="font-mono">{fmtL(transactions.reduce((s, t) => s + toNumber(t.quantity), 0))}</span></div>
-              {lastSaved && (
-                <div className="flex justify-between"><span>Last saved</span><span className="text-muted-foreground">{format(lastSaved, 'HH:mm')}</span></div>
-              )}
-            </div>
-          </div>
-        </div>
+        )}
       </div>
 
-      {/* ── DIALOGS ─────────────────────────────────────────────────────── */}
+      {/* ═══════════════════════════════════════════════════════════════════════
+          3-PANEL BODY
+          ═══════════════════════════════════════════════════════════════════════ */}
+      <div className="flex flex-1 overflow-hidden min-h-0">
+
+        {/* ── LEFT PANEL: Customer Groups ──────────────────────────────────── */}
+        {!leftCollapsed && (
+          <div className="w-[260px] border-r flex flex-col bg-muted/20 flex-shrink-0">
+            <div className="p-2 border-b flex items-center gap-1.5">
+              <Button size="sm" variant="outline" className="h-7 text-[11px] flex-1 gap-1" onClick={() => setAddGroupOpen(true)}>
+                <Plus className="h-3 w-3" /> Add Group
+              </Button>
+              <Button size="sm" variant="ghost" className="h-7 text-[11px] px-2"
+                onClick={() => addTransactionToCustomer('__walkin__', 'Walk-in Sales')}>
+                Walk-in
+              </Button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {customerGroups.length === 0 && (
+                <div className="p-4 text-center text-xs text-muted-foreground">
+                  {!selectedBranchId ? 'Select a branch' : isDailySummaryLoading ? 'Loading...' : 'No transactions yet'}
+                </div>
+              )}
+              {customerGroups.map(g => (
+                <button key={g.customerId}
+                  className={cn(
+                    'w-full text-left px-3 py-2.5 border-b text-xs hover:bg-accent/50 transition-colors',
+                    activeCustomerId === g.customerId && 'bg-accent border-l-2 border-l-primary'
+                  )}
+                  onClick={() => {
+                    setActiveCustomerId(g.customerId);
+                    document.getElementById(`group-${g.customerId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }}
+                >
+                  <div className="font-medium truncate">{g.customerName}</div>
+                  <div className="flex items-center gap-2 text-muted-foreground mt-0.5">
+                    <span>{g.transactions.length} txn</span>
+                    <span>{fmtL(g.totalLiters)}L</span>
+                    <span className="ml-auto font-mono text-foreground font-medium">{fmtPKR(g.totalAmount)}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── CENTER PANEL: Transactions ───────────────────────────────────── */}
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+          {/* Panel toggle toolbar */}
+          <div className="flex items-center px-1 py-0.5 border-b bg-muted/10 flex-shrink-0 gap-1">
+            <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+              onClick={() => setLeftCollapsed(!leftCollapsed)}
+              title={leftCollapsed ? 'Show customer list' : 'Hide customer list'}>
+              {leftCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
+            </Button>
+            <span className="text-[10px] text-muted-foreground">{leftCollapsed ? 'Customers' : ''}</span>
+            <div className="flex-1 text-center text-[10px] text-muted-foreground font-medium">
+              {transactions.length > 0 && `${transactions.length} txn | ${customerGroups.length} groups | ${fmtPKR(totalPKR)} PKR`}
+              {lastSaved && <span className="ml-2 text-emerald-600">Saved {format(lastSaved, 'HH:mm')}</span>}
+            </div>
+            <span className="text-[10px] text-muted-foreground">{rightCollapsed ? 'Summary' : ''}</span>
+            <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+              onClick={() => setRightCollapsed(!rightCollapsed)}
+              title={rightCollapsed ? 'Show reconciliation' : 'Hide reconciliation'}>
+              {rightCollapsed ? <ChevronLeft className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+            </Button>
+          </div>
+
+          {/* Transaction content */}
+          <div className="flex-1 overflow-y-auto">
+            {!selectedBranchId && (
+              <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+                Select a branch and date to begin
+              </div>
+            )}
+            {selectedBranchId && isDailySummaryLoading && (
+              <div className="flex items-center justify-center h-full text-muted-foreground text-sm gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading transactions...
+              </div>
+            )}
+            {selectedBranchId && !isDailySummaryLoading && customerGroups.length === 0 && (
+              <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-3">
+                <Users className="h-10 w-10 text-muted-foreground/30" />
+                <span className="text-sm">No transactions for this date</span>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setAddGroupOpen(true)}>
+                    <Plus className="h-3 w-3 mr-1" /> Add Customer Group
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => addTransactionToCustomer('__walkin__', 'Walk-in Sales')}>
+                    Walk-in Sale
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* ── Customer Group Accordions ─────────────────────────────────── */}
+            {selectedBranchId && !isDailySummaryLoading && customerGroups.map(group => {
+              const isGroupCollapsed = collapsedGroups.has(group.customerId);
+              return (
+                <div key={group.customerId} id={`group-${group.customerId}`} className="border-b last:border-b-0">
+                  {/* Group header — click to collapse */}
+                  <div
+                    className={cn(
+                      'px-3 py-2 bg-muted/40 flex items-center gap-2 sticky top-0 z-10 cursor-pointer select-none hover:bg-muted/60 transition-colors',
+                      activeCustomerId === group.customerId && 'bg-primary/5 border-l-2 border-l-primary'
+                    )}
+                    onClick={() => { toggleGroup(group.customerId); setActiveCustomerId(group.customerId); }}
+                  >
+                    {isGroupCollapsed
+                      ? <ChevronRight className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                      : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />}
+                    <span className="text-sm font-semibold truncate min-w-0">{group.customerName}</span>
+                    <Badge variant="secondary" className="text-[10px] flex-shrink-0">{group.transactions.length}</Badge>
+                    <span className="text-xs text-muted-foreground ml-auto flex-shrink-0 whitespace-nowrap">
+                      {fmtL(group.totalLiters)}L
+                    </span>
+                    <span className="text-xs font-mono font-bold flex-shrink-0 whitespace-nowrap">
+                      {fmtPKR(group.totalAmount)} PKR
+                    </span>
+                    <div className="flex gap-0.5 flex-shrink-0 ml-1" onClick={e => e.stopPropagation()}>
+                      <Button size="sm" variant="ghost" className="h-6 px-1.5 text-[10px] gap-0.5"
+                        onClick={() => duplicateLastInGroup(group.indices)} title="Duplicate last row">
+                        <Copy className="h-3 w-3" />
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-6 px-1.5 text-[10px] gap-0.5"
+                        onClick={() => addTransactionToCustomer(group.customerId, group.customerName)} title="Add row">
+                        <Plus className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Transaction table — hidden when group collapsed */}
+                  {!isGroupCollapsed && (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs" style={{ minWidth: group.customerId !== '__walkin__' ? '820px' : '650px' }}>
+                        <thead>
+                          <tr className="border-b bg-muted/20 text-[10px]">
+                            <th className="text-left px-2 py-1.5 font-semibold text-muted-foreground" style={{ width: 90 }}>Fuel</th>
+                            {group.customerId !== '__walkin__' && (
+                              <>
+                                <th className="text-left px-2 py-1.5 font-semibold text-muted-foreground" style={{ width: 100 }}>Slip#</th>
+                                <th className="text-left px-2 py-1.5 font-semibold text-muted-foreground" style={{ width: 100 }}>Vehicle#</th>
+                              </>
+                            )}
+                            <th className="text-right px-2 py-1.5 font-semibold text-muted-foreground" style={{ width: 90 }}>Qty (L)</th>
+                            <th className="text-right px-2 py-1.5 font-semibold text-muted-foreground" style={{ width: 85 }}>Price/L</th>
+                            <th className="text-right px-2 py-1.5 font-semibold text-muted-foreground" style={{ width: 100 }}>Total</th>
+                            <th className="text-left px-2 py-1.5 font-semibold text-muted-foreground" style={{ width: 115 }}>Payment</th>
+                            <th className="text-left px-2 py-1.5 font-semibold text-muted-foreground" style={{ width: 115 }}>Bank</th>
+                            <th className="px-1 py-1.5 text-center font-semibold text-muted-foreground sticky right-0 bg-muted/20 z-10 border-l" style={{ width: 68 }}>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {group.indices.map(idx => {
+                            const txn = transactions[idx];
+                            if (!txn) return null;
+                            const showBank = txn.paymentMethod === 'credit_card' || txn.paymentMethod === 'bank_card';
+                            return (
+                              <tr key={txn.id || idx}
+                                className={cn(
+                                  'border-b hover:bg-accent/30 transition-colors',
+                                  txn._localStatus === 'draft' && 'bg-blue-50/40'
+                                )}>
+                                <td className="px-2 py-1">
+                                  <Select value={txn.fuelCode} onValueChange={v => updateTransaction(idx, 'fuelCode', v)}>
+                                    <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="HSD">HSD</SelectItem>
+                                      <SelectItem value="PMG">PMG</SelectItem>
+                                      <SelectItem value="OTHER">Other</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                  {txn.fuelCode === 'OTHER' && (
+                                    <Select value={txn.productName} onValueChange={v => {
+                                      const prod = nonFuelProductOptions.find(p => p.name === v);
+                                      updateTransaction(idx, 'productName', v);
+                                      if (prod?.unitPrice) updateTransaction(idx, 'unitPrice', prod.unitPrice.toString());
+                                    }}>
+                                      <SelectTrigger className="h-6 text-[10px] mt-0.5"><SelectValue placeholder="Product" /></SelectTrigger>
+                                      <SelectContent>
+                                        {nonFuelProductOptions.map(p => (
+                                          <SelectItem key={p.id} value={p.name}>{p.name}</SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  )}
+                                </td>
+                                {group.customerId !== '__walkin__' && (
+                                  <>
+                                    <td className="px-2 py-1">
+                                      <Input value={txn.slipNumber || ''} onChange={e => updateTransaction(idx, 'slipNumber', e.target.value)}
+                                        className="h-8 text-xs" placeholder="Slip#" />
+                                    </td>
+                                    <td className="px-2 py-1">
+                                      <Input value={txn.vehicleNumber || ''} onChange={e => updateTransaction(idx, 'vehicleNumber', e.target.value)}
+                                        className="h-8 text-xs" placeholder="Vehicle#" />
+                                    </td>
+                                  </>
+                                )}
+                                <td className="px-2 py-1">
+                                  <Input type="number" value={txn.quantity} onChange={e => updateTransaction(idx, 'quantity', e.target.value)}
+                                    className="h-8 text-xs text-right font-mono" placeholder="0" />
+                                </td>
+                                <td className="px-2 py-1">
+                                  <Input type="number" value={txn.unitPrice} onChange={e => updateTransaction(idx, 'unitPrice', e.target.value)}
+                                    className="h-8 text-xs text-right font-mono" placeholder="0" />
+                                </td>
+                                <td className="px-2 py-1 text-right">
+                                  <span className="font-mono font-bold text-sm">{fmtPKR(toNumber(txn.lineTotal))}</span>
+                                </td>
+                                <td className="px-2 py-1">
+                                  <Select value={txn.paymentMethod} onValueChange={v => updateTransaction(idx, 'paymentMethod', v)}>
+                                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="cash">Cash</SelectItem>
+                                      <SelectItem value="credit_card">Credit Card</SelectItem>
+                                      <SelectItem value="bank_card">Bank Card</SelectItem>
+                                      <SelectItem value="pso_card">PSO Card</SelectItem>
+                                      <SelectItem value="credit_customer">Credit</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </td>
+                                <td className="px-2 py-1">
+                                  {showBank ? (
+                                    <Select value={txn.bankId || ''} onValueChange={v => updateTransaction(idx, 'bankId', v)}>
+                                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Bank" /></SelectTrigger>
+                                      <SelectContent>
+                                        {(banksData || []).map((b: any) => (
+                                          <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  ) : (
+                                    <span className="text-muted-foreground/40 text-xs px-2">—</span>
+                                  )}
+                                </td>
+                                <td className="px-1 py-1 sticky right-0 bg-white z-10 border-l">
+                                  <div className="flex gap-0.5 justify-center">
+                                    <Button size="sm" variant="ghost"
+                                      className="h-7 w-7 p-0 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                                      onClick={() => saveRow(idx)} title="Save row">
+                                      <Save className="h-3.5 w-3.5" />
+                                    </Button>
+                                    <Button size="sm" variant="ghost"
+                                      className="h-7 w-7 p-0 text-red-400 hover:text-red-600 hover:bg-red-50"
+                                      onClick={() => removeTransaction(idx)} title="Delete row">
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── RIGHT PANEL: Reconciliation ──────────────────────────────────── */}
+        {!rightCollapsed && (
+          <div className="w-[272px] border-l flex-shrink-0 overflow-y-auto bg-slate-50/50 p-3 space-y-4">
+            {/* Fuel Reconciliation */}
+            <div>
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3">Fuel Reconciliation</div>
+              {/* HSD */}
+              <div className="space-y-1.5 mb-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-bold text-blue-700">HSD (Diesel)</span>
+                  <span className={cn('font-mono text-xs font-bold', hsdPct >= 95 ? 'text-emerald-600' : 'text-slate-600')}>{hsdPct}%</span>
+                </div>
+                <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                  <div className={cn('h-full rounded-full transition-all', hsdPct >= 95 ? 'bg-emerald-500' : 'bg-blue-500')}
+                    style={{ width: `${Math.min(hsdPct, 100)}%` }} />
+                </div>
+                <div className="grid grid-cols-3 text-[10px] text-slate-400 pt-0.5">
+                  <div>Meter<br /><span className="font-mono text-slate-700 font-semibold">{fmtL(hsd)}</span></div>
+                  <div className="text-center">Posted<br /><span className="font-mono text-blue-600 font-semibold">{fmtL(hsdPosted)}</span></div>
+                  <div className="text-right">Remain<br /><span className="font-mono text-orange-600 font-bold text-sm">{fmtL(hsdRemain)}</span></div>
+                </div>
+              </div>
+              {/* PMG */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-bold text-green-700">PMG (Petrol)</span>
+                  <span className={cn('font-mono text-xs font-bold', pmgPct >= 95 ? 'text-emerald-600' : 'text-slate-600')}>{pmgPct}%</span>
+                </div>
+                <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                  <div className={cn('h-full rounded-full transition-all', pmgPct >= 95 ? 'bg-emerald-500' : 'bg-green-500')}
+                    style={{ width: `${Math.min(pmgPct, 100)}%` }} />
+                </div>
+                <div className="grid grid-cols-3 text-[10px] text-slate-400 pt-0.5">
+                  <div>Meter<br /><span className="font-mono text-slate-700 font-semibold">{fmtL(pmg)}</span></div>
+                  <div className="text-center">Posted<br /><span className="font-mono text-green-600 font-semibold">{fmtL(pmgPosted)}</span></div>
+                  <div className="text-right">Remain<br /><span className="font-mono text-orange-600 font-bold text-sm">{fmtL(pmgRemain)}</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div className="h-px bg-slate-200" />
+
+            {/* Payment Breakdown */}
+            <div>
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Payments</div>
+              <div className="space-y-1.5 text-xs">
+                {([
+                  { label: 'Cash', value: paymentBreakdown.cash },
+                  { label: 'Credit Card', value: paymentBreakdown.credit_card },
+                  { label: 'Bank Card', value: paymentBreakdown.bank_card },
+                  { label: 'PSO Card', value: paymentBreakdown.pso_card },
+                  { label: 'Credit Cust.', value: paymentBreakdown.credit_customer },
+                ] as const).filter(r => r.value > 0 || r.label === 'Cash').map(r => (
+                  <div key={r.label} className="flex justify-between">
+                    <span className="text-slate-500">{r.label}</span>
+                    <span className="font-mono font-semibold text-slate-700">{fmtPKR(r.value)}</span>
+                  </div>
+                ))}
+                <div className="flex justify-between font-bold border-t border-slate-200 pt-2 mt-2 text-sm">
+                  <span className="text-slate-700">Total</span>
+                  <span className="font-mono text-slate-900">{fmtPKR(totalPKR)}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="h-px bg-slate-200" />
+
+            {/* Summary */}
+            <div>
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Summary</div>
+              <div className="space-y-1.5 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Customer groups</span>
+                  <span className="font-mono font-semibold">{customerGroups.length}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Transactions</span>
+                  <span className="font-mono font-semibold">{transactions.length}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Total liters</span>
+                  <span className="font-mono font-semibold">{fmtL(transactions.reduce((s, t) => s + toNumber(t.quantity), 0))}</span>
+                </div>
+                {lastSaved && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Last saved</span>
+                    <span className="text-emerald-600 font-medium">{format(lastSaved, 'HH:mm')}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ═══════════════════════════════════════════════════════════════════════
+          DIALOGS — identical to previous version
+          ═══════════════════════════════════════════════════════════════════════ */}
 
       {/* Add Customer Group Dialog */}
       <Dialog open={addGroupOpen} onOpenChange={setAddGroupOpen}>
