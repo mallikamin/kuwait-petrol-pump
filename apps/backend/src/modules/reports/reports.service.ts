@@ -670,7 +670,7 @@ export class ReportsService {
 
       return {
         id: sale.id,
-        slipNumber: sale.id.substring(0, 8).toUpperCase(), // Short slip number from ID
+        slipNumber: sale.slipNumber || null,
         date: sale.saleDate,
         type: sale.saleType,
         amount: saleAmount,

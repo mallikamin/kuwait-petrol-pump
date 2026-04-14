@@ -185,7 +185,8 @@ export class BackdatedMeterReadingsDailyService {
           submittedBy: openingReading.submittedBy,
           submittedByName: openingReading.submittedByUser?.fullName,
           submittedAt: openingReading.submittedAt,
-          attachmentUrl: openingReading.attachmentUrl || undefined,
+          imageUrl: openingReading.imageUrl || undefined,
+          attachmentUrl: openingReading.attachmentUrl || openingReading.imageUrl || undefined,
           ocrManuallyEdited: openingReading.ocrManuallyEdited,
         };
         totalEntered++;
@@ -218,7 +219,8 @@ export class BackdatedMeterReadingsDailyService {
           submittedBy: closingReading.submittedBy,
           submittedByName: closingReading.submittedByUser?.fullName,
           submittedAt: closingReading.submittedAt,
-          attachmentUrl: closingReading.attachmentUrl || undefined,
+          imageUrl: closingReading.imageUrl || undefined,
+          attachmentUrl: closingReading.attachmentUrl || closingReading.imageUrl || undefined,
           ocrManuallyEdited: closingReading.ocrManuallyEdited,
         };
         totalEntered++;
