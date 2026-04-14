@@ -40,7 +40,10 @@ const varianceReportQuerySchema = z.object({
 );
 
 const customerLedgerQuerySchema = z.object({
-  customerId: z.string().uuid(),
+  customerId: z.string().refine(
+    (val) => z.string().uuid().safeParse(val).success || val === '__walkin__',
+    { message: 'customerId must be a UUID or "__walkin__"' }
+  ),
   date: dateString.optional(),
   startDate: dateString.optional(),
   endDate: dateString.optional(),

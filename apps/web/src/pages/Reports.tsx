@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -27,6 +27,7 @@ import { useAuthStore } from '@/store/auth';
 import { formatCurrency } from '@/utils/format';
 
 type ReportType = 'daily-sales' | 'shift' | 'inventory' | 'customer-ledger' | 'variance' | 'fuel-price-history' | 'customer-wise-sales';
+const WALK_IN_LEDGER_ID = '__walkin__';
 
 function formatDate(date: string | Date): string {
   const d = new Date(date);
@@ -241,7 +242,7 @@ export function Reports() {
           undefined,
           start.toISOString(),
           end.toISOString(),
-          selectedCustomerId || undefined
+          selectedCustomerId && selectedCustomerId !== WALK_IN_LEDGER_ID ? selectedCustomerId : undefined
         );
       } else if (customerWiseSalesFilterMode === 'single-date') {
         const d = new Date(reportDate);
@@ -251,7 +252,7 @@ export function Reports() {
           reportDate,
           undefined,
           d.toISOString(),
-          selectedCustomerId || undefined
+          selectedCustomerId && selectedCustomerId !== WALK_IN_LEDGER_ID ? selectedCustomerId : undefined
         );
       } else {
         // no-filter mode
@@ -260,7 +261,7 @@ export function Reports() {
           undefined,
           undefined,
           undefined,
-          selectedCustomerId || undefined
+          selectedCustomerId && selectedCustomerId !== WALK_IN_LEDGER_ID ? selectedCustomerId : undefined
         );
       }
     },
@@ -281,6 +282,12 @@ export function Reports() {
     (c.phone && c.phone.includes(customerSearch)) ||
     (c.email && c.email.toLowerCase().includes(customerSearch.toLowerCase()))
   );
+
+  useEffect(() => {
+    if (selectedReport !== 'customer-ledger' && selectedCustomerId === WALK_IN_LEDGER_ID) {
+      setSelectedCustomerId('');
+    }
+  }, [selectedReport, selectedCustomerId]);
 
   const isLoading = loadingDaily || loadingShift || loadingInventory || loadingLedger || loadingVariance || loadingFuelPrice || loadingCustomerWise;
   const isError = errorDaily || errorShift || errorInventory || errorLedger || errorVariance || errorFuelPrice || errorCustomerWise;
@@ -544,7 +551,7 @@ export function Reports() {
                     onChange={(e) => setCustomerSearch(e.target.value)}
                   />
                   <p className="text-xs text-muted-foreground">
-                    {filteredCustomers.length} of {customersData?.length || 0} customers
+                    {filteredCustomers.length} of {customersData?.length || 0} customers (+ Walk-in Sales Ledger)
                   </p>
                 </div>
                 <div className="space-y-2">
@@ -554,6 +561,12 @@ export function Reports() {
                       <SelectValue placeholder="Select customer" />
                     </SelectTrigger>
                     <SelectContent className="max-h-[300px]">
+                      <SelectItem value={WALK_IN_LEDGER_ID}>
+                        <div className="flex flex-col">
+                          <span>Walk-in Sales Ledger</span>
+                          <span className="text-xs text-muted-foreground">All sales where customer is not selected</span>
+                        </div>
+                      </SelectItem>
                       {filteredCustomers.map((c: any) => (
                         <SelectItem key={c.id} value={c.id}>
                           <div className="flex flex-col">

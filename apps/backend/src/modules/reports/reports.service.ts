@@ -616,19 +616,24 @@ export class ReportsService {
     endDate: Date,
     organizationId: string
   ) {
-    // Verify customer belongs to organization
-    const customer = await prisma.customer.findFirst({
-      where: { id: customerId, organizationId },
-    });
+    const isWalkInLedger = customerId === '__walkin__';
 
-    if (!customer) {
+    // Verify customer belongs to organization unless using walk-in virtual ledger
+    const customer = isWalkInLedger
+      ? null
+      : await prisma.customer.findFirst({
+          where: { id: customerId, organizationId },
+        });
+
+    if (!isWalkInLedger && !customer) {
       throw new AppError(404, 'Customer not found');
     }
 
     // Get all sales for this customer within date range
     const sales = await prisma.sale.findMany({
       where: {
-        customerId,
+        branch: { organizationId },
+        customerId: isWalkInLedger ? null : customerId,
         saleDate: {
           gte: startDate,
           lte: endDate,
@@ -710,11 +715,11 @@ export class ReportsService {
 
     return {
       customer: {
-        id: customer.id,
-        name: customer.name,
-        phone: customer.phone,
-        email: customer.email,
-        vehicleNumbers: customer.vehicleNumbers || [],
+        id: isWalkInLedger ? '__walkin__' : customer!.id,
+        name: isWalkInLedger ? 'Walk-in Sales Ledger' : customer!.name,
+        phone: isWalkInLedger ? null : customer!.phone,
+        email: isWalkInLedger ? null : customer!.email,
+        vehicleNumbers: isWalkInLedger ? [] : (customer!.vehicleNumbers || []),
       },
       dateRange: {
         startDate,
