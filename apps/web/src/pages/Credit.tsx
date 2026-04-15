@@ -296,10 +296,11 @@ export function Credit() {
               <tbody>
                 {receiptsData.receipts.map((receipt) => {
                   const customer = customers.find((c) => c.id === receipt.customerId);
+                  const customerDisplay = customer?.name || (receipt.customerId ? receipt.customerId.slice(0, 8) : 'Unknown');
                   return (
                     <tr key={receipt.id} className="border-b hover:bg-muted/50">
                       <td className="px-4 py-2 font-mono text-xs">{receipt.receiptNumber}</td>
-                      <td className="px-4 py-2">{customer?.name || receipt.customerId.slice(0, 8)}</td>
+                      <td className="px-4 py-2">{customerDisplay}</td>
                       <td className="px-4 py-2">{format(new Date(receipt.receiptDatetime), 'MMM dd, yyyy HH:mm')}</td>
                       <td className="px-4 py-2 text-right font-semibold">{fmtPKR(receipt.amount)}</td>
                       <td className="px-4 py-2">

@@ -1451,6 +1451,8 @@ export class CreditService {
         amount: r.amount.toNumber(),
         paymentMethod: r.paymentMethod,
         referenceNumber: r.referenceNumber,
+        customerId: r.customerId,
+        branchId: r.branchId,
         customer: r.customer,
         branch: r.branch,
         bank: r.bank,
