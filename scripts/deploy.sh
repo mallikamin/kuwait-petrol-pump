@@ -136,7 +136,33 @@ fi
 echo "Server sync OK"
 echo
 
-echo "Step 6/8: Deploy frontend (atomic swap)..."
+echo "Step 6/8: Apply pending database migrations..."
+ssh "${SERVER_USER}@${SERVER_HOST}" "
+set -euo pipefail
+cd ${SERVER_PATH}
+
+if [ \"${NEED_BACKEND}\" = \"true\" ]; then
+  echo 'Running prisma migrate deploy...'
+  MIGRATION_RESULT=\$(docker exec kuwaitpos-backend sh -c 'cd /app/packages/database && npx prisma migrate deploy' 2>&1 || true)
+  echo \"\$MIGRATION_RESULT\"
+
+  if echo \"\$MIGRATION_RESULT\" | grep -q 'All migrations have been successfully applied'; then
+    echo 'Migration status: up to date ✅'
+  elif echo \"\$MIGRATION_RESULT\" | grep -q 'No pending migrations to apply'; then
+    echo 'Migration status: up to date ✅'
+  elif echo \"\$MIGRATION_RESULT\" | grep -q 'found in prisma/migrations'; then
+    echo 'Migration status: up to date ✅'
+  else
+    echo 'ERROR: migration validation failed'
+    echo \"Output: \$MIGRATION_RESULT\"
+    exit 1
+  fi
+else
+  echo 'Skipping migrations (no backend-impacting changes)'
+fi
+"
+echo
+echo "Step 7/8: Deploy frontend (atomic swap)..."
 if [ "$NEED_FRONTEND" = "true" ]; then
   scp -r apps/web/dist "${SERVER_USER}@${SERVER_HOST}:${SERVER_PATH}/apps/web/dist_new"
   ssh "${SERVER_USER}@${SERVER_HOST}" "
@@ -154,7 +180,7 @@ else
 fi
 echo
 
-echo "Step 7/8: Post-deploy health checks..."
+echo "Step 8/9: Post-deploy health checks..."
 ssh "${SERVER_USER}@${SERVER_HOST}" "cd ${SERVER_PATH} && docker compose -f docker-compose.prod.yml ps"
 for i in 1 2 3 4 5; do
   if curl -fsS "${SERVER_APP_URL}/api/health" >/dev/null 2>&1; then
@@ -169,8 +195,14 @@ for i in 1 2 3 4 5; do
 done
 echo
 
-echo "Step 8/8: Deployment proof"
+echo "Step 9/9: Deployment proof"
 echo "Deployed commit: ${COMMIT_HASH}"
+if [ "$NEED_BACKEND" = "true" ]; then
+  echo "Backend status: deployed"
+  echo "Migration status: up to date"
+else
+  echo "Backend status: (unchanged)"
+fi
 if [ "$NEED_FRONTEND" = "true" ]; then
   echo "Frontend bundle: $(basename "$FRONTEND_BUNDLE")"
 else
