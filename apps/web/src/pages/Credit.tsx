@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,19 +10,14 @@ import {
   Plus,
   Trash2,
   Eye,
-  AlertCircle,
   Save,
-  TrendingUp,
-  Calendar,
-  User,
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
-import { creditApi, type Receipt, type LedgerResponse, type CreditCheckResult } from '@/api/credit';
+import { creditApi } from '@/api/credit';
 import { customersApi } from '@/api';
 import { useAuthStore } from '@/store/auth';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
-import type { Customer } from '@/types';
 
 // ── Utility Functions ─────────────────────────────────────────────────────────
 
@@ -36,9 +31,8 @@ export function Credit() {
 
   // ── Tabs & Context State ────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<'receipts' | 'ledger' | 'reports'>('receipts');
-  const [selectedCustomerId, setSelectedCustomerId] = useState('');
+  const [selectedCustomerId] = useState('');
   const [showReceiptDialog, setShowReceiptDialog] = useState(false);
-  const [showLedgerDialog, setShowLedgerDialog] = useState(false);
 
   // ── Filters ──────────────────────────────────────────────────────────────────
   const [receiptFilters, setReceiptFilters] = useState({
@@ -74,7 +68,7 @@ export function Credit() {
 
   // ── Queries ──────────────────────────────────────────────────────────────────
 
-  const { data: customers = [], isLoading: customersLoading } = useQuery({
+  const { data: customers = [] } = useQuery({
     queryKey: ['customers'],
     queryFn: async () => {
       const result = await customersApi.getAll({ size: 500 });
@@ -122,7 +116,7 @@ export function Credit() {
         throw new Error('Amount must be a positive number');
       }
 
-      const allocationMode = receiptForm.allocationMode;
+      const allocationMode = receiptForm.allocationMode as 'FIFO' | 'MANUAL';
       const requestData: Parameters<typeof creditApi.createReceipt>[0] = {
         customerId: receiptForm.customerId,
         branchId: receiptForm.branchId,
@@ -136,7 +130,7 @@ export function Credit() {
       };
 
       // Add allocations if in MANUAL mode
-      if (allocationMode === 'MANUAL' && allocations.length > 0) {
+      if (allocationMode === ('MANUAL' as const) && allocations.length > 0) {
         requestData.allocations = allocations.map((a) => ({
           sourceType: a.sourceType,
           sourceId: a.sourceId,
@@ -207,12 +201,13 @@ export function Credit() {
       return;
     }
 
-    if (receiptForm.allocationMode === 'MANUAL' && allocations.length === 0) {
+    const isManualMode = receiptForm.allocationMode === ('MANUAL' as const);
+    if (isManualMode && allocations.length === 0) {
       toast.error('Please add at least one allocation for MANUAL mode');
       return;
     }
 
-    if (receiptForm.allocationMode === 'MANUAL') {
+    if (isManualMode) {
       const totalAllocated = allocations.reduce((sum, a) => sum + parseFloat(a.amount || '0'), 0);
       const receiptAmount = parseFloat(receiptForm.amount);
       if (Math.abs(totalAllocated - receiptAmount) > 0.01) {
@@ -303,7 +298,7 @@ export function Credit() {
                         </Badge>
                       </td>
                       <td className="px-4 py-2">
-                        <Badge variant={receipt.allocationMode === 'FIFO' ? 'default' : 'secondary'} className="text-xs">
+                        <Badge variant={receipt.allocationMode === ('FIFO' as const) ? 'default' : 'secondary'} className="text-xs">
                           {receipt.allocationMode}
                         </Badge>
                       </td>
@@ -620,14 +615,14 @@ export function Credit() {
                 </SelectContent>
               </Select>
               <div className="text-xs text-muted-foreground mt-1">
-                {receiptForm.allocationMode === 'FIFO'
+                {receiptForm.allocationMode === ('FIFO' as const)
                   ? 'Payment will be automatically applied to oldest unpaid invoices first'
                   : 'You must manually select which invoices to allocate payment to'}
               </div>
             </div>
 
             {/* ─ Manual Allocations ─ */}
-            {receiptForm.allocationMode === 'MANUAL' && (
+            {receiptForm.allocationMode === ('MANUAL' as const) && (
               <div className="border rounded-lg p-4 bg-muted/50">
                 <div className="font-semibold text-sm mb-3">Manual Allocations</div>
                 {allocations.length === 0 ? (
