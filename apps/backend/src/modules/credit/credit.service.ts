@@ -1362,7 +1362,6 @@ export class CreditService {
       },
     });
   }
-  }
 
   /**
    * Get all branch limits for a customer
