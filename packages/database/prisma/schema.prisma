@@ -24,20 +24,22 @@ model Organization {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
-  branches        Branch[]
-  users           User[]
-  customers       Customer[]
-  banks           Bank[]
-  products        Product[]
-  suppliers       Supplier[]
-  purchaseOrders  PurchaseOrder[]
-  qbConnections   QBConnection[]
-  qbSyncQueue     QBSyncQueue[]
-  qbSyncLogs      QBSyncLog[]
-  qbSnapshots     QBEntitySnapshot[]
-  qbEntityMappings QBEntityMapping[]
-  qbMappingBatches QBMappingBatch[]
+  branches               Branch[]
+  users                  User[]
+  customers              Customer[]
+  banks                  Bank[]
+  products               Product[]
+  suppliers              Supplier[]
+  purchaseOrders         PurchaseOrder[]
+  qbConnections          QBConnection[]
+  qbSyncQueue            QBSyncQueue[]
+  qbSyncLogs             QBSyncLog[]
+  qbSnapshots            QBEntitySnapshot[]
+  qbEntityMappings       QBEntityMapping[]
+  qbMappingBatches       QBMappingBatch[]
   backdatedMeterReadings BackdatedMeterReading[]
+  customerBranchLimits   CustomerBranchLimit[]
+  customerReceipts       CustomerReceipt[]
 
   @@map("organizations")
 }
@@ -53,19 +55,21 @@ model Branch {
   updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
-  organization      Organization      @relation(fields: [organizationId], references: [id])
-  dispensingUnits   DispensingUnit[]
-  users             User[]
-  banks             Bank[]
-  shifts            Shift[]
-  shiftInstances    ShiftInstance[]
-  sales             Sale[]
-  stockLevels       StockLevel[]
-  bifurcations      Bifurcation[]
-  purchaseOrders    PurchaseOrder[]
-  fuelInventory     FuelInventory[]
-  backdatedEntries  BackdatedEntry[]
+  organization           Organization            @relation(fields: [organizationId], references: [id])
+  dispensingUnits        DispensingUnit[]
+  users                  User[]
+  banks                  Bank[]
+  shifts                 Shift[]
+  shiftInstances         ShiftInstance[]
+  sales                  Sale[]
+  stockLevels            StockLevel[]
+  bifurcations           Bifurcation[]
+  purchaseOrders         PurchaseOrder[]
+  fuelInventory          FuelInventory[]
+  backdatedEntries       BackdatedEntry[]
   backdatedMeterReadings BackdatedMeterReading[]
+  customerBranchLimits   CustomerBranchLimit[]
+  customerReceipts       CustomerReceipt[]
 
   @@map("branches")
 }
@@ -171,23 +175,26 @@ model User {
   updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
-  organization              Organization            @relation(fields: [organizationId], references: [id])
-  branch                    Branch?                 @relation(fields: [branchId], references: [id])
-  openedShifts              ShiftInstance[]         @relation("ShiftOpenedBy")
-  closedShifts              ShiftInstance[]         @relation("ShiftClosedBy")
-  meterReadings             MeterReading[]
-  submittedMeterReadings    MeterReading[]          @relation("SubmittedMeterReadings")
-  sales                     Sale[]
-  bifurcations              Bifurcation[]
-  auditLogs                 AuditLog[]
-  fuelPriceChanges          FuelPrice[]
-  stockReceipts             StockReceipt[]          @relation("StockReceiptUser")
-  createdBackdatedTxns      BackdatedTransaction[]  @relation("BackdatedTransactionCreatedBy")
-  updatedBackdatedTxns      BackdatedTransaction[]  @relation("BackdatedTransactionUpdatedBy")
-  deletedBackdatedTxns      BackdatedTransaction[]  @relation("BackdatedTransactionDeletedBy")
+  organization                    Organization            @relation(fields: [organizationId], references: [id])
+  branch                          Branch?                 @relation(fields: [branchId], references: [id])
+  openedShifts                    ShiftInstance[]         @relation("ShiftOpenedBy")
+  closedShifts                    ShiftInstance[]         @relation("ShiftClosedBy")
+  meterReadings                   MeterReading[]
+  submittedMeterReadings          MeterReading[]          @relation("SubmittedMeterReadings")
+  sales                           Sale[]
+  bifurcations                    Bifurcation[]
+  auditLogs                       AuditLog[]
+  fuelPriceChanges                FuelPrice[]
+  stockReceipts                   StockReceipt[]          @relation("StockReceiptUser")
+  createdBackdatedTxns            BackdatedTransaction[]  @relation("BackdatedTransactionCreatedBy")
+  updatedBackdatedTxns            BackdatedTransaction[]  @relation("BackdatedTransactionUpdatedBy")
+  deletedBackdatedTxns            BackdatedTransaction[]  @relation("BackdatedTransactionDeletedBy")
   submittedBackdatedMeterReadings BackdatedMeterReading[] @relation("BackdatedMeterReadingSubmittedBy")
   createdBackdatedMeterReadings   BackdatedMeterReading[] @relation("BackdatedMeterReadingCreatedBy")
   updatedBackdatedMeterReadings   BackdatedMeterReading[] @relation("BackdatedMeterReadingUpdatedBy")
+  createdReceipts                 CustomerReceipt[]       @relation("ReceiptCreatedBy")
+  updatedReceipts                 CustomerReceipt[]       @relation("ReceiptUpdatedBy")
+  deletedReceipts                 CustomerReceipt[]       @relation("ReceiptDeletedBy")
 
   @@unique([organizationId, username], name: "unique_org_username") // Multi-tenant safety
   @@index([organizationId], name: "idx_users_org")
@@ -301,20 +308,107 @@ model Customer {
   email          String?  @db.VarChar(255)
   address        String?  @db.Text
   vehicleNumbers String[] @map("vehicle_numbers") // Array of vehicle numbers
-  creditLimit    Decimal? @map("credit_limit") @db.Decimal(12, 2)
+  creditLimit    Decimal? @map("credit_limit") @db.Decimal(12, 2) // Org-wide default
+  creditDays     Int?     @map("credit_days") // Org-wide default
+  currentBalance Decimal  @default(0) @map("current_balance") @db.Decimal(12, 2) // Cached balance (positive = owes us)
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  organization          Organization            @relation(fields: [organizationId], references: [id])
+  sales                 Sale[]
+  backdatedTransactions BackdatedTransaction[]
+  branchLimits          CustomerBranchLimit[]
+  receipts              CustomerReceipt[]
+
+  @@index([organizationId], name: "idx_customers_org")
+  @@map("customers")
+}
+
+/// Customer Branch Limit (Branch-scoped credit limits)
+model CustomerBranchLimit {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  customerId     String   @map("customer_id") @db.Uuid
+  branchId       String   @map("branch_id") @db.Uuid
+  creditLimit    Decimal  @map("credit_limit") @db.Decimal(12, 2)
   creditDays     Int?     @map("credit_days")
   isActive       Boolean  @default(true) @map("is_active")
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
-  organization          Organization          @relation(fields: [organizationId], references: [id])
-  sales                 Sale[]
-  backdatedTransactions BackdatedTransaction[]
+  organization Organization @relation(fields: [organizationId], references: [id])
+  customer     Customer     @relation(fields: [customerId], references: [id])
+  branch       Branch       @relation(fields: [branchId], references: [id])
 
-  @@index([organizationId], name: "idx_customers_org")
-  @@map("customers")
+  @@unique([organizationId, customerId, branchId], name: "unique_customer_branch_limit")
+  @@index([organizationId], name: "idx_customer_branch_limits_org")
+  @@index([customerId], name: "idx_customer_branch_limits_customer")
+  @@map("customer_branch_limits")
 }
+
+/// Customer Receipt (Payments received from credit customers)
+model CustomerReceipt {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId   String    @map("organization_id") @db.Uuid
+  branchId         String    @map("branch_id") @db.Uuid
+  customerId       String    @map("customer_id") @db.Uuid
+  receiptNumber    String    @map("receipt_number") @db.VarChar(50)
+  receiptDatetime  DateTime  @map("receipt_datetime") @db.Timestamptz
+  amount           Decimal   @db.Decimal(12, 2)
+  paymentMethod    String    @map("payment_method") @db.VarChar(50) // cash, cheque, bank_transfer, online
+  bankId           String?   @map("bank_id") @db.Uuid
+  referenceNumber  String?   @map("reference_number") @db.VarChar(100)
+  notes            String?   @db.Text
+  attachmentPath   String?   @map("attachment_path") @db.VarChar(500)
+  allocationMode   String    @default("FIFO") @map("allocation_mode") @db.VarChar(10) // FIFO or MANUAL
+  createdBy        String?   @map("created_by") @db.Uuid
+  updatedBy        String?   @map("updated_by") @db.Uuid
+  deletedBy        String?   @map("deleted_by") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz
+
+  // Relations
+  organization Organization                 @relation(fields: [organizationId], references: [id])
+  branch       Branch                       @relation(fields: [branchId], references: [id])
+  customer     Customer                     @relation(fields: [customerId], references: [id])
+  bank         Bank?                        @relation(fields: [bankId], references: [id])
+  createdByUser User?                       @relation("ReceiptCreatedBy", fields: [createdBy], references: [id])
+  updatedByUser User?                       @relation("ReceiptUpdatedBy", fields: [updatedBy], references: [id])
+  deletedByUser User?                       @relation("ReceiptDeletedBy", fields: [deletedBy], references: [id])
+  allocations   CustomerReceiptAllocation[]
+
+  @@unique([organizationId, receiptNumber], name: "unique_receipt_number")
+  @@index([customerId], name: "idx_receipts_customer")
+  @@index([receiptDatetime], name: "idx_receipts_datetime")
+  @@index([organizationId], name: "idx_receipts_org")
+  @@index([deletedAt], name: "idx_receipts_deleted")
+  @@map("customer_receipts")
+}
+// Note: CHECK constraints for amount > 0 and allocation_mode IN ('FIFO','MANUAL')
+// are enforced in migration SQL, not expressible in Prisma schema.
+
+/// Customer Receipt Allocation (Maps receipts to invoices)
+model CustomerReceiptAllocation {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  receiptId       String   @map("receipt_id") @db.Uuid
+  sourceType      String   @map("source_type") @db.VarChar(30) // BACKDATED_TRANSACTION or SALE
+  sourceId        String   @map("source_id") @db.Uuid
+  allocatedAmount Decimal  @map("allocated_amount") @db.Decimal(12, 2)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  receipt CustomerReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+
+  @@index([receiptId], name: "idx_allocations_receipt")
+  @@index([sourceType, sourceId], name: "idx_allocations_source")
+  @@map("customer_receipt_allocations")
+}
+// Note: CHECK constraints for allocatedAmount > 0 and source_type IN ('BACKDATED_TRANSACTION','SALE')
+// are enforced in migration SQL, not expressible in Prisma schema.
 
 /// Bank (Bank accounts for card settlements - maps to QB Bank Accounts)
 model Bank {
@@ -334,6 +428,7 @@ model Bank {
   branch                Branch?               @relation(fields: [branchId], references: [id])
   sales                 Sale[]
   backdatedTransactions BackdatedTransaction[]
+  customerReceipts      CustomerReceipt[]
 
   @@index([organizationId], name: "idx_banks_org")
   @@index([branchId], name: "idx_banks_branch")

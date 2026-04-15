@@ -1,28 +1,64 @@
-<!-- code-review-graph MCP tools -->
-## MCP Tools: code-review-graph
+## Code Knowledge Graph
 
-**IMPORTANT: This project has a knowledge graph. ALWAYS use the
-code-review-graph MCP tools BEFORE using Grep/Glob/Read to explore
-the codebase.** The graph is faster, cheaper (fewer tokens), and gives
-you structural context (callers, dependents, test coverage) that file
-scanning cannot.
+**IMPORTANT: This project has a knowledge graph (1,400+ nodes, 12,000+ edges).
+ALWAYS query the graph BEFORE using grep/find/rg to explore the codebase.**
+The graph gives you structural context (callers, dependents, test coverage)
+that file scanning cannot.
+
+### How to access the graph
+
+**If you have MCP support** (Claude Code): use the `code-review-graph` MCP tools
+(`semantic_search_nodes`, `query_graph`, `get_impact_radius`, etc.)
+
+**If you do NOT have MCP support** (Codex, Cursor, any CLI agent): use the
+standalone Python bridge script. It queries the same SQLite graph directly
+with zero dependencies:
+
+```bash
+python scripts/graph-query.py <command> <args> [--limit N] [--json]
+```
+
+### Graph CLI Commands
+
+| Command | Example | What it does |
+|---------|---------|-------------|
+| `search` | `python scripts/graph-query.py search backdated` | Find functions/classes/files by keyword |
+| `callers` | `python scripts/graph-query.py callers getDailySalesReport` | Who calls this function? |
+| `callees` | `python scripts/graph-query.py callees createBackdatedEntry` | What does this function call? |
+| `tests` | `python scripts/graph-query.py tests BackdatedEntriesService` | What tests cover this? |
+| `imports` | `python scripts/graph-query.py imports reports.service` | What does this file import? |
+| `dependents` | `python scripts/graph-query.py dependents reports.service` | What imports this file? |
+| `impact` | `python scripts/graph-query.py impact finalizeDailySummary` | Blast radius: callers + callers-of-callers + tests + files |
+| `overview` | `python scripts/graph-query.py overview` | Architecture stats, node/edge counts, top files |
+| `node` | `python scripts/graph-query.py node createBackdatedEntry` | Full details of a node (params, return type, line range) |
+| `file` | `python scripts/graph-query.py file backdated-entries.service` | All symbols defined in a file |
+
+Add `--json` for machine-readable output. Add `--limit N` to control result count.
+
+### Pre-flight check
+
+Run this first to verify the graph is healthy and not stale:
+```bash
+python scripts/graph-query.py health
+```
+If it reports EMPTY tables or wrong branch, rebuild: `code-review-graph build`
 
 ### When to use graph tools FIRST
 
-- **Exploring code**: `semantic_search_nodes` or `query_graph` instead of Grep
-- **Understanding impact**: `get_impact_radius` instead of manually tracing imports
-- **Code review**: `detect_changes` + `get_review_context` instead of reading entire files
-- **Finding relationships**: `query_graph` with callers_of/callees_of/imports_of/tests_for
-- **Architecture questions**: `get_architecture_overview` + `list_communities`
+- **Exploring code**: `search <keyword>` instead of grep
+- **Understanding impact**: `impact <function>` instead of manually tracing imports
+- **Finding relationships**: `callers`, `callees`, `imports`, `dependents`
+- **Architecture questions**: `overview`
+- **Test coverage**: `tests <function>`
 
-Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
+Fall back to grep/find/read **only** when the graph doesn't cover what you need.
 
-### Key Tools
+### MCP-specific tools (Claude Code only)
 
 | Tool | Use when |
 |------|----------|
-| `detect_changes` | Reviewing code changes — gives risk-scored analysis |
-| `get_review_context` | Need source snippets for review — token-efficient |
+| `detect_changes` | Reviewing code changes -- gives risk-scored analysis |
+| `get_review_context` | Need source snippets for review -- token-efficient |
 | `get_impact_radius` | Understanding blast radius of a change |
 | `get_affected_flows` | Finding which execution paths are impacted |
 | `query_graph` | Tracing callers, callees, imports, tests, dependencies |
@@ -32,10 +68,10 @@ Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
 
 ### Workflow
 
-1. The graph auto-updates on file changes (via hooks).
-2. Use `detect_changes` for code review.
-3. Use `get_affected_flows` to understand impact.
-4. Use `query_graph` pattern="tests_for" to check coverage.
+1. The graph auto-updates on file changes (via hooks in Claude Code).
+2. For other agents, run `python scripts/graph-query.py overview` to verify graph is loaded.
+3. Use `search` / `callers` / `impact` before reading files.
+4. Use `tests` to check coverage before making changes.
 
 ## Deployment Memory (Mandatory)
 

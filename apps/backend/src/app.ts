@@ -27,6 +27,7 @@ import quickbooksRoutes from './services/quickbooks/routes';
 import { validateQuickBooksConfig } from './services/quickbooks/startup-validation';
 import backdatedEntriesRoutes from './modules/backdated-entries/backdated-entries.routes';
 import backdatedMeterReadingsRoutes from './modules/backdated-entries/backdated-meter-readings.routes';
+import creditRoutes from './modules/credit/credit.routes';
 
 // Validate QB config on startup (P0: fail fast if missing)
 validateQuickBooksConfig();
@@ -106,6 +107,7 @@ export function createApp() {
   app.use('/api/quickbooks', quickbooksRoutes); // QuickBooks OAuth & sync
   app.use('/api/backdated-entries', backdatedEntriesRoutes); // Backdated entries for accountant backlog
   app.use('/api/backdated-meter-readings', backdatedMeterReadingsRoutes); // Meter readings view for backdated workflow (reads from meter_readings table)
+  app.use('/api/credit', creditRoutes); // Credit customer receipts & ledger
 
   app.use('/api/users', usersRoutes);
 
@@ -135,6 +137,7 @@ export function createApp() {
         dashboard: '/api/dashboard/*',
         sync: '/api/sync/*',
         quickbooks: '/api/quickbooks/*',
+        credit: '/api/credit/*',
         users: '/api/users/*',
       },
       documentation: 'See BUILD_STATUS.md for full API documentation',
