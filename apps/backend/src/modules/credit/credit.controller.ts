@@ -1,6 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { z } from 'zod';
-import { CreditService } from './credit.service';
+import { CreditService, CreateReceiptInput, UpdateReceiptInput } from './credit.service';
 import {
   createReceiptSchema,
   updateReceiptSchema,
@@ -12,10 +11,6 @@ import {
   setBranchLimitSchema,
 } from './credit.schema';
 import { hasRole } from '../../middleware/auth.middleware';
-
-// Properly typed DTOs from Zod schemas
-type CreateReceiptPayload = z.infer<typeof createReceiptSchema>;
-type UpdateReceiptPayload = z.infer<typeof updateReceiptSchema>;
 
 export class CreditController {
   private service: CreditService;
@@ -42,7 +37,22 @@ export class CreditController {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
-      const data: CreateReceiptPayload = createReceiptSchema.parse(req.body);
+      const validated = createReceiptSchema.parse(req.body);
+
+      // Map validated data to service interface
+      const data: CreateReceiptInput = {
+        customerId: validated.customerId,
+        branchId: validated.branchId,
+        receiptDatetime: validated.receiptDatetime,
+        amount: validated.amount,
+        paymentMethod: validated.paymentMethod,
+        bankId: validated.bankId,
+        referenceNumber: validated.referenceNumber,
+        notes: validated.notes,
+        attachmentPath: validated.attachmentPath,
+        allocationMode: validated.allocationMode,
+        allocations: validated.allocations,
+      };
 
       const receipt = await this.service.createReceipt(
         req.user.organizationId,
@@ -74,7 +84,21 @@ export class CreditController {
       }
 
       const { id } = req.params;
-      const data: UpdateReceiptPayload = updateReceiptSchema.parse(req.body);
+      const validated = updateReceiptSchema.parse(req.body);
+
+      // Map validated data to service interface
+      const data: UpdateReceiptInput = {
+        branchId: validated.branchId,
+        receiptDatetime: validated.receiptDatetime,
+        amount: validated.amount,
+        paymentMethod: validated.paymentMethod,
+        bankId: validated.bankId,
+        referenceNumber: validated.referenceNumber,
+        notes: validated.notes,
+        attachmentPath: validated.attachmentPath,
+        allocationMode: validated.allocationMode,
+        allocations: validated.allocations,
+      };
 
       const receipt = await this.service.updateReceipt(
         id,
