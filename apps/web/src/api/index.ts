@@ -14,3 +14,4 @@ export { reportsApi } from './reports';
 export { suppliersApi } from './suppliers';
 export { purchaseOrdersApi } from './purchase-orders';
 export { banksApi } from './banks';
+export { creditApi } from './credit';

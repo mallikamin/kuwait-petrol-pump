@@ -21,6 +21,7 @@ import { Suppliers } from '@/pages/Suppliers';
 import { PurchaseOrders } from '@/pages/PurchaseOrders';
 import { BackdatedEntries } from '@/pages/BackdatedEntries';
 import { BackdatedEntries2 } from '@/pages/BackdatedEntries2';
+import { Credit } from '@/pages/Credit';
 import { NotFound } from '@/pages/NotFound';
 import { useAuthStore } from '@/store/auth';
 import { useThemeStore } from '@/store/theme';
@@ -79,6 +80,7 @@ function App() {
             <Route path="suppliers" element={<Suppliers />} />
             <Route path="purchase-orders" element={<PurchaseOrders />} />
             <Route path="reconciliation" element={<Reconciliation />} />
+            <Route path="receipts" element={<Credit />} />
             <Route path="reports" element={<Reports />} />
             <Route path="quickbooks" element={<QuickBooks />} />
             <Route path="users" element={<Users />} />

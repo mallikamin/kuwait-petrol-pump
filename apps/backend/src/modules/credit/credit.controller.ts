@@ -167,7 +167,7 @@ export class CreditController {
         return res.status(401).json({ error: 'Not authenticated' });
       }
 
-      if (!hasRole(req.user, ['admin', 'accountant'])) {
+      if (!hasRole(req.user, ['admin', 'accountant', 'manager', 'auditor'])) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
@@ -194,7 +194,7 @@ export class CreditController {
         return res.status(401).json({ error: 'Not authenticated' });
       }
 
-      if (!hasRole(req.user, ['admin', 'accountant'])) {
+      if (!hasRole(req.user, ['admin', 'accountant', 'manager', 'auditor'])) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
