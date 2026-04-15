@@ -40,6 +40,7 @@ export class CreditController {
       const validated = createReceiptSchema.parse(req.body);
 
       // Map validated data to service interface
+      // Note: allocations are already validated by Zod, just properly type them
       const data: CreateReceiptInput = {
         customerId: validated.customerId,
         branchId: validated.branchId,
@@ -51,7 +52,13 @@ export class CreditController {
         notes: validated.notes,
         attachmentPath: validated.attachmentPath,
         allocationMode: validated.allocationMode,
-        allocations: validated.allocations,
+        allocations: validated.allocations
+          ? validated.allocations.map((a) => ({
+              sourceType: a.sourceType,
+              sourceId: a.sourceId,
+              amount: a.amount,
+            }))
+          : undefined,
       };
 
       const receipt = await this.service.createReceipt(
@@ -87,6 +94,7 @@ export class CreditController {
       const validated = updateReceiptSchema.parse(req.body);
 
       // Map validated data to service interface
+      // Note: allocations are already validated by Zod, just properly type them
       const data: UpdateReceiptInput = {
         branchId: validated.branchId,
         receiptDatetime: validated.receiptDatetime,
@@ -97,7 +105,13 @@ export class CreditController {
         notes: validated.notes,
         attachmentPath: validated.attachmentPath,
         allocationMode: validated.allocationMode,
-        allocations: validated.allocations,
+        allocations: validated.allocations
+          ? validated.allocations.map((a) => ({
+              sourceType: a.sourceType,
+              sourceId: a.sourceId,
+              amount: a.amount,
+            }))
+          : undefined,
       };
 
       const receipt = await this.service.updateReceipt(
