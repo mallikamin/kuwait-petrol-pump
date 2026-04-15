@@ -851,6 +851,7 @@ export class CreditService {
       offset?: number;
       vehicleNumber?: string;
       entryType?: 'INVOICE' | 'RECEIPT';
+      branchId?: string;
     }
   ): Promise<LedgerResponse> {
     const limit = filters?.limit ?? 100;
@@ -1080,6 +1081,12 @@ export class CreditService {
       ORDER BY SUM(line_total) DESC
     `;
 
+    // Get branch limit if branchId provided
+    let branchLimit: number | null = null;
+    if (filters?.branchId) {
+      branchLimit = await this.getCreditLimit(customerId, filters.branchId);
+    }
+
     return {
       customer: {
         id: customer.id,
@@ -1087,7 +1094,7 @@ export class CreditService {
         phone: customer.phone,
         creditLimit: customer.creditLimit?.toNumber() ?? null,
         currentBalance: liveBalance,
-        branchLimit: null, // TODO: get from filters if branchId provided
+        branchLimit,
       },
       entries,
       summary: {
@@ -1362,5 +1369,156 @@ export class CreditService {
       },
       orderBy: { creditLimit: 'desc' },
     });
+  }
+
+  /**
+   * Get receipts with filters (pagination, date range, customer/branch)
+   */
+  async getReceipts(
+    organizationId: string,
+    filters?: {
+      customerId?: string;
+      branchId?: string;
+      startDate?: Date;
+      endDate?: Date;
+      limit?: number;
+      offset?: number;
+    }
+  ): Promise<any> {
+    const limit = filters?.limit ?? 100;
+    const offset = filters?.offset ?? 0;
+
+    // Build WHERE conditions
+    const where: any = {
+      organizationId,
+      deletedAt: null, // Exclude soft-deleted
+    };
+
+    if (filters?.customerId) {
+      where.customerId = filters.customerId;
+    }
+    if (filters?.branchId) {
+      where.branchId = filters.branchId;
+    }
+
+    // Get total count
+    const total = await prisma.customerReceipt.count({ where });
+
+    // Get paginated receipts with allocations
+    const receipts = await prisma.customerReceipt.findMany({
+      where,
+      include: {
+        customer: { select: { id: true, name: true } },
+        branch: { select: { id: true, name: true } },
+        bank: { select: { id: true, name: true } },
+        allocations: {
+          select: {
+            id: true,
+            sourceType: true,
+            sourceId: true,
+            allocatedAmount: true,
+          },
+        },
+      },
+      orderBy: { receiptDatetime: 'desc' },
+      take: limit,
+      skip: offset,
+    });
+
+    // Filter by date range in application (after fetch)
+    let filtered = receipts;
+    if (filters?.startDate || filters?.endDate) {
+      filtered = receipts.filter((r) => {
+        const receiptTime = r.receiptDatetime.getTime();
+        if (filters.startDate && receiptTime < filters.startDate.getTime()) return false;
+        if (filters.endDate && receiptTime > filters.endDate.getTime()) return false;
+        return true;
+      });
+    }
+
+    return {
+      receipts: filtered.map((r) => ({
+        id: r.id,
+        receiptNumber: r.receiptNumber,
+        receiptDatetime: r.receiptDatetime,
+        amount: r.amount.toNumber(),
+        paymentMethod: r.paymentMethod,
+        referenceNumber: r.referenceNumber,
+        customer: r.customer,
+        branch: r.branch,
+        bank: r.bank,
+        allocationMode: r.allocationMode,
+        allocations: r.allocations.map((a) => ({
+          ...a,
+          allocatedAmount: a.allocatedAmount.toNumber(),
+        })),
+        createdAt: r.createdAt,
+        createdBy: r.createdBy,
+      })),
+      pagination: {
+        total,
+        limit,
+        offset,
+      },
+    };
+  }
+
+  /**
+   * Get receipt detail with allocations
+   */
+  async getReceiptById(receiptId: string, organizationId: string): Promise<any> {
+    const receipt = await prisma.customerReceipt.findUnique({
+      where: { id: receiptId },
+      include: {
+        customer: { select: { id: true, name: true, phone: true, currentBalance: true } },
+        branch: { select: { id: true, name: true } },
+        bank: { select: { id: true, name: true } },
+        createdByUser: { select: { id: true, name: true } },
+        updatedByUser: { select: { id: true, name: true } },
+        deletedByUser: { select: { id: true, name: true } },
+        allocations: {
+          select: {
+            id: true,
+            sourceType: true,
+            sourceId: true,
+            allocatedAmount: true,
+          },
+        },
+      },
+    });
+
+    if (!receipt || receipt.deletedAt) {
+      throw new AppError(404, 'Receipt not found');
+    }
+
+    if (receipt.organizationId !== organizationId) {
+      throw new AppError(403, 'Receipt does not belong to this organization');
+    }
+
+    return {
+      id: receipt.id,
+      receiptNumber: receipt.receiptNumber,
+      receiptDatetime: receipt.receiptDatetime,
+      amount: receipt.amount.toNumber(),
+      paymentMethod: receipt.paymentMethod,
+      bankId: receipt.bankId,
+      referenceNumber: receipt.referenceNumber,
+      notes: receipt.notes,
+      attachmentPath: receipt.attachmentPath,
+      allocationMode: receipt.allocationMode,
+      customer: receipt.customer,
+      branch: receipt.branch,
+      bank: receipt.bank,
+      allocations: receipt.allocations.map((a) => ({
+        ...a,
+        allocatedAmount: a.allocatedAmount.toNumber(),
+      })),
+      createdAt: receipt.createdAt,
+      createdBy: receipt.createdBy,
+      createdByUser: receipt.createdByUser,
+      updatedAt: receipt.updatedAt,
+      updatedBy: receipt.updatedBy,
+      updatedByUser: receipt.updatedByUser,
+    };
   }
 }

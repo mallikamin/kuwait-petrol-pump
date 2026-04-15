@@ -130,11 +130,11 @@ export class CreditController {
 
       const filters = getReceiptsQuerySchema.parse(req.query);
 
-      // TODO: Implement list receipts query
+      const data = await this.service.getReceipts(req.user.organizationId, filters);
+
       res.json({
         success: true,
-        data: [],
-        message: 'List receipts endpoint - TODO',
+        data,
       });
     } catch (error) {
       next(error);
@@ -157,11 +157,11 @@ export class CreditController {
 
       const { id } = req.params;
 
-      // TODO: Implement get receipt by ID
+      const receipt = await this.service.getReceiptById(id, req.user.organizationId);
+
       res.json({
         success: true,
-        data: null,
-        message: 'Get receipt by ID endpoint - TODO',
+        data: receipt,
       });
     } catch (error) {
       next(error);
@@ -312,6 +312,9 @@ export class CreditController {
   /**
    * GET /api/credit/report/export
    * Export report as PDF/CSV/Excel
+   *
+   * NOTE: Phase 4 feature (deferred). Currently returns report data in JSON format.
+   * Client can handle PDF/CSV/Excel serialization based on format param.
    */
   exportReport = async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -325,10 +328,19 @@ export class CreditController {
 
       const filters = exportReportQuerySchema.parse(req.query);
 
-      // TODO: Implement export functionality
+      // Get report data (PDF/CSV/Excel serialization is client-side in Phase 4)
+      const report = await this.service.getPartyPositionReport(req.user.organizationId, {
+        hideZeroBalance: filters.hideZeroBalance,
+        customerId: filters.customerId,
+      });
+
+      // TODO Phase 4: Implement server-side PDF/CSV/Excel generation
+      // For now, return JSON data that frontend can serialize
       res.json({
         success: true,
-        message: 'Export endpoint - TODO',
+        format: filters.format,
+        message: `Export format '${filters.format}' is deferred to Phase 4. Data provided in JSON format.`,
+        data: report,
       });
     } catch (error) {
       next(error);

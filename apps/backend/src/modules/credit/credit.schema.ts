@@ -99,6 +99,7 @@ export const getCustomerLedgerQuerySchema = z.object({
     .default('0'),
   vehicleNumber: z.string().optional(),
   entryType: z.enum(['INVOICE', 'RECEIPT']).optional(),
+  branchId: z.string().uuid().optional(),
 });
 
 export const checkCreditLimitQuerySchema = z.object({
