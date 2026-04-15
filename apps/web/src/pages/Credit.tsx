@@ -11,6 +11,8 @@ import {
   Trash2,
   Eye,
   Save,
+  Download,
+  FileText,
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { creditApi } from '@/api/credit';
@@ -32,6 +34,52 @@ const isSuperuser = (role?: string): boolean => {
   return ['admin', 'accountant'].includes(role.toLowerCase());
 };
 
+/**
+ * Export ledger data to CSV
+ */
+const exportLedgerToCSV = (ledgerData: any, customerName: string) => {
+  if (!ledgerData) return;
+
+  const rows: string[] = [];
+
+  // Header
+  rows.push(`Customer Ledger Export`);
+  rows.push(`Customer: ${customerName}`);
+  rows.push(`Exported: ${format(new Date(), 'yyyy-MM-dd HH:mm:ss')}`);
+  rows.push('');
+
+  // Summary
+  rows.push('SUMMARY');
+  rows.push(`Opening Balance,${ledgerData.summary.openingBalance}`);
+  rows.push(`Total Debit (Invoices),${ledgerData.summary.totalDebit}`);
+  rows.push(`Total Credit (Receipts),${ledgerData.summary.totalCredit}`);
+  rows.push(`Closing Balance,${ledgerData.summary.closingBalance}`);
+  rows.push('');
+
+  // Ledger entries
+  rows.push('LEDGER ENTRIES');
+  rows.push('Date,Type,Description,Vehicle/Slip,Debit,Credit,Balance');
+
+  ledgerData.entries.forEach((entry: any) => {
+    rows.push(
+      `${format(new Date(entry.date), 'yyyy-MM-dd')},${entry.type},"${entry.description}","${entry.vehicleNumber || entry.slipNumber || ''}",${entry.debit},${entry.credit},${entry.balance}`
+    );
+  });
+
+  const csv = rows.join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  const url = URL.createObjectURL(blob);
+
+  link.setAttribute('href', url);
+  link.setAttribute('download', `ledger-${customerName}-${format(new Date(), 'yyyy-MM-dd')}.csv`);
+  link.style.visibility = 'hidden';
+
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function Credit() {
@@ -42,6 +90,7 @@ export function Credit() {
   const [activeTab, setActiveTab] = useState<'receipts' | 'ledger' | 'reports'>('receipts');
   const [selectedCustomerId] = useState('');
   const [showReceiptDialog, setShowReceiptDialog] = useState(false);
+  const [showOpenItemsModal, setShowOpenItemsModal] = useState(false);
 
   // ── Filters ──────────────────────────────────────────────────────────────────
   const [receiptFilters, setReceiptFilters] = useState({
@@ -141,6 +190,12 @@ export function Credit() {
     enabled: activeTab === 'ledger' && !!selectedCustomerId,
   });
 
+  const { data: openInvoices = [] } = useQuery({
+    queryKey: ['credit-open-invoices', receiptForm.customerId],
+    queryFn: () => creditApi.getOpenInvoices(receiptForm.customerId),
+    enabled: !!receiptForm.customerId && receiptForm.allocationMode === 'MANUAL',
+  });
+
   // ── Mutations ────────────────────────────────────────────────────────────────
 
   const createReceiptMutation = useMutation({
@@ -227,6 +282,18 @@ export function Credit() {
     const newAllocations = [...allocations];
     newAllocations[index] = { ...newAllocations[index], [field]: value };
     setAllocations(newAllocations);
+  };
+
+  const handleAddAllocationFromItem = (item: any) => {
+    setAllocations([
+      ...allocations,
+      {
+        sourceId: item.id,
+        sourceType: item.sourceType,
+        amount: item.openAmount.toString(),
+      },
+    ]);
+    setShowOpenItemsModal(false);
   };
 
   const handleCreateReceipt = async () => {
@@ -475,6 +542,25 @@ export function Credit() {
             </div>
           )}
 
+          {/* ─ Quick Ledger Export ─ */}
+          <div className="flex gap-2 mb-3">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                const customerName = customers.find((c) => c.id === ledgerFilters.customerId)?.name || 'customer';
+                exportLedgerToCSV(ledgerData, customerName);
+              }}
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Export CSV
+            </Button>
+            <Button size="sm" variant="outline" disabled>
+              <FileText className="h-4 w-4 mr-2" />
+              Export PDF (Print to PDF from browser)
+            </Button>
+          </div>
+
           {/* ─ Ledger Entries Table ─ */}
           <div className="overflow-x-auto border rounded-lg">
             <table className="w-full text-sm">
@@ -677,12 +763,32 @@ export function Credit() {
 
             {/* ─ Manual Allocations ─ */}
             {receiptForm.allocationMode === ('MANUAL' as const) && (
-              <div className="border rounded-lg p-4 bg-muted/50">
-                <div className="font-semibold text-sm mb-3">Manual Allocations</div>
+              <div className="border rounded-lg p-4 bg-muted/50 space-y-3">
+                <div className="font-semibold text-sm">Manual Allocations</div>
+
+                {/* Open Items Quick Preview */}
+                {openInvoices.length > 0 && (
+                  <div className="bg-white p-3 border rounded text-xs">
+                    <div className="font-semibold mb-2">Available open items: {openInvoices.length}</div>
+                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                      {openInvoices.map((item) => (
+                        <div key={item.id} className="flex justify-between text-muted-foreground py-1 border-b">
+                          <span className="truncate flex-1">{item.description}</span>
+                          <span className="font-mono font-semibold text-foreground ml-2">{item.openAmount.toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <Button size="sm" variant="secondary" onClick={() => setShowOpenItemsModal(true)} className="w-full mt-2">
+                      <Eye className="h-3 w-3 mr-2" />
+                      Browse All Open Items
+                    </Button>
+                  </div>
+                )}
+
                 {allocations.length === 0 ? (
-                  <p className="text-xs text-muted-foreground mb-3">No allocations added yet</p>
+                  <p className="text-xs text-muted-foreground">No allocations added yet</p>
                 ) : (
-                  <div className="space-y-2 mb-3">
+                  <div className="space-y-2">
                     {allocations.map((alloc, idx) => (
                       <div key={idx} className="flex gap-2 items-end">
                         <Input
@@ -743,6 +849,74 @@ export function Credit() {
                   Create Receipt
                 </>
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─ Open Items Modal (for MANUAL allocation) ─ */}
+      <Dialog open={showOpenItemsModal} onOpenChange={setShowOpenItemsModal}>
+        <DialogContent className="max-w-4xl max-h-96">
+          <DialogHeader>
+            <DialogTitle>Open Items - Select to Allocate</DialogTitle>
+            <DialogDescription>
+              Click on an item to add it to allocations (set amount to open amount or adjust as needed)
+            </DialogDescription>
+          </DialogHeader>
+
+          {openInvoices.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">No open items available for this customer</div>
+          ) : (
+            <div className="overflow-x-auto border rounded-lg">
+              <table className="w-full text-xs">
+                <thead className="bg-muted border-b">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-semibold">Date</th>
+                    <th className="px-3 py-2 text-left font-semibold">Type</th>
+                    <th className="px-3 py-2 text-left font-semibold">Reference</th>
+                    <th className="px-3 py-2 text-right font-semibold">Original Amt</th>
+                    <th className="px-3 py-2 text-right font-semibold">Allocated</th>
+                    <th className="px-3 py-2 text-right font-semibold">Open Amt</th>
+                    <th className="px-3 py-2 text-center font-semibold">Status</th>
+                    <th className="px-3 py-2 text-center font-semibold">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {openInvoices.map((item) => {
+                    const status = item.allocatedAmount > 0 ? 'PARTIAL' : 'UNSETTLED';
+                    return (
+                      <tr key={item.id} className="border-b hover:bg-muted/50">
+                        <td className="px-3 py-2">{format(new Date(item.date), 'MMM dd, yy')}</td>
+                        <td className="px-3 py-2">
+                          <Badge variant="outline" className="text-xs">
+                            {item.sourceType === 'SALE' ? 'SALE' : 'BDTX'}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2 text-muted-foreground">{item.slipNumber || item.vehicleNumber || '—'}</td>
+                        <td className="px-3 py-2 text-right font-mono">{item.totalAmount.toFixed(2)}</td>
+                        <td className="px-3 py-2 text-right font-mono">{item.allocatedAmount.toFixed(2)}</td>
+                        <td className="px-3 py-2 text-right font-mono font-semibold">{item.openAmount.toFixed(2)}</td>
+                        <td className="px-3 py-2 text-center">
+                          <Badge variant={status === 'PARTIAL' ? 'secondary' : 'outline'} className="text-xs">
+                            {status}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          <Button size="sm" variant="ghost" onClick={() => handleAddAllocationFromItem(item)}>
+                            <Plus className="h-3 w-3" />
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowOpenItemsModal(false)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>
