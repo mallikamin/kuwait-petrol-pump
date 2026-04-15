@@ -24,7 +24,7 @@ export const createReceiptSchema = z.object({
       })
     )
     .optional(),
-});
+}).strict();
 
 export const updateReceiptSchema = z.object({
   branchId: z.string().uuid().optional(),
@@ -49,7 +49,7 @@ export const updateReceiptSchema = z.object({
       })
     )
     .optional(),
-});
+}).strict();
 
 export const getReceiptsQuerySchema = z.object({
   customerId: z.string().uuid().optional(),
