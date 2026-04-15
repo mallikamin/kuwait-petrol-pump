@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { z } from 'zod';
 import { CreditService } from './credit.service';
 import {
   createReceiptSchema,
@@ -11,6 +12,10 @@ import {
   setBranchLimitSchema,
 } from './credit.schema';
 import { hasRole } from '../../middleware/auth.middleware';
+
+// Properly typed DTOs from Zod schemas
+type CreateReceiptPayload = z.infer<typeof createReceiptSchema>;
+type UpdateReceiptPayload = z.infer<typeof updateReceiptSchema>;
 
 export class CreditController {
   private service: CreditService;
@@ -37,7 +42,7 @@ export class CreditController {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
-      const data = createReceiptSchema.parse(req.body) as any;
+      const data: CreateReceiptPayload = createReceiptSchema.parse(req.body);
 
       const receipt = await this.service.createReceipt(
         req.user.organizationId,
@@ -69,7 +74,7 @@ export class CreditController {
       }
 
       const { id } = req.params;
-      const data = updateReceiptSchema.parse(req.body) as any;
+      const data: UpdateReceiptPayload = updateReceiptSchema.parse(req.body);
 
       const receipt = await this.service.updateReceipt(
         id,
