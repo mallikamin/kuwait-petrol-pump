@@ -105,10 +105,10 @@ export function Credit() {
 
   // Auto-prefill branchId from user's assigned branch (for non-superusers)
   useEffect(() => {
-    if (user?.branchId && !receiptForm.branchId) {
-      setReceiptForm((prev) => ({ ...prev, branchId: user.branchId || '' }));
+    if (user?.branch_id && !receiptForm.branchId) {
+      setReceiptForm((prev) => ({ ...prev, branchId: user.branch_id || '' }));
     }
-  }, [user?.branchId, receiptForm.branchId]);
+  }, [user?.branch_id, receiptForm.branchId]);
 
   const { data: receiptsData, isLoading: receiptsLoading, refetch: refetchReceipts } = useQuery({
     queryKey: ['credit-receipts', receiptFilters],
@@ -599,7 +599,7 @@ export function Credit() {
                     <SelectContent>
                       {branches.map((b) => (
                         <SelectItem key={b.id} value={b.id}>
-                          {b.name || b.location || b.id.slice(0, 8)}
+                          {b.name || b.code || b.id.slice(0, 8)}
                         </SelectItem>
                       ))}
                     </SelectContent>
