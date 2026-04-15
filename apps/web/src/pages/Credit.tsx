@@ -52,16 +52,26 @@ export function Credit() {
   });
 
   // ── Receipt Form State ──────────────────────────────────────────────────────
-  const [receiptForm, setReceiptForm] = useState({
+  const [receiptForm, setReceiptForm] = useState<{
+    customerId: string;
+    branchId: string;
+    receiptDatetime: string;
+    amount: string;
+    paymentMethod: 'cash';
+    bankId: string;
+    referenceNumber: string;
+    notes: string;
+    allocationMode: 'FIFO' | 'MANUAL';
+  }>({
     customerId: '',
     branchId: '',
     receiptDatetime: format(new Date(), "yyyy-MM-dd'T'HH:mm"),
     amount: '',
-    paymentMethod: 'cash' as const,
+    paymentMethod: 'cash',
     bankId: '',
     referenceNumber: '',
     notes: '',
-    allocationMode: 'FIFO' as const,
+    allocationMode: 'FIFO',
   });
 
   const [allocations, setAllocations] = useState<Array<{ sourceId: string; sourceType: 'BACKDATED_TRANSACTION' | 'SALE'; amount: string }>>([]);
