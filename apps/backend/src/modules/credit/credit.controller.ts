@@ -10,7 +10,7 @@ import {
   exportReportQuerySchema,
   setBranchLimitSchema,
 } from './credit.schema';
-import { hasRole } from '../../middleware/auth.middleware';
+import { hasRole, isSuperuser } from '../../middleware/auth.middleware';
 
 export class CreditController {
   private service: CreditService;
@@ -39,11 +39,22 @@ export class CreditController {
 
       const validated = createReceiptSchema.parse(req.body);
 
+      // Branch enforcement:
+      // - For superusers: allow selected branchId (already validated by org isolation)
+      // - For non-superusers: force to user's assigned branch
+      const effectiveBranchId = isSuperuser(req.user)
+        ? validated.branchId
+        : req.user.branchId;
+
+      // Ensure non-superusers have a branch assigned
+      if (!isSuperuser(req.user) && !req.user.branchId) {
+        return res.status(403).json({ error: 'User has no assigned branch' });
+      }
+
       // Map validated data to service interface
-      // Note: allocations are already validated by Zod, just properly type them
       const data: CreateReceiptInput = {
         customerId: validated.customerId,
-        branchId: validated.branchId,
+        branchId: effectiveBranchId,
         receiptDatetime: validated.receiptDatetime,
         amount: validated.amount,
         paymentMethod: validated.paymentMethod,
@@ -93,10 +104,16 @@ export class CreditController {
       const { id } = req.params;
       const validated = updateReceiptSchema.parse(req.body);
 
+      // Branch enforcement:
+      // - For superusers: allow updating to selected branchId (already validated by org isolation)
+      // - For non-superusers: ignore payload branchId, force to user's assigned branch
+      const effectiveBranchId = isSuperuser(req.user)
+        ? validated.branchId
+        : req.user.branchId;
+
       // Map validated data to service interface
-      // Note: allocations are already validated by Zod, just properly type them
       const data: UpdateReceiptInput = {
-        branchId: validated.branchId,
+        branchId: effectiveBranchId,
         receiptDatetime: validated.receiptDatetime,
         amount: validated.amount,
         paymentMethod: validated.paymentMethod,

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { creditApi } from '@/api/credit';
-import { customersApi } from '@/api';
+import { customersApi, branchesApi } from '@/api';
 import { useAuthStore } from '@/store/auth';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -22,6 +22,15 @@ import { format } from 'date-fns';
 // ── Utility Functions ─────────────────────────────────────────────────────────
 
 const fmtPKR = (n: number) => n.toLocaleString('en-PK', { maximumFractionDigits: 0 });
+
+/**
+ * Check if user is a superuser (admin or accountant)
+ * Superusers can select any branch; others are locked to their assigned branch
+ */
+const isSuperuser = (role?: string): boolean => {
+  if (!role) return false;
+  return ['admin', 'accountant'].includes(role.toLowerCase());
+};
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -85,6 +94,21 @@ export function Credit() {
       return result.items;
     },
   });
+
+  const { data: branches = [] } = useQuery({
+    queryKey: ['branches'],
+    queryFn: async () => {
+      const result = await branchesApi.getAll({ size: 500 });
+      return result.items;
+    },
+  });
+
+  // Auto-prefill branchId from user's assigned branch (for non-superusers)
+  useEffect(() => {
+    if (user?.branchId && !receiptForm.branchId) {
+      setReceiptForm((prev) => ({ ...prev, branchId: user.branchId || '' }));
+    }
+  }, [user?.branchId, receiptForm.branchId]);
 
   const { data: receiptsData, isLoading: receiptsLoading, refetch: refetchReceipts } = useQuery({
     queryKey: ['credit-receipts', receiptFilters],
@@ -566,7 +590,26 @@ export function Credit() {
               </div>
               <div>
                 <label className="text-xs font-semibold mb-2 block">Branch *</label>
-                <Input placeholder="Branch ID" value={receiptForm.branchId} onChange={(e) => setReceiptForm({ ...receiptForm, branchId: e.target.value })} disabled />
+                {isSuperuser(user?.role) ? (
+                  // Superuser: show dropdown to select any branch
+                  <Select value={receiptForm.branchId} onValueChange={(value) => setReceiptForm({ ...receiptForm, branchId: value })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select branch" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {branches.map((b) => (
+                        <SelectItem key={b.id} value={b.id}>
+                          {b.name || b.location || b.id.slice(0, 8)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  // Non-superuser: show read-only branch name
+                  <div className="px-3 py-2 border border-gray-300 rounded text-sm bg-gray-50">
+                    {branches.find((b) => b.id === receiptForm.branchId)?.name || receiptForm.branchId.slice(0, 8) || 'Not assigned'}
+                  </div>
+                )}
               </div>
             </div>
 

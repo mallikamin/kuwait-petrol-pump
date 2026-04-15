@@ -28,6 +28,16 @@ export function hasRole(user: TokenPayload | undefined, allowedRoles: string[]):
   return normalizedRoles.includes(userRole);
 }
 
+/**
+ * Check if user is a superuser (admin or accountant)
+ * Superusers can perform cross-branch operations
+ * @param user - User payload from JWT
+ * @returns true if user is admin or accountant
+ */
+export function isSuperuser(user: TokenPayload | undefined): boolean {
+  return hasRole(user, ['admin', 'accountant']);
+}
+
 export function authenticate(req: Request, res: Response, next: NextFunction) {
   try {
     const authHeader = req.headers.authorization;
