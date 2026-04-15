@@ -794,13 +794,12 @@ export class CreditService {
     }
 
     // 1. Branch-specific limit
-    const branchLimit = await prisma.customerBranchLimit.findUnique({
+    const branchLimit = await prisma.customerBranchLimit.findFirst({
       where: {
-        organizationId_customerId_branchId: {
-          organizationId: customer.organizationId,
-          customerId,
-          branchId,
-        },
+        organizationId: customer.organizationId,
+        customerId,
+        branchId,
+        isActive: true,
       },
     });
 
@@ -1332,15 +1331,28 @@ export class CreditService {
     // Validate org isolation
     await this.validateOrgIsolation(organizationId, customerId, branchId);
 
-    return await prisma.customerBranchLimit.upsert({
+    // Find existing limit
+    const existing = await prisma.customerBranchLimit.findFirst({
       where: {
-        organizationId_customerId_branchId: {
-          organizationId,
-          customerId,
-          branchId,
-        },
+        organizationId,
+        customerId,
+        branchId,
       },
-      create: {
+    });
+
+    if (existing) {
+      return await prisma.customerBranchLimit.update({
+        where: { id: existing.id },
+        data: {
+          creditLimit,
+          creditDays,
+          isActive: true,
+        },
+      });
+    }
+
+    return await prisma.customerBranchLimit.create({
+      data: {
         organizationId,
         customerId,
         branchId,
@@ -1348,12 +1360,8 @@ export class CreditService {
         creditDays,
         isActive: true,
       },
-      update: {
-        creditLimit,
-        creditDays,
-        isActive: true,
-      },
     });
+  }
   }
 
   /**
@@ -1470,20 +1478,13 @@ export class CreditService {
     const receipt = await prisma.customerReceipt.findUnique({
       where: { id: receiptId },
       include: {
-        customer: { select: { id: true, name: true, phone: true, currentBalance: true } },
-        branch: { select: { id: true, name: true } },
-        bank: { select: { id: true, name: true } },
-        createdByUser: { select: { id: true, name: true } },
-        updatedByUser: { select: { id: true, name: true } },
-        deletedByUser: { select: { id: true, name: true } },
-        allocations: {
-          select: {
-            id: true,
-            sourceType: true,
-            sourceId: true,
-            allocatedAmount: true,
-          },
-        },
+        customer: true,
+        branch: true,
+        bank: true,
+        createdByUser: true,
+        updatedByUser: true,
+        deletedByUser: true,
+        allocations: true,
       },
     });
 
@@ -1509,16 +1510,39 @@ export class CreditService {
       customer: receipt.customer,
       branch: receipt.branch,
       bank: receipt.bank,
-      allocations: receipt.allocations.map((a) => ({
-        ...a,
-        allocatedAmount: a.allocatedAmount.toNumber(),
-      })),
+      allocations: receipt.allocations
+        .filter((a) => !a.deletedAt)
+        .map((a) => ({
+          id: a.id,
+          sourceType: a.sourceType as 'BACKDATED_TRANSACTION' | 'SALE',
+          sourceId: a.sourceId,
+          allocatedAmount: a.allocatedAmount.toNumber(),
+        })),
       createdAt: receipt.createdAt,
       createdBy: receipt.createdBy,
-      createdByUser: receipt.createdByUser,
+      createdByUser: receipt.createdByUser
+        ? {
+            id: receipt.createdByUser.id,
+            fullName: receipt.createdByUser.fullName,
+            email: receipt.createdByUser.email,
+          }
+        : null,
       updatedAt: receipt.updatedAt,
       updatedBy: receipt.updatedBy,
-      updatedByUser: receipt.updatedByUser,
+      updatedByUser: receipt.updatedByUser
+        ? {
+            id: receipt.updatedByUser.id,
+            fullName: receipt.updatedByUser.fullName,
+            email: receipt.updatedByUser.email,
+          }
+        : null,
+      deletedByUser: receipt.deletedByUser
+        ? {
+            id: receipt.deletedByUser.id,
+            fullName: receipt.deletedByUser.fullName,
+            email: receipt.deletedByUser.email,
+          }
+        : null,
     };
   }
 }
