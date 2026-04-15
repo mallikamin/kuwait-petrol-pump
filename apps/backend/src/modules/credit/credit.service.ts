@@ -1509,14 +1509,12 @@ export class CreditService {
       customer: receipt.customer,
       branch: receipt.branch,
       bank: receipt.bank,
-      allocations: receipt.allocations
-        .filter((a) => !a.deletedAt)
-        .map((a) => ({
-          id: a.id,
-          sourceType: a.sourceType as 'BACKDATED_TRANSACTION' | 'SALE',
-          sourceId: a.sourceId,
-          allocatedAmount: a.allocatedAmount.toNumber(),
-        })),
+      allocations: receipt.allocations.map((a) => ({
+        id: a.id,
+        sourceType: a.sourceType as 'BACKDATED_TRANSACTION' | 'SALE',
+        sourceId: a.sourceId,
+        allocatedAmount: a.allocatedAmount.toNumber(),
+      })),
       createdAt: receipt.createdAt,
       createdBy: receipt.createdBy,
       createdByUser: receipt.createdByUser

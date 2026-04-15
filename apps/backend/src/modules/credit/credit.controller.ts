@@ -37,7 +37,7 @@ export class CreditController {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
 
-      const data = createReceiptSchema.parse(req.body);
+      const data = createReceiptSchema.parse(req.body) as any;
 
       const receipt = await this.service.createReceipt(
         req.user.organizationId,
@@ -69,7 +69,7 @@ export class CreditController {
       }
 
       const { id } = req.params;
-      const data = updateReceiptSchema.parse(req.body);
+      const data = updateReceiptSchema.parse(req.body) as any;
 
       const receipt = await this.service.updateReceipt(
         id,
