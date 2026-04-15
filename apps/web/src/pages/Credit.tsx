@@ -80,6 +80,114 @@ const exportLedgerToCSV = (ledgerData: any, customerName: string) => {
   document.body.removeChild(link);
 };
 
+/**
+ * Export ledger data to PDF (print-friendly HTML → browser print dialog)
+ */
+const exportLedgerToPDF = (ledgerData: any, customerName: string) => {
+  if (!ledgerData) return;
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <title>Ledger-${customerName}-${format(new Date(), 'yyyy-MM-dd')}</title>
+      <style>
+        body { font-family: Arial, sans-serif; margin: 20px; line-height: 1.4; }
+        h1 { margin-bottom: 5px; font-size: 16px; }
+        .meta { color: #666; font-size: 12px; margin-bottom: 20px; }
+        .summary { margin-bottom: 20px; }
+        .summary-item { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #eee; }
+        .summary-label { font-weight: bold; }
+        .summary-value { text-align: right; font-family: monospace; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
+        th { background: #f0f0f0; border: 1px solid #ddd; padding: 8px; text-align: left; font-weight: bold; }
+        td { border: 1px solid #ddd; padding: 6px 8px; }
+        td.number { text-align: right; font-family: monospace; }
+        @media print {
+          body { margin: 0; }
+          .no-print { display: none; }
+          table { page-break-inside: avoid; }
+        }
+      </style>
+    </head>
+    <body>
+      <h1>Customer Ledger Report</h1>
+      <div class="meta">
+        <strong>Customer:</strong> ${customerName}<br>
+        <strong>Date:</strong> ${format(new Date(), 'MMM dd, yyyy HH:mm:ss')}<br>
+        <strong>Report Period:</strong> All transactions
+      </div>
+
+      <div class="summary">
+        <div class="summary-item">
+          <span class="summary-label">Opening Balance:</span>
+          <span class="summary-value">${ledgerData.summary.openingBalance.toLocaleString('en-PK', { maximumFractionDigits: 2 })}</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">Total Debit (Invoices):</span>
+          <span class="summary-value">${ledgerData.summary.totalDebit.toLocaleString('en-PK', { maximumFractionDigits: 2 })}</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">Total Credit (Receipts):</span>
+          <span class="summary-value">${ledgerData.summary.totalCredit.toLocaleString('en-PK', { maximumFractionDigits: 2 })}</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label" style="font-size: 13px; color: #000;">Closing Balance:</span>
+          <span class="summary-value" style="font-size: 13px; font-weight: bold;">${ledgerData.summary.closingBalance.toLocaleString('en-PK', { maximumFractionDigits: 2 })}</span>
+        </div>
+      </div>
+
+      <h3>Ledger Entries</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Vehicle/Slip</th>
+            <th style="text-align: right;">Debit</th>
+            <th style="text-align: right;">Credit</th>
+            <th style="text-align: right;">Balance</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${ledgerData.entries
+            .map(
+              (entry: any) => `
+            <tr>
+              <td>${format(new Date(entry.date), 'MMM dd, yy')}</td>
+              <td><strong>${entry.type}</strong></td>
+              <td>${entry.description}</td>
+              <td>${entry.vehicleNumber || entry.slipNumber || '—'}</td>
+              <td class="number">${entry.debit > 0 ? entry.debit.toLocaleString('en-PK', { maximumFractionDigits: 2 }) : '—'}</td>
+              <td class="number">${entry.credit > 0 ? entry.credit.toLocaleString('en-PK', { maximumFractionDigits: 2 }) : '—'}</td>
+              <td class="number"><strong>${entry.balance.toLocaleString('en-PK', { maximumFractionDigits: 2 })}</strong></td>
+            </tr>
+          `
+            )
+            .join('')}
+        </tbody>
+      </table>
+
+      <div style="margin-top: 30px; color: #999; font-size: 11px; text-align: center;">
+        <p>This is a system-generated report. No signature required.</p>
+      </div>
+    </body>
+    </html>
+  `;
+
+  const printWindow = window.open('', '', 'width=1000,height=600');
+  if (printWindow) {
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+      printWindow.print();
+    }, 250);
+  }
+};
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function Credit() {
@@ -555,9 +663,16 @@ export function Credit() {
               <Download className="h-4 w-4 mr-2" />
               Export CSV
             </Button>
-            <Button size="sm" variant="outline" disabled>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                const customerName = customers.find((c) => c.id === ledgerFilters.customerId)?.name || 'customer';
+                exportLedgerToPDF(ledgerData, customerName);
+              }}
+            >
               <FileText className="h-4 w-4 mr-2" />
-              Export PDF (Print to PDF from browser)
+              Export PDF
             </Button>
           </div>
 
