@@ -657,8 +657,8 @@ export class DailyBackdatedEntriesService {
     const pmgRemainingLiters = pmgMeterLiters - pmgPostedLiters;
 
     // Payment breakdown - SEPARATE fuel and non-fuel
-    const fuelTransactions = allTransactions.filter(t => t.fuelTypeId);
-    const nonFuelTransactions = allTransactions.filter(t => !t.fuelTypeId);
+    const fuelTransactions = allTransactions.filter(t => t.fuelCode !== 'OTHER');
+    const nonFuelTransactions = allTransactions.filter(t => t.fuelCode === 'OTHER');
 
     const paymentBreakdown = fuelTransactions.reduce(
       (acc, txn) => {
@@ -1230,7 +1230,9 @@ export class DailyBackdatedEntriesService {
     for (const txn of transactions) {
       // Include both fuel and non-fuel transactions
       // For non-fuel: liters = 0 (quantity is pieces/units, not liters)
-      const liters = txn.fuelTypeId ? parseFloat(txn.quantity.toString()) : 0;
+      // Check both fuelTypeId (finalize context) and fuelCode (summary context)
+      const isFuel = (txn as any).fuelTypeId || ((txn as any).fuelCode && (txn as any).fuelCode !== 'OTHER');
+      const liters = isFuel ? parseFloat(txn.quantity.toString()) : 0;
       const amount = parseFloat(txn.lineTotal.toString());
       const method = (txn.paymentMethod || '').toLowerCase();
 
