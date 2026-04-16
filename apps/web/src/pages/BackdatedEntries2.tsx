@@ -878,11 +878,6 @@ export function BackdatedEntries2() {
                   }}
                 >
                   <div className="font-medium truncate">{g.customerName}</div>
-                  <div className="flex items-center gap-2 text-muted-foreground mt-0.5">
-                    <span>{g.transactions.length} txn</span>
-                    <span>{fmtL(g.totalLiters)}L</span>
-                    <span className="ml-auto font-mono text-foreground font-medium">{fmtPKR(g.totalAmount)}</span>
-                  </div>
                 </button>
               ))}
             </div>
@@ -1026,10 +1021,10 @@ export function BackdatedEntries2() {
                                       updateTransaction(idx, 'productName', v);
                                       if (prod?.unitPrice) updateTransaction(idx, 'unitPrice', prod.unitPrice.toString());
                                     }}>
-                                      <SelectTrigger className="h-6 text-[10px] mt-0.5"><SelectValue placeholder="Product" /></SelectTrigger>
-                                      <SelectContent>
+                                      <SelectTrigger className="h-8 text-xs mt-0.5 min-w-[200px]"><SelectValue placeholder="Select product" /></SelectTrigger>
+                                      <SelectContent className="max-w-[300px]">
                                         {nonFuelProductOptions.map(p => (
-                                          <SelectItem key={p.id} value={p.name}>{p.name}</SelectItem>
+                                          <SelectItem key={p.id} value={p.name} className="text-xs">{p.name}</SelectItem>
                                         ))}
                                       </SelectContent>
                                     </Select>

@@ -656,8 +656,44 @@ export class DailyBackdatedEntriesService {
     const hsdRemainingLiters = hsdMeterLiters - hsdPostedLiters;
     const pmgRemainingLiters = pmgMeterLiters - pmgPostedLiters;
 
-    // Payment breakdown
-    const paymentBreakdown = allTransactions.reduce(
+    // Payment breakdown - SEPARATE fuel and non-fuel
+    const fuelTransactions = allTransactions.filter(t => t.fuelTypeId);
+    const nonFuelTransactions = allTransactions.filter(t => !t.fuelTypeId);
+
+    const paymentBreakdown = fuelTransactions.reduce(
+      (acc, txn) => {
+        switch (txn.paymentMethod) {
+          case 'cash':
+            acc.cash += txn.lineTotal;
+            break;
+          case 'credit_card':
+            acc.creditCard += txn.lineTotal;
+            break;
+          case 'bank_card':
+            acc.bankCard += txn.lineTotal;
+            break;
+          case 'pso_card':
+            acc.psoCard += txn.lineTotal;
+            break;
+          case 'credit_customer':
+            acc.creditCustomer += txn.lineTotal;
+            break;
+        }
+        acc.total += txn.lineTotal;
+        return acc;
+      },
+      {
+        cash: 0,
+        creditCard: 0,
+        bankCard: 0,
+        psoCard: 0,
+        creditCustomer: 0,
+        total: 0,
+      }
+    );
+
+    // Non-fuel payment breakdown (separate bucket, no reconciliation)
+    const nonFuelBreakdown = nonFuelTransactions.reduce(
       (acc, txn) => {
         switch (txn.paymentMethod) {
           case 'cash':
@@ -727,6 +763,7 @@ export class DailyBackdatedEntriesService {
       },
       transactions: allTransactions,
       paymentBreakdown,
+      nonFuelBreakdown, // Separate bucket for non-fuel transactions
       backTracedCash: {
         meterSalesPkr,
         nonCashTotal,
@@ -1173,6 +1210,7 @@ export class DailyBackdatedEntriesService {
 
   /**
    * ✅ Helper: Calculate payment method breakdown (Cash, Credit, Bank Card, PSO Card)
+   * Note: Includes both fuel and non-fuel transactions. Liters are 0 for non-fuel.
    */
   private calculatePaymentBreakdown(
     transactions: any[]
@@ -1190,9 +1228,9 @@ export class DailyBackdatedEntriesService {
     };
 
     for (const txn of transactions) {
-      if (!txn.fuelTypeId) continue; // Skip non-fuel transactions
-
-      const liters = parseFloat(txn.quantity.toString());
+      // Include both fuel and non-fuel transactions
+      // For non-fuel: liters = 0 (quantity is pieces/units, not liters)
+      const liters = txn.fuelTypeId ? parseFloat(txn.quantity.toString()) : 0;
       const amount = parseFloat(txn.lineTotal.toString());
       const method = (txn.paymentMethod || '').toLowerCase();
 

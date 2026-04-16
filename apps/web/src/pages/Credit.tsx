@@ -272,8 +272,10 @@ export function Credit() {
     queryFn: () =>
       creditApi.getReceipts({
         customerId: receiptFilters.customerId || undefined,
-        startDate: receiptFilters.startDate || undefined,
-        endDate: receiptFilters.endDate || undefined,
+        // Convert date-only strings to ISO datetime (start of day)
+        startDate: receiptFilters.startDate ? new Date(receiptFilters.startDate + 'T00:00:00').toISOString() : undefined,
+        // Convert date-only strings to ISO datetime (end of day - next day at 00:00)
+        endDate: receiptFilters.endDate ? new Date(receiptFilters.endDate + 'T23:59:59.999').toISOString() : undefined,
         limit: receiptFilters.limit,
         offset: receiptFilters.offset,
       }),
@@ -284,8 +286,10 @@ export function Credit() {
     queryKey: ['credit-ledger', ledgerFilters],
     queryFn: () =>
       creditApi.getCustomerLedger(ledgerFilters.customerId, {
-        startDate: ledgerFilters.startDate || undefined,
-        endDate: ledgerFilters.endDate || undefined,
+        // Convert date-only strings to ISO datetime (start of day)
+        startDate: ledgerFilters.startDate ? new Date(ledgerFilters.startDate + 'T00:00:00').toISOString() : undefined,
+        // Convert date-only strings to ISO datetime (end of day - next day at 00:00)
+        endDate: ledgerFilters.endDate ? new Date(ledgerFilters.endDate + 'T23:59:59.999').toISOString() : undefined,
         limit: ledgerFilters.limit,
         offset: ledgerFilters.offset,
       }),
