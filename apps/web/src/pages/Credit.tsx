@@ -272,10 +272,10 @@ export function Credit() {
     queryFn: () =>
       creditApi.getReceipts({
         customerId: receiptFilters.customerId || undefined,
-        // Convert date-only strings to ISO datetime (start of day)
-        startDate: receiptFilters.startDate ? new Date(receiptFilters.startDate + 'T00:00:00').toISOString() : undefined,
-        // Convert date-only strings to ISO datetime (end of day - next day at 00:00)
-        endDate: receiptFilters.endDate ? new Date(receiptFilters.endDate + 'T23:59:59.999').toISOString() : undefined,
+        // Convert date-only strings to UTC datetime (start of day UTC)
+        startDate: receiptFilters.startDate ? new Date(receiptFilters.startDate + 'T00:00:00Z').toISOString() : undefined,
+        // Convert date-only strings to UTC datetime (end of day UTC)
+        endDate: receiptFilters.endDate ? new Date(receiptFilters.endDate + 'T23:59:59.999Z').toISOString() : undefined,
         limit: receiptFilters.limit,
         offset: receiptFilters.offset,
       }),
@@ -286,10 +286,10 @@ export function Credit() {
     queryKey: ['credit-ledger', ledgerFilters],
     queryFn: () =>
       creditApi.getCustomerLedger(ledgerFilters.customerId, {
-        // Convert date-only strings to ISO datetime (start of day)
-        startDate: ledgerFilters.startDate ? new Date(ledgerFilters.startDate + 'T00:00:00').toISOString() : undefined,
-        // Convert date-only strings to ISO datetime (end of day - next day at 00:00)
-        endDate: ledgerFilters.endDate ? new Date(ledgerFilters.endDate + 'T23:59:59.999').toISOString() : undefined,
+        // Convert date-only strings to UTC datetime (start of day UTC)
+        startDate: ledgerFilters.startDate ? new Date(ledgerFilters.startDate + 'T00:00:00Z').toISOString() : undefined,
+        // Convert date-only strings to UTC datetime (end of day UTC)
+        endDate: ledgerFilters.endDate ? new Date(ledgerFilters.endDate + 'T23:59:59.999Z').toISOString() : undefined,
         limit: ledgerFilters.limit,
         offset: ledgerFilters.offset,
       }),

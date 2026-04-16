@@ -657,8 +657,9 @@ export class DailyBackdatedEntriesService {
     const pmgRemainingLiters = pmgMeterLiters - pmgPostedLiters;
 
     // Payment breakdown - SEPARATE fuel and non-fuel
-    const fuelTransactions = allTransactions.filter(t => t.fuelCode !== 'OTHER');
-    const nonFuelTransactions = allTransactions.filter(t => t.fuelCode === 'OTHER');
+    // Explicit classification: fuel = HSD or PMG, non-fuel = everything else
+    const fuelTransactions = allTransactions.filter(t => t.fuelCode === 'HSD' || t.fuelCode === 'PMG');
+    const nonFuelTransactions = allTransactions.filter(t => t.fuelCode !== 'HSD' && t.fuelCode !== 'PMG');
 
     const paymentBreakdown = fuelTransactions.reduce(
       (acc, txn) => {
@@ -1230,8 +1231,9 @@ export class DailyBackdatedEntriesService {
     for (const txn of transactions) {
       // Include both fuel and non-fuel transactions
       // For non-fuel: liters = 0 (quantity is pieces/units, not liters)
-      // Check both fuelTypeId (finalize context) and fuelCode (summary context)
-      const isFuel = (txn as any).fuelTypeId || ((txn as any).fuelCode && (txn as any).fuelCode !== 'OTHER');
+      // Explicit classification: fuel = HSD or PMG only
+      const fuelCode = (txn as any).fuelCode || ((txn as any).fuelType?.code);
+      const isFuel = fuelCode === 'HSD' || fuelCode === 'PMG';
       const liters = isFuel ? parseFloat(txn.quantity.toString()) : 0;
       const amount = parseFloat(txn.lineTotal.toString());
       const method = (txn.paymentMethod || '').toLowerCase();

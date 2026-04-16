@@ -1408,6 +1408,14 @@ export class CreditService {
       where.branchId = filters.branchId;
     }
 
+    // Add date filtering to WHERE clause (not post-fetch)
+    if (filters?.startDate) {
+      where.receiptDatetime = { ...where.receiptDatetime, gte: filters.startDate };
+    }
+    if (filters?.endDate) {
+      where.receiptDatetime = { ...where.receiptDatetime, lte: filters.endDate };
+    }
+
     // Get total count
     const total = await prisma.customerReceipt.count({ where });
 
@@ -1432,19 +1440,9 @@ export class CreditService {
       skip: offset,
     });
 
-    // Filter by date range in application (after fetch)
-    let filtered = receipts;
-    if (filters?.startDate || filters?.endDate) {
-      filtered = receipts.filter((r) => {
-        const receiptTime = r.receiptDatetime.getTime();
-        if (filters.startDate && receiptTime < filters.startDate.getTime()) return false;
-        if (filters.endDate && receiptTime > filters.endDate.getTime()) return false;
-        return true;
-      });
-    }
-
+    // Date filtering now in WHERE clause (no post-fetch filter needed)
     return {
-      receipts: filtered.map((r) => ({
+      receipts: receipts.map((r) => ({
         id: r.id,
         receiptNumber: r.receiptNumber,
         receiptDatetime: r.receiptDatetime,
