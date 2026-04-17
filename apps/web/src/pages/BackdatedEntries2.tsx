@@ -1255,23 +1255,20 @@ export function BackdatedEntries2() {
             <>
               <DialogHeader>
                 <DialogTitle className="text-emerald-700">
-                  {finalizeResult.alreadyFinalized ? 'Day Already Finalized' : 'Successfully Finalized!'}
+                  {finalizeResult.businessDate ? (
+                    (() => {
+                      const date = new Date(finalizeResult.businessDate + 'T00:00:00');
+                      const day = date.getDate();
+                      const month = date.toLocaleDateString('en-US', { month: 'long' });
+                      const year = date.getFullYear();
+                      return `${day} ${month} ${year} Reconciliation Summary`;
+                    })()
+                  ) : (
+                    finalizeResult.alreadyFinalized ? 'Day Already Finalized' : 'Successfully Finalized!'
+                  )}
                 </DialogTitle>
               </DialogHeader>
               <div className="space-y-4 text-sm">
-                {/* Business Date Context */}
-                {finalizeResult.businessDate && (
-                  <div className="bg-slate-100 border border-slate-300 rounded px-3 py-2 text-xs">
-                    <span className="font-semibold text-slate-700">Business Date: </span>
-                    <span className="font-semibold text-slate-900">
-                      {new Date(finalizeResult.businessDate + 'T00:00:00').toLocaleDateString('en-US', {
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric',
-                      })}
-                    </span>
-                  </div>
-                )}
 
                 {/* Summary message */}
                 <p className="text-muted-foreground">{finalizeResult.message}</p>

@@ -33,6 +33,8 @@ let isRefreshing = false;
 let pendingRequests: Array<(token: string | null) => void> = [];
 let refreshAttempts = 0;
 const MAX_REFRESH_ATTEMPTS = 2;
+const MAX_TRANSIENT_RETRIES = 3; // Retry 503 errors up to 3 times
+const RETRY_DELAY_MS = 1000; // Base delay: 1 second
 
 // Diagnostic logging for session stability debugging
 const logAuth = (event: string, data?: Record<string, any>) => {
@@ -45,6 +47,46 @@ const logAuth = (event: string, data?: Record<string, any>) => {
 const flushPendingRequests = (token: string | null) => {
   pendingRequests.forEach((cb) => cb(token));
   pendingRequests = [];
+};
+
+// Helper: Retry refresh with exponential backoff for transient errors
+const attemptRefreshWithRetry = async (
+  refreshToken: string,
+  retryCount: number = 0
+): Promise<string> => {
+  try {
+    const response = await axios.post(
+      `${FINAL_API_URL}/auth/refresh`,
+      { refreshToken },
+      { headers: { 'Content-Type': 'application/json' } }
+    );
+
+    const newAccessToken = response.data?.accessToken || response.data?.access_token;
+    if (!newAccessToken || typeof newAccessToken !== 'string') {
+      throw new Error('Refresh response missing access token');
+    }
+
+    return newAccessToken;
+  } catch (error: any) {
+    const status = error.response?.status;
+    const isTransient = !status || status >= 500;
+
+    // If transient error and retries remaining, wait and retry
+    if (isTransient && retryCount < MAX_TRANSIENT_RETRIES) {
+      const delay = RETRY_DELAY_MS * Math.pow(2, retryCount); // Exponential backoff
+      logAuth(`Transient refresh error, retrying in ${delay}ms`, {
+        status,
+        retryCount: retryCount + 1,
+        maxRetries: MAX_TRANSIENT_RETRIES,
+      });
+
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return attemptRefreshWithRetry(refreshToken, retryCount + 1);
+    }
+
+    // No more retries or non-transient error, rethrow
+    throw error;
+  }
 };
 
 // Request interceptor
@@ -151,19 +193,8 @@ apiClient.interceptors.response.use(
         attempt: refreshAttempts,
       });
 
-      return axios
-        .post(`${FINAL_API_URL}/auth/refresh`, { refreshToken }, {
-          headers: { 'Content-Type': 'application/json' },
-        })
-        .then((refreshResponse) => {
-          const newAccessToken =
-            refreshResponse.data?.accessToken ||
-            refreshResponse.data?.access_token;
-
-          if (!newAccessToken || typeof newAccessToken !== 'string') {
-            throw new Error('Refresh response missing access token');
-          }
-
+      return attemptRefreshWithRetry(refreshToken)
+        .then((newAccessToken) => {
           // Successfully refreshed: reset attempts counter
           refreshAttempts = 0;
           logAuth('Token refresh successful', { url: requestUrl });

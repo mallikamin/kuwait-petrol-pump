@@ -933,6 +933,83 @@ export class ReportsService {
       0
     );
 
+    // Get sales movement for the date range (fuel + non-fuel)
+    let salesMovement: any = null;
+    if (startDate && endDate) {
+      try {
+        const rangeStart = new Date(startDate);
+        rangeStart.setHours(0, 0, 0, 0);
+        const rangeEnd = new Date(endDate);
+        rangeEnd.setHours(23, 59, 59, 999);
+
+        const sales = await prisma.sale.findMany({
+          where: {
+            branchId,
+            saleDate: {
+              gte: rangeStart,
+              lte: rangeEnd,
+            },
+          },
+          include: {
+            fuelSales: {
+              include: {
+                fuelType: true,
+              },
+            },
+            nonFuelSales: {
+              include: {
+                product: true,
+              },
+            },
+          },
+        });
+
+        // Aggregate fuel sales by type
+        const fuelSalesMap = new Map<string, { code: string; name: string; liters: number; amount: number }>();
+        sales.forEach(sale => {
+          sale.fuelSales.forEach(fs => {
+            const key = fs.fuelType.code;
+            const existing = fuelSalesMap.get(key) || {
+              code: fs.fuelType.code,
+              name: fs.fuelType.name,
+              liters: 0,
+              amount: 0,
+            };
+            existing.liters += fs.quantityLiters.toNumber();
+            existing.amount += fs.totalAmount.toNumber();
+            fuelSalesMap.set(key, existing);
+          });
+        });
+
+        // Aggregate non-fuel sales by product
+        const nonFuelSalesMap = new Map<string, { id: string; name: string; quantity: number; amount: number }>();
+        sales.forEach(sale => {
+          sale.nonFuelSales.forEach(nfs => {
+            const key = nfs.productId;
+            const existing = nonFuelSalesMap.get(key) || {
+              id: nfs.productId,
+              name: nfs.product.name,
+              quantity: 0,
+              amount: 0,
+            };
+            existing.quantity += nfs.quantity;
+            existing.amount += nfs.totalAmount.toNumber();
+            nonFuelSalesMap.set(key, existing);
+          });
+        });
+
+        salesMovement = {
+          dateRange: { startDate, endDate },
+          fuelSold: Array.from(fuelSalesMap.values()),
+          nonFuelSold: Array.from(nonFuelSalesMap.values()),
+          totalSalesAmount: sales.reduce((sum, s) => sum + s.totalAmount.toNumber(), 0),
+        };
+      } catch (error) {
+        console.warn('[Inventory Report] Failed to fetch sales movement:', error);
+        salesMovement = null;
+      }
+    }
+
     return {
       branch: {
         id: branch.id,
@@ -968,6 +1045,7 @@ export class ReportsService {
         })),
       },
       purchases: purchases,
+      salesMovement: salesMovement, // Fuel + non-fuel sales in date range (if range provided)
       fuelAvailability: fuelTypes.map(ft => ({
         id: ft.id,
         name: ft.name,
