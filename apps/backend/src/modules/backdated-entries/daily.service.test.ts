@@ -993,4 +993,127 @@ describe('DailyBackdatedEntriesService - Fuel Type Corruption Regression', () =>
     expect(legacyPmg).toBeDefined();
     expect(legacyPmg?.fuelCode).toBe('PMG'); // ✅ Resolved via productName fallback
   });
+
+  /**
+   * TEST 9: Finalize response includes reconciliation totals
+   *
+   * GIVEN: Backdated entries with HSD, PMG, and non-fuel transactions
+   * WHEN: Call finalizeDay
+   * THEN: Response should include:
+   *   - reconciliationTotals (HSD, PMG, non-fuel, total)
+   *   - branchName
+   *   - finalizedBy (user info)
+   *   - finalizedAt (timestamp)
+   */
+  it('TEST 9: finalize response includes reconciliation totals', async () => {
+    const testDateReconciliation = '2026-04-18';
+    const testBranchIdReconciliation = testBranchIdLocal;
+
+    // Setup meter readings
+    await service.saveDailyMeterReadings({
+      branchId: testBranchIdReconciliation,
+      businessDate: testDateReconciliation,
+      nozzles: [
+        { nozzleId: hsdNozzleId, shiftId: morningShiftId, readingType: 'opening', meterValue: 1000 },
+        { nozzleId: hsdNozzleId, shiftId: morningShiftId, readingType: 'closing', meterValue: 1500 }, // +500L HSD
+        { nozzleId: pmgNozzleId, shiftId: morningShiftId, readingType: 'opening', meterValue: 2000 },
+        { nozzleId: pmgNozzleId, shiftId: morningShiftId, readingType: 'closing', meterValue: 2300 }, // +300L PMG
+      ],
+    }, testOrganizationId);
+
+    // Get a non-fuel product for testing
+    const nonFuelProduct = await prisma.product.findFirst({
+      where: { organizationId: testOrganizationId, isActive: true },
+    });
+
+    if (!nonFuelProduct) {
+      console.warn('[TEST 9] No non-fuel product found, skipping non-fuel test');
+    }
+
+    // Save transactions: HSD, PMG, and non-fuel
+    const transactions = [
+      {
+        id: 'txn-hsd-test9',
+        nozzleId: hsdNozzleId,
+        fuelCode: 'HSD',
+        productName: 'High Speed Diesel',
+        quantity: 500,
+        unitPrice: 340,
+        lineTotal: 170000, // 500L × 340 = 170,000
+        paymentMethod: 'cash' as const,
+      },
+      {
+        id: 'txn-pmg-test9',
+        nozzleId: pmgNozzleId,
+        fuelCode: 'PMG',
+        productName: 'Premium Gasoline',
+        quantity: 300,
+        unitPrice: 460,
+        lineTotal: 138000, // 300L × 460 = 138,000
+        paymentMethod: 'cash' as const,
+      },
+    ];
+
+    if (nonFuelProduct) {
+      transactions.push({
+        id: 'txn-nonfuel-test9',
+        nozzleId: hsdNozzleId,
+        fuelCode: '',
+        productName: nonFuelProduct.name,
+        quantity: 5,
+        unitPrice: 100,
+        lineTotal: 500, // 5 × 100 = 500
+        paymentMethod: 'cash' as const,
+      });
+    }
+
+    await service.saveDailyDraft({
+      branchId: testBranchIdReconciliation,
+      businessDate: testDateReconciliation,
+      transactions,
+    }, testOrganizationId);
+
+    // Finalize with userId
+    const result = await service.finalizeDay(
+      { branchId: testBranchIdReconciliation, businessDate: testDateReconciliation },
+      testOrganizationId,
+      testUserId // Pass userId for finalizer info
+    );
+
+    console.log('[TEST 9] Finalize result:', {
+      reconciliationTotals: result.reconciliationTotals,
+      branchName: result.branchName,
+      finalizedBy: result.finalizedBy,
+      finalizedAt: result.finalizedAt,
+    });
+
+    // ✅ Verify reconciliation totals
+    expect(result.reconciliationTotals).toBeDefined();
+    expect(result.reconciliationTotals.hsd.liters).toBe(500);
+    expect(result.reconciliationTotals.hsd.amount).toBe(170000);
+    expect(result.reconciliationTotals.pmg.liters).toBe(300);
+    expect(result.reconciliationTotals.pmg.amount).toBe(138000);
+
+    if (nonFuelProduct) {
+      expect(result.reconciliationTotals.nonFuel.amount).toBe(500);
+      expect(result.reconciliationTotals.total.amount).toBe(308500); // 170000 + 138000 + 500
+    } else {
+      expect(result.reconciliationTotals.total.amount).toBe(308000); // 170000 + 138000
+    }
+
+    // ✅ Verify branch name is included
+    expect(result.branchName).toBeDefined();
+    expect(typeof result.branchName).toBe('string');
+
+    // ✅ Verify finalizer info is included
+    expect(result.finalizedBy).toBeDefined();
+    expect(result.finalizedBy.username).toBeDefined();
+    expect(result.finalizedBy.fullName).toBeDefined();
+
+    // ✅ Verify finalized timestamp is included
+    expect(result.finalizedAt).toBeDefined();
+    expect(new Date(result.finalizedAt).getTime()).toBeGreaterThan(0);
+
+    console.log('[TEST 9] ✅ Finalize response includes all reconciliation fields');
+  });
 });

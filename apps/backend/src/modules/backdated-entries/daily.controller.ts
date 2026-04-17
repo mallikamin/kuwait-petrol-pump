@@ -302,7 +302,8 @@ export class DailyBackdatedEntriesController {
           branchId: validatedData.branchId,
           businessDate: validatedData.businessDate,
         },
-        req.user.organizationId
+        req.user.organizationId,
+        req.user.userId // Pass userId for audit trail
       );
 
       res.status(200).json({

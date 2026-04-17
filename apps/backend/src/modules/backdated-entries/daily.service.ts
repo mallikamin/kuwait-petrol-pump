@@ -49,6 +49,7 @@ interface DailySaveInput {
 interface FinalizeDayInput {
   branchId: string;
   businessDate: string; // YYYY-MM-DD
+  userId?: string; // User who is finalizing (for audit trail)
 }
 
 export class DailyBackdatedEntriesService {
@@ -1268,12 +1269,62 @@ export class DailyBackdatedEntriesService {
   }
 
   /**
+   * Calculate reconciliation totals by fuel type for finalize success message
+   */
+  private calculateReconciliationTotals(
+    transactions: any[]
+  ): {
+    hsd: { liters: number; amount: number };
+    pmg: { liters: number; amount: number };
+    nonFuel: { amount: number };
+    total: { amount: number };
+  } {
+    const totals = {
+      hsd: { liters: 0, amount: 0 },
+      pmg: { liters: 0, amount: 0 },
+      nonFuel: { amount: 0 },
+      total: { amount: 0 },
+    };
+
+    for (const txn of transactions) {
+      const fuelCode = (txn as any).fuelCode || ((txn as any).fuelType?.code);
+      const amount = parseFloat(txn.lineTotal.toString());
+
+      totals.total.amount += amount;
+
+      if (fuelCode === 'HSD') {
+        const liters = parseFloat(txn.quantity.toString());
+        totals.hsd.liters += liters;
+        totals.hsd.amount += amount;
+      } else if (fuelCode === 'PMG') {
+        const liters = parseFloat(txn.quantity.toString());
+        totals.pmg.liters += liters;
+        totals.pmg.amount += amount;
+      } else {
+        // Non-fuel transaction
+        totals.nonFuel.amount += amount;
+      }
+    }
+
+    // Round to 3 decimal places for liters, 2 for amounts
+    totals.hsd.liters = parseFloat(totals.hsd.liters.toFixed(3));
+    totals.hsd.amount = parseFloat(totals.hsd.amount.toFixed(2));
+    totals.pmg.liters = parseFloat(totals.pmg.liters.toFixed(3));
+    totals.pmg.amount = parseFloat(totals.pmg.amount.toFixed(2));
+    totals.nonFuel.amount = parseFloat(totals.nonFuel.amount.toFixed(2));
+    totals.total.amount = parseFloat(totals.total.amount.toFixed(2));
+
+    return totals;
+  }
+
+  /**
    * POST /api/backdated-entries/daily/finalize
    *
    * Mark all entries for the day as finalized and enqueue QB sync
    */
-  async finalizeDay(input: FinalizeDayInput, organizationId: string) {
+  async finalizeDay(input: FinalizeDayInput, organizationId: string, userId?: string) {
     const { branchId, businessDate } = input;
+    const finalizingUserId = userId || input.userId;
 
     // Validate branch
     const branch = await prisma.branch.findFirst({
@@ -1620,6 +1671,28 @@ export class DailyBackdatedEntriesService {
     // Calculate payment method breakdown
     const paymentBreakdown = this.calculatePaymentBreakdown(allTransactions);
 
+    // Calculate reconciliation totals for success message
+    const reconciliationTotals = this.calculateReconciliationTotals(allTransactions);
+
+    // Fetch finalizer user info (if userId provided)
+    let finalizerInfo: { fullName: string; username: string } | null = null;
+    if (finalizingUserId) {
+      const finalizerUser = await prisma.user.findUnique({
+        where: { id: finalizingUserId },
+        select: {
+          fullName: true,
+          username: true,
+        },
+      });
+
+      if (finalizerUser) {
+        finalizerInfo = {
+          fullName: finalizerUser.fullName || finalizerUser.username,
+          username: finalizerUser.username,
+        };
+      }
+    }
+
     // Include cash gap as warning (if any) even though it's no longer a blocker
     const responsePayload: any = {
       success: true,
@@ -1628,7 +1701,11 @@ export class DailyBackdatedEntriesService {
       postedSalesCount: createdSales.length,
       inventoryUpdatesCount: 0, // Inventory deductions handled via StockLevel adjustments
       reportSyncStatus: 'completed',
-      paymentBreakdown, // ✅ NEW: Payment method breakdown
+      paymentBreakdown, // ✅ Payment method breakdown (legacy, kept for compatibility)
+      reconciliationTotals, // ✅ NEW: Reconciliation totals for success dialog
+      branchName: branch.name, // ✅ NEW: Branch name
+      finalizedBy: finalizerInfo, // ✅ NEW: User who finalized
+      finalizedAt: new Date().toISOString(), // ✅ NEW: Finalization timestamp
       details: {
         entriesFinalized: entries.length,
         transactionsProcessed: plainTransactions.length,

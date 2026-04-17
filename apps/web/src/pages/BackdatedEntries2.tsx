@@ -411,8 +411,9 @@ export function BackdatedEntries2() {
         data?.timestamp ||
         new Date().toISOString();
       const finalizedBy =
+        data?.finalizedBy?.fullName ||
+        data?.finalizedBy?.username ||
         data?.finalizedByName ||
-        data?.finalizedBy ||
         user?.full_name ||
         user?.username ||
         '—';
@@ -420,7 +421,9 @@ export function BackdatedEntries2() {
         type: 'success', message: data?.message || 'Finalized!', alreadyFinalized: data?.alreadyFinalized,
         salesCreated: data?.postedSalesCount || data?.details?.salesCreated || 0,
         transactionsProcessed: data?.details?.transactionsProcessed || 0,
-        paymentBreakdown: data?.paymentBreakdown || null,
+        paymentBreakdown: data?.paymentBreakdown || null, // Legacy, kept for backward compatibility
+        reconciliationTotals: data?.reconciliationTotals || null, // ✅ NEW: Reconciliation totals
+        branchName: data?.branchName || null, // ✅ NEW: Branch name
         cashGapWarning: data?.cashGapWarning,
         finalizedAt,
         finalizedBy,
@@ -1293,75 +1296,54 @@ export function BackdatedEntries2() {
                 {/* Summary message */}
                 <p className="text-muted-foreground">{finalizeResult.message}</p>
 
-                {/* Date and Branch Info */}
-                <div className="bg-muted/30 rounded p-3 space-y-2">
-                  <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground">Date:</span>
-                    <span className="font-semibold">{format(new Date(businessDate), 'PPP')}</span>
-                  </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground">Branch:</span>
-                    <span className="font-semibold">{branchesData?.find((b: any) => b.id === selectedBranchId)?.name || '—'}</span>
-                  </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground">Finalized by:</span>
-                    <span className="font-semibold">{finalizeResult.finalizedBy || '—'}</span>
-                  </div>
-                </div>
+                {/* Reconciliation Totals Summary */}
+                {finalizeResult.reconciliationTotals && !finalizeResult.alreadyFinalized && (
+                  <div className="bg-blue-50 border border-blue-200 rounded p-3 space-y-2 text-sm">
+                    <div className="font-semibold text-blue-900 mb-2 text-xs">
+                      RECONCILIATION SUMMARY
+                    </div>
 
-                {/* Fuel Reconciliation */}
-                <div className="border rounded-lg p-3 space-y-3">
-                  <h4 className="font-semibold text-xs text-muted-foreground">FUEL RECONCILIATION</h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    {/* HSD Column */}
-                    <div className="space-y-2">
-                      <div className="font-medium text-xs mb-1">HSD (Diesel)</div>
+                    {/* HSD Sales */}
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted-foreground">Total HSD Sales Reconciled:</span>
+                      <span className="font-semibold font-mono">
+                        {finalizeResult.reconciliationTotals.hsd.liters.toFixed(3)} L @ PKR {finalizeResult.reconciliationTotals.hsd.amount.toFixed(2)}
+                      </span>
+                    </div>
+
+                    {/* PMG Sales */}
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted-foreground">Total PMG Sales Reconciled:</span>
+                      <span className="font-semibold font-mono">
+                        {finalizeResult.reconciliationTotals.pmg.liters.toFixed(3)} L @ PKR {finalizeResult.reconciliationTotals.pmg.amount.toFixed(2)}
+                      </span>
+                    </div>
+
+                    {/* Non-Fuel Sales */}
+                    {finalizeResult.reconciliationTotals.nonFuel.amount > 0 && (
                       <div className="flex justify-between text-xs">
-                        <span className="text-muted-foreground">Meter:</span>
-                        <span className="font-mono">{fmtL(hsd)} L</span>
-                      </div>
-                      <div className="flex justify-between text-xs">
-                        <span className="text-muted-foreground">Posted:</span>
-                        <span className="font-mono text-emerald-600">{fmtL(hsdPosted)} L</span>
-                      </div>
-                      <div className="flex justify-between text-xs border-t pt-2">
-                        <span className="text-muted-foreground font-semibold">Reconciled:</span>
-                        <span className={cn('font-mono font-semibold', hsd - hsdPosted >= 0 ? 'text-green-600' : 'text-orange-600')}>
-                          {fmtL(hsd - hsdPosted)} L
+                        <span className="text-muted-foreground">Total Non Fuel Items Posted:</span>
+                        <span className="font-semibold font-mono">
+                          PKR {finalizeResult.reconciliationTotals.nonFuel.amount.toFixed(2)}
                         </span>
                       </div>
-                    </div>
-                    {/* PMG Column */}
-                    <div className="space-y-2">
-                      <div className="font-medium text-xs mb-1">PMG (Petrol)</div>
-                      <div className="flex justify-between text-xs">
-                        <span className="text-muted-foreground">Meter:</span>
-                        <span className="font-mono">{fmtL(pmg)} L</span>
-                      </div>
-                      <div className="flex justify-between text-xs">
-                        <span className="text-muted-foreground">Posted:</span>
-                        <span className="font-mono text-emerald-600">{fmtL(pmgPosted)} L</span>
-                      </div>
-                      <div className="flex justify-between text-xs border-t pt-2">
-                        <span className="text-muted-foreground font-semibold">Reconciled:</span>
-                        <span className={cn('font-mono font-semibold', pmg - pmgPosted >= 0 ? 'text-green-600' : 'text-orange-600')}>
-                          {fmtL(pmg - pmgPosted)} L
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                    )}
 
-                {/* Sales Summary */}
-                <div className="bg-muted/30 rounded p-3 space-y-2">
-                  <h4 className="font-semibold text-xs text-muted-foreground">SALES SUMMARY</h4>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground">Total Transactions:</span>
-                    <span className="font-semibold">{finalizeResult.transactionsProcessed || transactions.length}</span>
+                    {/* Total Sales */}
+                    <div className="flex justify-between border-t pt-2 mt-2 text-xs">
+                      <span className="text-muted-foreground font-semibold">Total Sales Posted:</span>
+                      <span className="font-semibold font-mono text-blue-900">
+                        PKR {finalizeResult.reconciliationTotals.total.amount.toFixed(2)}
+                      </span>
+                    </div>
                   </div>
+                )}
+
+                {/* Details Section */}
+                <div className="bg-green-50 border border-green-200 rounded p-3 space-y-2 text-sm">
                   <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground">Total Amount:</span>
-                    <span className="font-mono font-semibold text-emerald-600">PKR {fmtPKR(totalPKR)}</span>
+                    <span className="text-muted-foreground">Transactions Posted:</span>
+                    <span className="font-semibold">{finalizeResult.transactionsProcessed || 0}</span>
                   </div>
                   {finalizeResult.salesCreated > 0 && (
                     <div className="flex justify-between text-xs">
@@ -1369,10 +1351,20 @@ export function BackdatedEntries2() {
                       <span className="font-semibold">{finalizeResult.salesCreated}</span>
                     </div>
                   )}
-                  <div className="flex justify-between text-xs border-t pt-2">
-                    <span className="text-muted-foreground">Total Sales:</span>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Branch:</span>
+                    <span className="font-semibold">{finalizeResult.branchName || branchesData?.find((b: any) => b.id === selectedBranchId)?.name || 'Unknown'}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Created By:</span>
+                    <span className="font-semibold">{finalizeResult.finalizedBy || 'Unknown'}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Date/Time:</span>
                     <span className="font-semibold">
-                      {finalizeResult.salesCreated || finalizeResult.transactionsProcessed || transactions.length} @ PKR {fmtPKR(totalPKR)}
+                      {finalizeResult.finalizedAt
+                        ? format(new Date(finalizeResult.finalizedAt), 'PPp')
+                        : format(new Date(businessDate), 'PPP')}
                     </span>
                   </div>
                 </div>
@@ -1385,10 +1377,11 @@ export function BackdatedEntries2() {
                   </div>
                 )}
 
-                {/* Finalized timestamp */}
-                <div className="text-xs text-muted-foreground text-center pt-2 border-t">
-                  Finalized at {format(new Date(finalizeResult.finalizedAt || new Date().toISOString()), 'PPp')}
-                </div>
+                {!finalizeResult.alreadyFinalized && (
+                  <div className="text-xs text-muted-foreground text-center">
+                    Transactions will be synced to QuickBooks in the background.
+                  </div>
+                )}
               </div>
               <DialogFooter><Button onClick={() => setFinalizeDialogOpen(false)}>Close</Button></DialogFooter>
             </>

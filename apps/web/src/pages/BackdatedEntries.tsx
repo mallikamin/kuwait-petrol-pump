@@ -172,6 +172,15 @@ export function BackdatedEntries() {
       bankCard: { liters: number; amount: number };
       psoCard: { liters: number; amount: number };
     };
+    reconciliationTotals?: {
+      hsd: { liters: number; amount: number };
+      pmg: { liters: number; amount: number };
+      nonFuel: { amount: number };
+      total: { amount: number };
+    };
+    branchName?: string;
+    finalizedBy?: { fullName: string; username: string };
+    finalizedAt?: string;
     cashGapWarning?: { amount: number; message: string };
   } | null>(null);
 
@@ -1322,7 +1331,11 @@ export function BackdatedEntries() {
         alreadyFinalized,
         salesCreated: data?.postedSalesCount || data?.details?.salesCreated || 0,
         transactionsProcessed: data?.details?.transactionsProcessed || 0,
-        paymentBreakdown: data?.paymentBreakdown || null,
+        paymentBreakdown: data?.paymentBreakdown || null, // Legacy, kept for backward compatibility
+        reconciliationTotals: data?.reconciliationTotals || null, // ✅ NEW: Reconciliation totals
+        branchName: data?.branchName || null, // ✅ NEW: Branch name
+        finalizedBy: data?.finalizedBy || null, // ✅ NEW: User who finalized
+        finalizedAt: data?.finalizedAt || null, // ✅ NEW: Finalization timestamp
       };
 
       // Include cash gap warning if present (no longer a blocker, just audit info)
@@ -3191,75 +3204,79 @@ export function BackdatedEntries() {
                   {finalizeResult.message}
                 </div>
 
-                {/* Payment Method Breakdown */}
-                {finalizeResult.paymentBreakdown && !finalizeResult.alreadyFinalized && (
+                {/* Reconciliation Totals Summary */}
+                {finalizeResult.reconciliationTotals && !finalizeResult.alreadyFinalized && (
                   <div className="bg-blue-50 border border-blue-200 rounded p-3 space-y-2 text-sm">
                     <div className="font-semibold text-blue-900 mb-2">
-                      Payment Method Summary
+                      Reconciliation Summary
                     </div>
 
-                    {finalizeResult.paymentBreakdown.credit.liters > 0 && (
+                    {/* HSD Sales */}
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Total HSD Sales Reconciled:</span>
+                      <span className="font-semibold">
+                        {finalizeResult.reconciliationTotals.hsd.liters.toFixed(3)} L @ PKR {finalizeResult.reconciliationTotals.hsd.amount.toFixed(2)}
+                      </span>
+                    </div>
+
+                    {/* PMG Sales */}
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Total PMG Sales Reconciled:</span>
+                      <span className="font-semibold">
+                        {finalizeResult.reconciliationTotals.pmg.liters.toFixed(3)} L @ PKR {finalizeResult.reconciliationTotals.pmg.amount.toFixed(2)}
+                      </span>
+                    </div>
+
+                    {/* Non-Fuel Sales */}
+                    {finalizeResult.reconciliationTotals.nonFuel.amount > 0 && (
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Credit Sales:</span>
+                        <span className="text-muted-foreground">Total Non Fuel Items Posted:</span>
                         <span className="font-semibold">
-                          {finalizeResult.paymentBreakdown.credit.liters.toFixed(2)} L
-                          {' | '}
-                          PKR {finalizeResult.paymentBreakdown.credit.amount.toFixed(2)}
+                          PKR {finalizeResult.reconciliationTotals.nonFuel.amount.toFixed(2)}
                         </span>
                       </div>
                     )}
 
-                    {finalizeResult.paymentBreakdown.cash.liters > 0 && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Cash Sales:</span>
-                        <span className="font-semibold">
-                          {finalizeResult.paymentBreakdown.cash.liters.toFixed(2)} L
-                          {' | '}
-                          PKR {finalizeResult.paymentBreakdown.cash.amount.toFixed(2)}
-                        </span>
-                      </div>
-                    )}
-
-                    {finalizeResult.paymentBreakdown.bankCard.liters > 0 && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Bank Card Sales:</span>
-                        <span className="font-semibold">
-                          {finalizeResult.paymentBreakdown.bankCard.liters.toFixed(2)} L
-                          {' | '}
-                          PKR {finalizeResult.paymentBreakdown.bankCard.amount.toFixed(2)}
-                        </span>
-                      </div>
-                    )}
-
-                    {finalizeResult.paymentBreakdown.psoCard.liters > 0 && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">PSO Card Sales:</span>
-                        <span className="font-semibold">
-                          {finalizeResult.paymentBreakdown.psoCard.liters.toFixed(2)} L
-                          {' | '}
-                          PKR {finalizeResult.paymentBreakdown.psoCard.amount.toFixed(2)}
-                        </span>
-                      </div>
-                    )}
+                    {/* Total Sales */}
+                    <div className="flex justify-between border-t pt-2 mt-2">
+                      <span className="text-muted-foreground font-semibold">Total Sales Posted:</span>
+                      <span className="font-semibold text-blue-900">
+                        PKR {finalizeResult.reconciliationTotals.total.amount.toFixed(2)}
+                      </span>
+                    </div>
                   </div>
                 )}
 
                 <div className="bg-green-50 border border-green-200 rounded p-3 space-y-2 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Sales Created:</span>
-                    <span className="font-semibold">{finalizeResult.salesCreated || 0}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Transactions Queued:</span>
+                    <span className="text-muted-foreground">Transactions Posted:</span>
                     <span className="font-semibold">{finalizeResult.transactionsProcessed || 0}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Date:</span>
-                    <span className="font-semibold">{businessDate}</span>
+                    <span className="text-muted-foreground">Sales Records Created:</span>
+                    <span className="font-semibold">{finalizeResult.salesCreated || 0}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Branch:</span>
-                    <span className="font-semibold">{branchesData?.find((b: any) => b.id === selectedBranchId)?.name || 'Unknown'}</span>
+                    <span className="font-semibold">{finalizeResult.branchName || branchesData?.find((b: any) => b.id === selectedBranchId)?.name || 'Unknown'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Created By:</span>
+                    <span className="font-semibold">{finalizeResult.finalizedBy?.fullName || finalizeResult.finalizedBy?.username || 'Unknown'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Date/Time:</span>
+                    <span className="font-semibold">
+                      {finalizeResult.finalizedAt
+                        ? new Date(finalizeResult.finalizedAt).toLocaleString('en-US', {
+                            year: 'numeric',
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })
+                        : businessDate}
+                    </span>
                   </div>
                 </div>
                 {!finalizeResult.alreadyFinalized && (
