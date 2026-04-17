@@ -1,6 +1,5 @@
 import axios, { AxiosError } from 'axios';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { apiClient } from './client';
 import { useAuthStore } from '@/store/auth';
 
 // Mock modules
@@ -29,9 +28,6 @@ describe('API Client Auth Interceptor', () => {
       const originalError = new AxiosError('Unauthorized', '401');
       originalError.response = { status: 401, data: {} } as any;
       originalError.config = { url: '/api/sales', _retry: false } as any;
-
-      const request1Config = { url: '/api/sales' };
-      const request2Config = { url: '/api/customers' };
 
       // Only one refresh should occur, not two
       mockAxios.post.mockResolvedValueOnce({
@@ -126,16 +122,12 @@ describe('API Client Auth Interceptor', () => {
 
   describe('Request Authorization Header', () => {
     it('should add Authorization header with valid token', async () => {
-      const config = { headers: {} };
-
       // Test: Token should be added to request headers
       expect(mockAuthStore.token).toBe('valid-access-token');
     });
 
     it('should not add Authorization header without token', async () => {
       mockAuthStore.token = null;
-
-      const config = { headers: {} };
 
       // Test: No Authorization header if token is null
       expect(mockAuthStore.token).toBeNull();
