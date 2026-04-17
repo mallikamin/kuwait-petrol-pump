@@ -1346,4 +1346,152 @@ describe('DailyBackdatedEntriesService - Fuel Type Corruption Regression', () =>
 
     console.log('[TEST 12] ✅ Finalize response includes business date');
   });
+
+  /**
+   * TEST 13: Jan 10 Production Scenario - Mixed Fuel/Non-Fuel Classification
+   *
+   * Reproduces 2026-01-10 production bug where finalize showed:
+   * - HSD = 0 L, PMG = 0 L, Non-fuel = full total
+   *
+   * GIVEN: Mixed transactions (HSD cash/credit, PMG cash/credit, MOTOR OIL non-fuel)
+   * WHEN: Finalize day
+   * THEN: Reconciliation totals must correctly segregate HSD/PMG/non-fuel
+   */
+  it('TEST 13: Jan 10 mixed fuel/non-fuel finalize totals', async () => {
+    const testDateJan10 = '2026-04-22';
+
+    // Setup meter readings to match posted fuel
+    const pmgNozzle = await prisma.nozzle.findFirst({
+      where: {
+        dispensingUnit: { branchId: testBranchId },
+        fuelType: { code: 'PMG' },
+        isActive: true,
+      },
+    });
+
+    if (!pmgNozzle) {
+      throw new Error('PMG nozzle not found for test');
+    }
+
+    const pmgNozzleId = pmgNozzle.id;
+
+    await service.saveDailyMeterReadings({
+      branchId: testBranchId,
+      businessDate: testDateJan10,
+      nozzles: [
+        // HSD meter
+        { nozzleId: hsdNozzleId, shiftId: morningShiftId, readingType: 'opening', meterValue: 1000 },
+        { nozzleId: hsdNozzleId, shiftId: morningShiftId, readingType: 'closing', meterValue: 1127.48 }, // +127.48L
+        // PMG meter
+        { nozzleId: pmgNozzleId, shiftId: morningShiftId, readingType: 'opening', meterValue: 2000 },
+        { nozzleId: pmgNozzleId, shiftId: morningShiftId, readingType: 'closing', meterValue: 2262.322 }, // +262.322L
+      ],
+    }, testOrganizationId);
+
+    const nonFuelProduct = await prisma.product.findFirst({
+      where: { organizationId: testOrganizationId },
+    });
+
+    // Create Jan 10 transactions:
+    // 1) HSD cash: 27 L @ 300 = 8,100
+    // 2) PMG cash: 1.322 L @ 280 = 370.16
+    // 3) OTHER cash: PREMIER MOTOR OIL 4 LTR, 10 @ 960 = 9,600
+    // 4) HSD credit: 100.48 L @ 300 = 30,144
+    // 5) PMG credit: 261 L @ 280 = 73,080
+    await service.saveDailyTransactions({
+      branchId: testBranchId,
+      businessDate: testDateJan10,
+      transactions: [
+        // HSD cash
+        {
+          id: '00000000-0000-0000-0000-000000000040',
+          nozzleId: hsdNozzleId,
+          fuelCode: 'HSD',
+          productName: 'HSD',
+          quantity: 27,
+          unitPrice: 300,
+          lineTotal: 8100,
+          paymentMethod: 'cash',
+          transactionDateTime: new Date().toISOString(),
+        },
+        // PMG cash
+        {
+          id: '00000000-0000-0000-0000-000000000041',
+          nozzleId: pmgNozzleId,
+          fuelCode: 'PMG',
+          productName: 'PMG',
+          quantity: 1.322,
+          unitPrice: 280,
+          lineTotal: 370.16,
+          paymentMethod: 'cash',
+          transactionDateTime: new Date().toISOString(),
+        },
+        // Non-fuel cash (MOTOR OIL)
+        {
+          id: '00000000-0000-0000-0000-000000000042',
+          productId: nonFuelProduct?.id || undefined,
+          productName: 'PREMIER MOTOR OIL 4 LTR',
+          quantity: 10,
+          unitPrice: 960,
+          lineTotal: 9600,
+          paymentMethod: 'cash',
+          transactionDateTime: new Date().toISOString(),
+        },
+        // HSD credit
+        {
+          id: '00000000-0000-0000-0000-000000000043',
+          nozzleId: hsdNozzleId,
+          fuelCode: 'HSD',
+          productName: 'HSD',
+          quantity: 100.48,
+          unitPrice: 300,
+          lineTotal: 30144,
+          paymentMethod: 'credit_customer',
+          transactionDateTime: new Date().toISOString(),
+        },
+        // PMG credit
+        {
+          id: '00000000-0000-0000-0000-000000000044',
+          nozzleId: pmgNozzleId,
+          fuelCode: 'PMG',
+          productName: 'PMG',
+          quantity: 261,
+          unitPrice: 280,
+          lineTotal: 73080,
+          paymentMethod: 'credit_customer',
+          transactionDateTime: new Date().toISOString(),
+        },
+      ],
+    }, testOrganizationId);
+
+    // Finalize
+    const result = await service.finalizeDay({
+      branchId: testBranchId,
+      businessDate: testDateJan10,
+    }, testOrganizationId, testUserId);
+
+    // ✅ Verify reconciliation totals match Jan 10 expected values
+    expect(result.reconciliationTotals).toBeDefined();
+
+    // HSD: 27 + 100.48 = 127.48 L @ 300 = 38,244
+    expect(result.reconciliationTotals.hsd.liters).toBeCloseTo(127.48, 2);
+    expect(result.reconciliationTotals.hsd.amount).toBeCloseTo(38244, 1);
+
+    // PMG: 1.322 + 261 = 262.322 L @ 280 = 73,450.16
+    expect(result.reconciliationTotals.pmg.liters).toBeCloseTo(262.322, 2);
+    expect(result.reconciliationTotals.pmg.amount).toBeCloseTo(73450.16, 1);
+
+    // Non-fuel: MOTOR OIL 10 @ 960 = 9,600
+    expect(result.reconciliationTotals.nonFuel.amount).toBeCloseTo(9600, 1);
+
+    // Total: 38,244 + 73,450.16 + 9,600 = 121,294.16
+    expect(result.reconciliationTotals.total.amount).toBeCloseTo(121294.16, 1);
+
+    // ✅ Verify finalizer info is populated (not Unknown)
+    expect(result.finalizedBy).toBeDefined();
+    expect(result.finalizedBy.username).toBeDefined();
+    expect(result.finalizedBy.fullName).toBeDefined();
+
+    console.log('[TEST 13] ✅ Jan 10 mixed fuel/non-fuel finalize totals correct');
+  });
 });

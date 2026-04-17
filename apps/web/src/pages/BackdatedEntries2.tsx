@@ -1177,6 +1177,28 @@ export function BackdatedEntries2() {
               </div>
             </div>
 
+            {/* Non-Fuel Summary */}
+            {(() => {
+              const nonFuelTotal = transactions
+                .filter(t => !t.fuelCode || t.fuelCode === 'OTHER')
+                .reduce((sum, t) => sum + toNumber(t.lineTotal), 0);
+              if (nonFuelTotal === 0) return null;
+              return (
+                <>
+                  <div className="h-px bg-slate-200" />
+                  <div>
+                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Non-Fuel</div>
+                    <div className="space-y-1.5 text-xs">
+                      <div className="flex justify-between font-semibold">
+                        <span className="text-slate-700">Total (Cash + Credit)</span>
+                        <span className="font-mono text-slate-900">{fmtPKR(nonFuelTotal)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
+
             <div className="h-px bg-slate-200" />
 
             {/* Summary */}

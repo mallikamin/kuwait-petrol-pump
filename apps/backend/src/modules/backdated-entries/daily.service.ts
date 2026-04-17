@@ -1473,31 +1473,53 @@ export class DailyBackdatedEntriesService {
     });
 
     // Re-fetch entries after finalization flag update so sales backfill uses the latest active rows.
+    // ✅ FIX: Include fuelType and product joins for canonical classification
     const entriesForSales = await prisma.backdatedEntry.findMany({
       where: {
         branchId,
         businessDate: businessDateObj,
       },
       include: {
+        nozzle: {
+          include: {
+            fuelType: true,
+          },
+        },
         transactions: {
           where: {
             deletedAt: null,
+          },
+          include: {
+            fuelType: true, // ✅ NEW: For canonical classification
+            product: true,  // ✅ NEW: For canonical classification
           },
         },
       },
     });
 
-    // Get all active transactions with their parent entry details
+    // Get all active transactions with their parent entry details + computed fuelCode
     const allTransactions = entriesForSales.flatMap((e) =>
-      e.transactions.map((t) => ({
-        ...t,
-        _entry: {
-          branchId: e.branchId,
-          shiftId: e.shiftId,
-          businessDate: e.businessDate,
-          createdBy: e.createdBy,
-        }
-      }))
+      e.transactions.map((t) => {
+        // ✅ FIX: Compute fuelCode using canonical classification
+        const fuelCode = this.resolveFuelCodeCanonical({
+          fuelTypeId: t.fuelTypeId,
+          productId: t.productId,
+          fuelType: t.fuelType,
+          productName: t.productName,
+          backdatedEntry: { nozzle: e.nozzle },
+        });
+
+        return {
+          ...t,
+          fuelCode, // ✅ Add computed fuelCode for reconciliation totals
+          _entry: {
+            branchId: e.branchId,
+            shiftId: e.shiftId,
+            businessDate: e.businessDate,
+            createdBy: e.createdBy,
+          },
+        };
+      })
     );
 
     // Keep Sales tab in sync with current backdated transactions:
