@@ -1390,7 +1390,12 @@ export function BackdatedEntries() {
       branchId: selectedBranchId,
       businessDate,
     });
-    await saveDailyDraftMutation.mutateAsync(undefined);
+    try {
+      await saveDailyDraftMutation.mutateAsync(undefined);
+    } catch (e: any) {
+      // Error already handled by mutation onError callback
+      console.error('[Save Draft] Error:', e?.response?.data?.error || e.message);
+    }
   };
 
   const handleFinalizeDay = async () => {

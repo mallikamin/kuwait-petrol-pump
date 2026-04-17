@@ -777,6 +777,91 @@ describe('DailyBackdatedEntriesService - Fuel Type Corruption Regression', () =>
   });
 
   /**
+   * TEST 7B: Cash gap warning suppressed for already-finalized days
+   *
+   * BACKGROUND: Cash gap is informational only (not a blocker) per TEST 7.
+   * ISSUE: Cash warning was appearing even when re-finalizing already-finalized days.
+   * FIX: Suppress cashGapWarning when wasAlreadyFinalized = true.
+   *
+   * GIVEN: A day with cash variance that was already finalized
+   * WHEN: Call finalizeDay again (idempotent re-finalize)
+   * THEN: Should return alreadyFinalized=true, message="Day already finalized", NO cashGapWarning
+   */
+  it('TEST 7B: cash gap warning suppressed for already-finalized days', async () => {
+    const testDateForReFinalize = '2026-04-15'; // Different date to avoid conflicts
+
+    // Step 1: Create backdated meter readings (same as TEST 7)
+    await service.saveDailyMeterReadings({
+      branchId: testBranchIdLocal,
+      businessDate: testDateForReFinalize,
+      nozzles: [
+        { nozzleId: hsdNozzleId, shiftId: morningShiftId, readingType: 'opening', meterValue: 1000 },
+        { nozzleId: hsdNozzleId, shiftId: morningShiftId, readingType: 'closing', meterValue: 1050 }, // +50L
+      ],
+    }, testOrganizationId);
+
+    // Step 2: Save transactions (50L HSD at 340 PKR/L = 17000 PKR expected)
+    await service.saveDailyDraft({
+      branchId: testBranchIdLocal,
+      businessDate: testDateForReFinalize,
+      transactions: [
+        {
+          id: 'txn-hsd-cash-1',
+          nozzleId: hsdNozzleId,
+          fuelCode: 'HSD',
+          productName: 'High Speed Diesel',
+          quantity: 50,
+          unitPrice: 200, // ❌ Intentionally wrong price (200 vs 340) → creates cash gap
+          lineTotal: 10000, // 50L × 200 = 10000 (should be 17000)
+          paymentMethod: 'cash',
+        },
+      ],
+    }, testOrganizationId);
+
+    // Step 3: First finalize - should succeed with cash warning
+    const firstResult = await service.finalizeDay(
+      { branchId: testBranchIdLocal, businessDate: testDateForReFinalize },
+      testOrganizationId
+    );
+
+    expect(firstResult.success).toBe(true);
+    expect(firstResult.alreadyFinalized).toBe(false); // Fresh finalization
+    expect(firstResult.message).toContain('finalized successfully');
+
+    // ✅ First finalize should include cash warning (fresh finalization)
+    if (Math.abs(17000 - 10000) > 1.0) { // 7000 PKR gap > tolerance
+      expect(firstResult.cashGapWarning).toBeDefined();
+      expect(firstResult.cashGapWarning.amount).toBe(7000);
+    }
+
+    console.log('[RE-FINALIZE TEST] First finalize:', {
+      alreadyFinalized: firstResult.alreadyFinalized,
+      hasCashWarning: !!firstResult.cashGapWarning,
+    });
+
+    // Step 4: Second finalize (re-finalize already-finalized day)
+    const secondResult = await service.finalizeDay(
+      { branchId: testBranchIdLocal, businessDate: testDateForReFinalize },
+      testOrganizationId
+    );
+
+    expect(secondResult.success).toBe(true);
+    expect(secondResult.alreadyFinalized).toBe(true); // Already finalized
+    expect(secondResult.message).toContain('already finalized'); // Message should reflect this
+
+    // ✅ CRITICAL: Second finalize should NOT include cash warning (already finalized)
+    expect(secondResult.cashGapWarning).toBeUndefined();
+
+    console.log('[RE-FINALIZE TEST] Second finalize:', {
+      alreadyFinalized: secondResult.alreadyFinalized,
+      hasCashWarning: !!secondResult.cashGapWarning,
+      message: secondResult.message,
+    });
+
+    console.log('[RE-FINALIZE TEST] ✅ Cash warning suppressed for already-finalized day');
+  });
+
+  /**
    * TEST 8: Legacy transactions with null fuelTypeId still counted in postedTotals
    *
    * SYMPTOM: Transactions are visible for April dates, but postedTotals HSD/PMG show 0.

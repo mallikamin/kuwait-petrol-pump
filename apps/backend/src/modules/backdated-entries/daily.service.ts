@@ -1312,6 +1312,7 @@ export class DailyBackdatedEntriesService {
 
     // ✅ CHECK: Is day already finalized with no changes?
     const allFinalized = entries.every(e => e.isFinalized);
+    const wasAlreadyFinalized = allFinalized; // Track for later (cash warning suppression)
     if (allFinalized) {
       // Check if any transactions don't already have sales
       const txnCount = entries.reduce((sum, e) => sum + e.transactions.length, 0);
@@ -1622,8 +1623,8 @@ export class DailyBackdatedEntriesService {
     // Include cash gap as warning (if any) even though it's no longer a blocker
     const responsePayload: any = {
       success: true,
-      message: `Day finalized successfully`,
-      alreadyFinalized: false,
+      message: wasAlreadyFinalized ? `Day already finalized` : `Day finalized successfully`,
+      alreadyFinalized: wasAlreadyFinalized,
       postedSalesCount: createdSales.length,
       inventoryUpdatesCount: 0, // Inventory deductions handled via StockLevel adjustments
       reportSyncStatus: 'completed',
@@ -1637,8 +1638,9 @@ export class DailyBackdatedEntriesService {
       },
     };
 
-    // Add cash gap warning if it exists (for audit visibility)
-    if (Math.abs(cashGap) > cashTolerancePkr) {
+    // Add cash gap warning ONLY for fresh finalizations (not already-finalized days)
+    // Reason: Cash gap is informational only and not actionable for already-finalized days
+    if (!wasAlreadyFinalized && Math.abs(cashGap) > cashTolerancePkr) {
       responsePayload.cashGapWarning = {
         amount: parseFloat(cashGap.toFixed(2)),
         message: `Cash variance: PKR ${Math.abs(cashGap).toFixed(2)} ${cashGap > 0 ? 'short' : 'excess'}`

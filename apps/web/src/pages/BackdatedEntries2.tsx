@@ -669,7 +669,10 @@ export function BackdatedEntries2() {
         <div className="ml-auto flex items-center gap-2">
           {syncMessage && <span className="text-[10px] text-slate-400 max-w-[160px] truncate">{syncMessage}</span>}
           {isDirty && <Badge className="bg-amber-600 text-[10px] px-1.5">Unsaved</Badge>}
-          <Button size="sm" variant="secondary" className="h-7 text-xs gap-1" onClick={() => saveDraftMut.mutateAsync(undefined)}
+          <Button size="sm" variant="secondary" className="h-7 text-xs gap-1" onClick={async () => {
+            try { await saveDraftMut.mutateAsync(undefined); }
+            catch (e: any) { /* Error already handled by mutation onError */ }
+          }}
             disabled={saveDraftMut.isPending || !selectedBranchId}>
             {saveDraftMut.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
             Save
