@@ -268,7 +268,6 @@ export class DailyBackdatedEntriesService {
       summary.totalReadingsExpected = meterSummary.totalReadingsExpected || summary.totalReadingsExpected;
       summary.totalReadingsEntered = meterSummary.totalReadingsEntered || 0;
       summary.totalReadingsDerived = meterSummary.totalReadingsDerived || 0;
-      summary.totalReadingsDerived = meterRow.summary.totalReadingsPropagated || 0;
     }
 
     for (const txn of transactions) {

@@ -1,4 +1,4 @@
-import { zonedTimeToUtc, utcToZonedTime } from 'date-fns-tz';
+import { fromZonedTime, toZonedTime } from 'date-fns-tz';
 
 /**
  * Timezone utility for Kuwait Petrol Pump POS
@@ -24,7 +24,7 @@ export function toBranchStartOfDay(dateString: string): Date {
   const localMidnight = new Date(year, month - 1, day, 0, 0, 0, 0);
 
   // Convert to UTC
-  return zonedTimeToUtc(localMidnight, BRANCH_TIMEZONE);
+  return fromZonedTime(localMidnight, BRANCH_TIMEZONE);
 }
 
 /**
@@ -41,7 +41,7 @@ export function toBranchEndOfDay(dateString: string): Date {
   const localEndOfDay = new Date(year, month - 1, day, 23, 59, 59, 999);
 
   // Convert to UTC
-  return zonedTimeToUtc(localEndOfDay, BRANCH_TIMEZONE);
+  return fromZonedTime(localEndOfDay, BRANCH_TIMEZONE);
 }
 
 /**
@@ -49,7 +49,7 @@ export function toBranchEndOfDay(dateString: string): Date {
  * Example: 2026-01-15T20:00:00Z → "2026-01-16" (next day in PKT)
  */
 export function toBranchDateString(utcDate: Date): string {
-  const branchDate = utcToZonedTime(utcDate, BRANCH_TIMEZONE);
+  const branchDate = toZonedTime(utcDate, BRANCH_TIMEZONE);
   const year = branchDate.getFullYear();
   const month = String(branchDate.getMonth() + 1).padStart(2, '0');
   const day = String(branchDate.getDate()).padStart(2, '0');
@@ -62,6 +62,15 @@ export function toBranchDateString(utcDate: Date): string {
  */
 export function getBranchToday(): string {
   return toBranchDateString(new Date());
+}
+
+/**
+ * Get business date as Date object (for backward compatibility)
+ * Returns current date in branch timezone as start-of-day UTC
+ */
+export async function getBusinessDate(_organizationId?: string): Promise<Date> {
+  const todayString = getBranchToday();
+  return toBranchStartOfDay(todayString);
 }
 
 /**
