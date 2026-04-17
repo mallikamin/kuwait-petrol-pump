@@ -1,5 +1,6 @@
 import axios, { AxiosError, AxiosInstance } from 'axios';
 import { useAuthStore } from '@/store/auth';
+import { sessionDebugger } from '@/utils/sessionDebug';
 
 // Guard: Default to '/api' if VITE_API_URL is empty/invalid
 const API_URL = import.meta.env.VITE_API_URL?.trim() || '/api';
@@ -32,6 +33,14 @@ let isRefreshing = false;
 let pendingRequests: Array<(token: string | null) => void> = [];
 let refreshAttempts = 0;
 const MAX_REFRESH_ATTEMPTS = 2;
+
+// Diagnostic logging for session stability debugging
+const logAuth = (event: string, data?: Record<string, any>) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[Auth] ${timestamp} ${event}`, data || '');
+  // Also log to persistent session debug logger for error reporting
+  sessionDebugger.log(event, data);
+};
 
 const flushPendingRequests = (token: string | null) => {
   pendingRequests.forEach((cb) => cb(token));
@@ -74,12 +83,19 @@ apiClient.interceptors.response.use(
     const requestUrl = originalRequest?.url || '';
     const isAuthRoute = requestUrl.includes('/auth/login') || requestUrl.includes('/auth/refresh');
 
-    // Only attempt refresh for 401 on non-auth routes that haven't been retried
+    // CRITICAL: Only attempt refresh for 401 on non-auth routes that haven't been retried
     if (status === 401 && originalRequest && !originalRequest._retry && !isAuthRoute) {
       const { refreshToken, setToken, logout } = useAuthStore.getState();
 
+      logAuth('401 on non-auth route, attempting refresh', {
+        url: requestUrl,
+        hasRefreshToken: !!refreshToken,
+      });
+
       // No refresh token = permanently logged out, no recovery possible
       if (!refreshToken) {
+        logAuth('No refresh token available, logging out', { url: requestUrl });
+        sessionDebugger.logLogout('No refresh token available', { url: requestUrl });
         logout();
         window.location.href = '/login';
         return Promise.reject(error);
@@ -87,13 +103,19 @@ apiClient.interceptors.response.use(
 
       // Already refreshing: queue this request to retry after refresh completes
       if (isRefreshing) {
+        logAuth('Refresh already in progress, queueing request', {
+          url: requestUrl,
+          pendingCount: pendingRequests.length,
+        });
         return new Promise((resolve, reject) => {
           pendingRequests.push((newToken) => {
             // If refresh failed, reject with original error
             if (!newToken) {
+              logAuth('Queued request rejected: refresh failed', { url: requestUrl });
               reject(error);
               return;
             }
+            logAuth('Queued request retrying with new token', { url: requestUrl });
             // CRITICAL FIX: Mark as retried to prevent infinite loop
             // If this retry also fails with 401, it won't start another refresh
             originalRequest._retry = true;
@@ -112,10 +134,22 @@ apiClient.interceptors.response.use(
       // Prevent runaway refresh attempts (should never happen, but safety net)
       if (refreshAttempts > MAX_REFRESH_ATTEMPTS) {
         isRefreshing = false;
+        logAuth('Max refresh attempts exceeded, logging out', {
+          maxAttempts: MAX_REFRESH_ATTEMPTS,
+        });
+        sessionDebugger.logLogout('Max refresh attempts exceeded', {
+          attempts: refreshAttempts,
+          maxAllowed: MAX_REFRESH_ATTEMPTS,
+        });
         logout();
         window.location.href = '/login';
         return Promise.reject(new Error('Max refresh attempts exceeded'));
       }
+
+      logAuth('Starting token refresh', {
+        url: requestUrl,
+        attempt: refreshAttempts,
+      });
 
       return axios
         .post(`${FINAL_API_URL}/auth/refresh`, { refreshToken }, {
@@ -132,6 +166,7 @@ apiClient.interceptors.response.use(
 
           // Successfully refreshed: reset attempts counter
           refreshAttempts = 0;
+          logAuth('Token refresh successful', { url: requestUrl });
           setToken(newAccessToken);
           flushPendingRequests(newAccessToken);
 
@@ -151,15 +186,36 @@ apiClient.interceptors.response.use(
 
           if (isAuthInvalid) {
             // Permanent auth failure: logout required
+            const authInvalidReason = refreshErr.response?.data?.detail || refreshErr.message || 'Unknown';
+            logAuth('Token refresh failed: auth invalid, logging out', {
+              url: requestUrl,
+              status: refreshStatus,
+              reason: authInvalidReason,
+            });
+            sessionDebugger.logLogout('Auth invalid - refresh token expired or invalid', {
+              url: requestUrl,
+              status: refreshStatus,
+              reason: authInvalidReason,
+            });
             flushPendingRequests(null);
             logout();
             window.location.href = '/login';
           } else if (isTransient) {
             // Transient infrastructure error: don't logout
             // Reject pending requests so they can be retried/handled by UI
+            logAuth('Token refresh failed: transient error, NOT logging out', {
+              url: requestUrl,
+              status: refreshStatus,
+              reason: refreshErr.response?.data?.detail || refreshErr.message,
+            });
             flushPendingRequests(null);
           } else {
             // Other errors (4xx that aren't 401, etc.): flush and reject
+            logAuth('Token refresh failed: other error', {
+              url: requestUrl,
+              status: refreshStatus,
+              reason: refreshErr.response?.data?.detail || refreshErr.message,
+            });
             flushPendingRequests(null);
           }
 
@@ -170,12 +226,14 @@ apiClient.interceptors.response.use(
         });
     }
 
-    // Catch all remaining 401s (auth routes, retried requests, etc.)
-    // Only logout on 401s not handled by refresh logic above
-    if (status === 401 && !isRefreshing) {
-      useAuthStore.getState().logout();
-      window.location.href = '/login';
-    }
+    // REMOVED: Aggressive catch-all 401 handler that was causing false logouts
+    // Previous code at lines 173-178 was problematic:
+    //   if (status === 401 && !isRefreshing) { logout() }
+    // This could trigger false logouts on:
+    //   - Auth route failures (login/refresh itself should not auto-logout)
+    //   - Other legitimate 401 cases
+    // All genuine auth failures are already handled in the refresh logic above.
+    // Auth routes returning 401 are legitimate and should reject, not logout.
 
     return Promise.reject(error);
   }
