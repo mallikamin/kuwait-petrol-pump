@@ -153,7 +153,8 @@ apiClient.interceptors.response.use(
           pendingRequests.push((newToken) => {
             // If refresh failed, reject with original error
             if (!newToken) {
-              logAuth('Queued request rejected: refresh failed', { url: requestUrl });
+              // ✅ LESS NOISY: Use console.debug instead of logAuth for queue rejections
+              console.debug(`[Auth] Queued request rejected (refresh failed): ${requestUrl}`);
               reject(error);
               return;
             }
@@ -234,10 +235,11 @@ apiClient.interceptors.response.use(
           } else if (isTransient) {
             // Transient infrastructure error: don't logout
             // Reject pending requests so they can be retried/handled by UI
-            logAuth('Token refresh failed: transient error, NOT logging out', {
+            logAuth('Token refresh failed: transient error, NOT logging out (user may retry)', {
               url: requestUrl,
               status: refreshStatus,
               reason: refreshErr.response?.data?.detail || refreshErr.message,
+              pendingQueueSize: pendingRequests.length,
             });
             flushPendingRequests(null);
           } else {

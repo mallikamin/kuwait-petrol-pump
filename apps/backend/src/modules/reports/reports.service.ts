@@ -1077,6 +1077,14 @@ export class ReportsService {
       }
     }
 
+    // ✅ DIAGNOSTIC: Add metadata about query scope
+    const diagnostics = {
+      stockLevelsFound: stockLevels.length,
+      purchasesFound: purchases.length,
+      dateFilter: startDate && endDate ? 'date-range' : (asOfDate ? 'single-date' : 'none'),
+      dateRange: startDate && endDate ? { startDate, endDate } : null,
+    };
+
     return {
       branch: {
         id: branch.id,
@@ -1087,9 +1095,10 @@ export class ReportsService {
         totalProducts: totalItems,
         totalQuantity,
         lowStockCount,
-        lowStockPercentage: ((lowStockCount / totalItems) * 100).toFixed(2),
+        lowStockPercentage: totalItems > 0 ? ((lowStockCount / totalItems) * 100).toFixed(2) : '0.00',
         totalValue: totalValue.toFixed(2),
       },
+      diagnostics, // ✅ NEW: Help debug zero-data issues
       nonFuelProducts: {
         normal: normalStockProducts.map(sl => ({
           id: sl.product.id,

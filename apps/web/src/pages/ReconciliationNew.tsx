@@ -90,7 +90,7 @@ export function ReconciliationNew() {
 
       return (response.data?.data?.dailySummaries || []) as DailySummary[];
     },
-    enabled: !!branchId,
+    enabled: !!branchId && !!startDate && !!endDate, // Only run if dates are valid
     staleTime: 30000, // Cache for 30 seconds
   });
 
@@ -176,7 +176,12 @@ export function ReconciliationNew() {
                 id="startDate"
                 type="date"
                 value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
+                onChange={(e) => {
+                  const newValue = e.target.value;
+                  if (newValue && /^\d{4}-\d{2}-\d{2}$/.test(newValue)) {
+                    setStartDate(newValue);
+                  }
+                }}
                 max={endDate}
               />
             </div>
@@ -186,7 +191,12 @@ export function ReconciliationNew() {
                 id="endDate"
                 type="date"
                 value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
+                onChange={(e) => {
+                  const newValue = e.target.value;
+                  if (newValue && /^\d{4}-\d{2}-\d{2}$/.test(newValue)) {
+                    setEndDate(newValue);
+                  }
+                }}
                 min={startDate}
                 max={new Date().toISOString().split('T')[0]}
               />
