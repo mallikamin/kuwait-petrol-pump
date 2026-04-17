@@ -70,6 +70,7 @@ export interface LedgerEntry {
   description: string;
   vehicleNumber: string | null;
   slipNumber: string | null;
+  receiptNumber: string | null;
   debit: number;
   credit: number;
   balance: number;
@@ -950,6 +951,7 @@ export class CreditService {
         credit_amount: string;
         vehicle_number: string | null;
         slip_number: string | null;
+        receipt_number: string | null;
         description: string;
         created_by: string | null;
         created_at: Date;
@@ -967,6 +969,7 @@ export class CreditService {
           0 AS credit_amount,
           bt.vehicle_number,
           bt.slip_number,
+          NULL AS receipt_number,
           bt.product_name || ' ' || bt.quantity || 'L @ ' || bt.unit_price || '/L' AS description,
           bt.created_by::text,
           bt.created_at
@@ -990,6 +993,7 @@ export class CreditService {
           0 AS credit_amount,
           s.vehicle_number,
           s.slip_number,
+          NULL AS receipt_number,
           COALESCE(
             (SELECT ft.code || ' ' || fs.quantity_liters || 'L'
              FROM fuel_sales fs JOIN fuel_types ft ON fs.fuel_type_id = ft.id
@@ -1018,7 +1022,8 @@ export class CreditService {
           cr.amount AS credit_amount,
           NULL AS vehicle_number,
           cr.reference_number AS slip_number,
-          cr.payment_method || ' receipt #' || cr.receipt_number AS description,
+          cr.receipt_number,
+          cr.payment_method || ' receipt' AS description,
           cr.created_by::text,
           cr.created_at
         FROM customer_receipts cr
@@ -1047,6 +1052,7 @@ export class CreditService {
         description: row.description,
         vehicleNumber: row.vehicle_number,
         slipNumber: row.slip_number,
+        receiptNumber: row.receipt_number,
         debit,
         credit,
         balance: runningBalance,

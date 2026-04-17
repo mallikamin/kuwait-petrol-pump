@@ -43,6 +43,7 @@ export interface LedgerEntry {
   description: string;
   vehicleNumber?: string;
   slipNumber?: string;
+  receiptNumber?: string;
   debit: number;
   credit: number;
   balance: number;

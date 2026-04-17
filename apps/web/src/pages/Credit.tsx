@@ -58,11 +58,11 @@ const exportLedgerToCSV = (ledgerData: any, customerName: string) => {
 
   // Ledger entries
   rows.push('LEDGER ENTRIES');
-  rows.push('Date,Type,Description,Vehicle/Slip,Debit,Credit,Balance');
+  rows.push('Date,Type,Description,Receipt,Vehicle/Slip,Debit,Credit,Balance');
 
   ledgerData.entries.forEach((entry: any) => {
     rows.push(
-      `${format(new Date(entry.date), 'yyyy-MM-dd')},${entry.type},"${entry.description}","${entry.vehicleNumber || entry.slipNumber || ''}",${entry.debit},${entry.credit},${entry.balance}`
+      `${format(new Date(entry.date), 'yyyy-MM-dd')},${entry.type},"${entry.description}","${entry.receiptNumber || ''}","${entry.vehicleNumber || entry.slipNumber || ''}",${entry.debit},${entry.credit},${entry.balance}`
     );
   });
 
@@ -145,6 +145,7 @@ const exportLedgerToPDF = (ledgerData: any, customerName: string) => {
             <th>Date</th>
             <th>Type</th>
             <th>Description</th>
+            <th>Receipt</th>
             <th>Vehicle/Slip</th>
             <th style="text-align: right;">Debit</th>
             <th style="text-align: right;">Credit</th>
@@ -159,6 +160,7 @@ const exportLedgerToPDF = (ledgerData: any, customerName: string) => {
               <td>${format(new Date(entry.date), 'MMM dd, yy')}</td>
               <td><strong>${entry.type}</strong></td>
               <td>${entry.description}</td>
+              <td style="font-family: monospace; font-size: 10px;">${entry.receiptNumber || '—'}</td>
               <td>${entry.vehicleNumber || entry.slipNumber || '—'}</td>
               <td class="number">${entry.debit > 0 ? entry.debit.toLocaleString('en-PK', { maximumFractionDigits: 2 }) : '—'}</td>
               <td class="number">${entry.credit > 0 ? entry.credit.toLocaleString('en-PK', { maximumFractionDigits: 2 }) : '—'}</td>
@@ -688,6 +690,7 @@ export function Credit() {
                   <th className="px-4 py-2 text-left font-semibold">Date</th>
                   <th className="px-4 py-2 text-left font-semibold">Type</th>
                   <th className="px-4 py-2 text-left font-semibold">Description</th>
+                  <th className="px-4 py-2 text-left font-semibold">Receipt</th>
                   <th className="px-4 py-2 text-left font-semibold">Vehicle/Slip</th>
                   <th className="px-4 py-2 text-right font-semibold">Debit</th>
                   <th className="px-4 py-2 text-right font-semibold">Credit</th>
@@ -704,6 +707,9 @@ export function Credit() {
                       </Badge>
                     </td>
                     <td className="px-4 py-2">{entry.description}</td>
+                    <td className="px-4 py-2 text-xs font-mono">
+                      {entry.receiptNumber || '-'}
+                    </td>
                     <td className="px-4 py-2 text-xs">
                       {entry.vehicleNumber && <div>{entry.vehicleNumber}</div>}
                       {entry.slipNumber && <div className="text-muted-foreground">Slip: {entry.slipNumber}</div>}
