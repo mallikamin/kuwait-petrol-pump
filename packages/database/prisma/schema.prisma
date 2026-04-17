@@ -40,6 +40,7 @@ model Organization {
   backdatedMeterReadings BackdatedMeterReading[]
   customerBranchLimits   CustomerBranchLimit[]
   customerReceipts       CustomerReceipt[]
+  monthlyInventoryGainLoss MonthlyInventoryGainLoss[]
 
   @@map("organizations")
 }
@@ -70,6 +71,7 @@ model Branch {
   backdatedMeterReadings BackdatedMeterReading[]
   customerBranchLimits   CustomerBranchLimit[]
   customerReceipts       CustomerReceipt[]
+  monthlyInventoryGainLoss MonthlyInventoryGainLoss[]
 
   @@map("branches")
 }
@@ -93,6 +95,7 @@ model FuelType {
   purchaseOrderItems      PurchaseOrderItem[]
   fuelInventory           FuelInventory[]
   backdatedTransactions   BackdatedTransaction[]
+  monthlyInventoryGainLoss MonthlyInventoryGainLoss[]
 
   @@map("fuel_types")
 }
@@ -195,6 +198,7 @@ model User {
   createdReceipts                 CustomerReceipt[]       @relation("ReceiptCreatedBy")
   updatedReceipts                 CustomerReceipt[]       @relation("ReceiptUpdatedBy")
   deletedReceipts                 CustomerReceipt[]       @relation("ReceiptDeletedBy")
+  monthlyInventoryGainLoss        MonthlyInventoryGainLoss[]
 
   @@unique([organizationId, username], name: "unique_org_username") // Multi-tenant safety
   @@index([organizationId], name: "idx_users_org")
@@ -1323,4 +1327,35 @@ model BackdatedMeterReading {
   @@index([businessDate], name: "idx_backdated_meter_date")
   @@index([shiftId, businessDate], name: "idx_backdated_meter_shift_date")
   @@map("backdated_meter_readings")
+}
+
+// ============================================================
+// MONTHLY INVENTORY ADJUSTMENTS
+// ============================================================
+
+/// MonthlyInventoryGainLoss - Month-end fuel gain/loss entries (auditable)
+model MonthlyInventoryGainLoss {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  branchId      String   @map("branch_id") @db.Uuid
+  fuelTypeId    String   @map("fuel_type_id") @db.Uuid
+  month         String   @db.VarChar(7) // Format: YYYY-MM (e.g., "2026-04")
+  quantity      Decimal  @db.Decimal(12, 2) // Positive for gain, negative for loss (liters)
+  remarks       String?  @db.Text
+  recordedBy    String   @map("recorded_by") @db.Uuid // User who recorded this
+  recordedAt    DateTime @default(now()) @map("recorded_at") @db.Timestamptz
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  organization  Organization @relation(fields: [organizationId], references: [id])
+  branch        Branch       @relation(fields: [branchId], references: [id])
+  fuelType      FuelType     @relation(fields: [fuelTypeId], references: [id])
+  user          User         @relation(fields: [recordedBy], references: [id])
+
+  @@unique([branchId, fuelTypeId, month], name: "unique_branch_fuel_month")
+  @@index([organizationId, branchId, month], name: "idx_inv_gain_loss_org_branch_month")
+  @@index([month], name: "idx_inv_gain_loss_month")
+  @@index([fuelTypeId, month], name: "idx_inv_gain_loss_fuel_month")
+  @@map("monthly_inventory_gain_loss")
 }
