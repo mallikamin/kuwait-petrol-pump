@@ -511,3 +511,98 @@ All three phases of the Priority Plan have been **successfully executed and deli
 **Execution Complete**: 2026-04-17 16:00 UTC
 **Coordinator**: Claude Code (Sonnet 4.5)
 **Authorized By**: Malik Amin <amin@sitaratech.info>
+
+---
+
+## PRODUCTION DEPLOYMENT UPDATE - Task #3
+
+**Date**: 2026-04-17 15:55 UTC
+**Action**: Task #3 (Monthly Inventory Gain/Loss) deployed to production
+
+### Deployment Evidence
+
+**Commands Run**:
+```bash
+git push origin master  # Push commits 5fb92ff and 23fbd13
+./scripts/deploy.sh full  # Canonical deploy script
+```
+
+**Commits Deployed**:
+```
+23fbd13 - docs: Update E2E validation report with production test evidence
+5fb92ff - feat(database): Add migration for monthly inventory gain/loss table
+```
+
+**Deployment Output**:
+```
+SUCCESS: production deploy completed with enforced guardrails.
+Deployed commit: 23fbd13
+Backend status: deployed
+Migration status: up to date
+Frontend bundle: index-DrEWn2ws.js
+API URL: https://kuwaitpos.duckdns.org/api/health
+```
+
+**Migration Applied**:
+```
+Applying migration `20260417_add_monthly_inventory_gain_loss`
+All migrations have been successfully applied.
+```
+
+### Post-Deploy Verification (All Gates Passed)
+
+| Check | Expected | Actual | Status |
+|-------|----------|--------|--------|
+| API Health | 200 OK | `{"status":"ok","uptime":37.1s}` | ✅ |
+| Frontend Bundle | Hash changed | `index-DrEWn2ws.js` | ✅ |
+| Backend Container | healthy | Up, healthy | ✅ |
+| Migration Applied | 20260417 | Applied successfully | ✅ |
+| Table Exists | monthly_inventory_gain_loss | 11 columns, 5 indexes, 4 FKs | ✅ |
+| Auth Endpoint | 401/validation | Responding correctly | ✅ |
+| Monthly Gain/Loss API | 401 (no token) | `/api/inventory/monthly-gain-loss` exists | ✅ |
+| Backdated Entries API | 401 (no token) | `/api/backdated-entries` exists | ✅ |
+
+**Database Schema Verification**:
+```sql
+Table "public.monthly_inventory_gain_loss"
+- id (uuid, PK)
+- organization_id, branch_id, fuel_type_id (uuid, FKs)
+- month (varchar(7), YYYY-MM format)
+- quantity (numeric(12,2), gain/loss in liters)
+- remarks (text)
+- recorded_by (uuid, FK to users)
+- recorded_at, created_at, updated_at (timestamptz)
+
+Indexes:
+- unique_branch_fuel_month (branch_id, fuel_type_id, month)
+- idx_inv_gain_loss_fuel_month (fuel_type_id, month)
+- idx_inv_gain_loss_month (month)
+- idx_inv_gain_loss_org_branch_month (organization_id, branch_id, month)
+```
+
+### Production Readiness Verdict
+
+✅ **PRODUCTION READY** - All smoke checks passed
+- Backend API: Healthy, serving new routes
+- Frontend: Updated, new bundle served
+- Database: Migration applied, table created with correct schema
+- Existing features: Unaffected (backdated entries, auth endpoints responding)
+
+### Risks/Blockers
+
+**NONE DETECTED**
+- New feature is isolated (no breaking changes)
+- Existing endpoints remain functional
+- All containers healthy
+- Migration applied cleanly
+
+### Next Actions
+
+1. Manual QA: Test monthly inventory gain/loss UI in production dashboard
+2. Monitor backend logs for 1 hour (verify no errors on new endpoints)
+3. Test CRUD operations: Create → Read → Update → Delete entry
+4. Verify data appears correctly in reports (if integrated)
+
+**Final Status**: ✅ Task #3 successfully deployed to production
+**Deployed At**: 2026-04-17 15:55 UTC
+**Verified At**: 2026-04-17 15:58 UTC
