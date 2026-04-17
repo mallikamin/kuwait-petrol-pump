@@ -71,6 +71,8 @@ export interface LedgerEntry {
   vehicleNumber: string | null;
   slipNumber: string | null;
   receiptNumber: string | null;
+  paymentMethod: string | null;
+  productType: string | null;
   debit: number;
   credit: number;
   balance: number;
@@ -951,6 +953,8 @@ export class CreditService {
         slip_number: string | null;
         receipt_number: string | null;
         description: string;
+        payment_method: string | null;
+        product_type: string | null;
         created_by: string | null;
         created_at: Date;
       }>
@@ -969,6 +973,12 @@ export class CreditService {
           bt.slip_number,
           NULL AS receipt_number,
           bt.product_name || ' ' || bt.quantity || 'L @ ' || bt.unit_price || '/L' AS description,
+          bt.payment_method,
+          CASE
+            WHEN UPPER(bt.product_name) LIKE '%HSD%' OR UPPER(bt.product_name) LIKE '%DIESEL%' THEN 'HSD'
+            WHEN UPPER(bt.product_name) LIKE '%PMG%' OR UPPER(bt.product_name) LIKE '%PETROL%' OR UPPER(bt.product_name) LIKE '%GASOLINE%' THEN 'PMG'
+            ELSE 'Non-Fuel'
+          END AS product_type,
           bt.created_by::text,
           bt.created_at
         FROM backdated_transactions bt
@@ -997,6 +1007,21 @@ export class CreditService {
              WHERE fs.sale_id = s.id LIMIT 1),
             'Non-fuel sale'
           ) AS description,
+          s.payment_method,
+          CASE
+            WHEN s.sale_type = 'fuel' THEN
+              COALESCE(
+                (SELECT CASE
+                  WHEN UPPER(ft.code) = 'HSD' OR UPPER(ft.name) LIKE '%DIESEL%' THEN 'HSD'
+                  WHEN UPPER(ft.code) = 'PMG' OR UPPER(ft.name) LIKE '%PETROL%' OR UPPER(ft.name) LIKE '%GASOLINE%' THEN 'PMG'
+                  ELSE ft.code
+                END
+                 FROM fuel_sales fs JOIN fuel_types ft ON fs.fuel_type_id = ft.id
+                 WHERE fs.sale_id = s.id LIMIT 1),
+                'Unknown'
+              )
+            ELSE 'Non-Fuel'
+          END AS product_type,
           s.cashier_id::text AS created_by,
           s.created_at
         FROM sales s
@@ -1020,6 +1045,8 @@ export class CreditService {
           cr.reference_number AS slip_number,
           cr.receipt_number,
           cr.payment_method || ' receipt' AS description,
+          cr.payment_method,
+          NULL AS product_type,
           cr.created_by::text,
           cr.created_at
         FROM customer_receipts cr
@@ -1049,6 +1076,8 @@ export class CreditService {
         vehicleNumber: row.vehicle_number,
         slipNumber: row.slip_number,
         receiptNumber: row.receipt_number,
+        paymentMethod: row.payment_method,
+        productType: row.product_type,
         debit,
         credit,
         balance: runningBalance,

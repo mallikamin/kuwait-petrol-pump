@@ -677,6 +677,7 @@ export class ReportsService {
       return {
         id: sale.id,
         slipNumber: sale.slipNumber || null,
+        receiptNumber: null, // Sales don't have receipt numbers (only customer receipts do)
         date: sale.saleDate,
         type: sale.saleType,
         amount: saleAmount,

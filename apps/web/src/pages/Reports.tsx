@@ -1465,12 +1465,13 @@ export function Reports() {
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={() => {
                 if (!customerLedger) return;
-                const headers = ['Date', 'Customer Name', 'Vehicle#', 'Slip#', 'Product/Fuel', 'Rate', 'Quantity', 'Price', 'Payment Method', 'Balance'];
+                const headers = ['Date', 'Customer Name', 'Vehicle#', 'Slip#', 'Receipt#', 'Product/Fuel', 'Rate', 'Quantity', 'Price', 'Payment Method', 'Balance'];
                 const rows: (string | number)[][] = (customerLedger.transactions || []).map((t: any) => {
                   const isFuel = t.type === 'fuel';
                   const fuelSales = t.details?.fuelSales || [];
                   const items = t.details?.items || [];
                   const vehicleNumber = t.vehicleNumber || '-'; // Use per-transaction vehicle number
+                  const receiptNumber = t.receiptNumber || '-'; // Add receipt number support
 
                   if (isFuel && fuelSales.length > 0) {
                     // For fuel sales, create one row per fuel type
@@ -1479,6 +1480,7 @@ export function Reports() {
                       customerLedger.customer?.name || '-',
                       vehicleNumber,
                       t.slipNumber || '-',
+                      receiptNumber,
                       fs.fuelType || '-',
                       fs.pricePerLiter || 0,
                       `${fs.liters || 0}L`,
@@ -1493,6 +1495,7 @@ export function Reports() {
                       customerLedger.customer?.name || '-',
                       vehicleNumber,
                       t.slipNumber || '-',
+                      receiptNumber,
                       item.productName || '-',
                       item.unitPrice || 0,
                       item.quantity || 0,
@@ -1507,6 +1510,7 @@ export function Reports() {
                     customerLedger.customer?.name || '-',
                     vehicleNumber,
                     t.slipNumber || '-',
+                    receiptNumber,
                     '-',
                     0,
                     0,

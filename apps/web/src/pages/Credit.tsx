@@ -58,11 +58,11 @@ const exportLedgerToCSV = (ledgerData: any, customerName: string) => {
 
   // Ledger entries
   rows.push('LEDGER ENTRIES');
-  rows.push('Date,Type,Description,Receipt,"Vehicle #","Slip #",Debit,Credit,Balance');
+  rows.push('Date,Type,Description,Receipt,"Vehicle #","Slip #","Payment Method",Product,Debit,Credit,Balance');
 
   ledgerData.entries.forEach((entry: any) => {
     rows.push(
-      `${format(new Date(entry.date), 'yyyy-MM-dd')},${entry.type},"${entry.description}","${entry.receiptNumber || ''}","${entry.vehicleNumber || ''}","${entry.slipNumber || ''}",${entry.debit},${entry.credit},${entry.balance}`
+      `${format(new Date(entry.date), 'yyyy-MM-dd')},${entry.type},"${entry.description}","${entry.receiptNumber || ''}","${entry.vehicleNumber || ''}","${entry.slipNumber || ''}","${entry.paymentMethod || ''}","${entry.productType || ''}",${entry.debit},${entry.credit},${entry.balance}`
     );
   });
 
@@ -148,6 +148,8 @@ const exportLedgerToPDF = (ledgerData: any, customerName: string) => {
             <th>Receipt</th>
             <th>Vehicle #</th>
             <th>Slip #</th>
+            <th>Payment Method</th>
+            <th>Product</th>
             <th style="text-align: right;">Debit</th>
             <th style="text-align: right;">Credit</th>
             <th style="text-align: right;">Balance</th>
@@ -164,6 +166,8 @@ const exportLedgerToPDF = (ledgerData: any, customerName: string) => {
               <td style="font-family: monospace; font-size: 10px;">${entry.receiptNumber || '—'}</td>
               <td>${entry.vehicleNumber || '—'}</td>
               <td>${entry.slipNumber || '—'}</td>
+              <td>${entry.paymentMethod || '—'}</td>
+              <td>${entry.productType || '—'}</td>
               <td class="number">${entry.debit > 0 ? entry.debit.toLocaleString('en-PK', { maximumFractionDigits: 2 }) : '—'}</td>
               <td class="number">${entry.credit > 0 ? entry.credit.toLocaleString('en-PK', { maximumFractionDigits: 2 }) : '—'}</td>
               <td class="number"><strong>${entry.balance.toLocaleString('en-PK', { maximumFractionDigits: 2 })}</strong></td>
@@ -695,6 +699,8 @@ export function Credit() {
                   <th className="px-4 py-2 text-left font-semibold">Receipt</th>
                   <th className="px-4 py-2 text-left font-semibold">Vehicle #</th>
                   <th className="px-4 py-2 text-left font-semibold">Slip #</th>
+                  <th className="px-4 py-2 text-left font-semibold">Payment Method</th>
+                  <th className="px-4 py-2 text-left font-semibold">Product</th>
                   <th className="px-4 py-2 text-right font-semibold">Debit</th>
                   <th className="px-4 py-2 text-right font-semibold">Credit</th>
                   <th className="px-4 py-2 text-right font-semibold">Balance</th>
@@ -718,6 +724,14 @@ export function Credit() {
                     </td>
                     <td className="px-4 py-2 text-xs">
                       {entry.slipNumber || '-'}
+                    </td>
+                    <td className="px-4 py-2 text-xs">
+                      {entry.paymentMethod || '-'}
+                    </td>
+                    <td className="px-4 py-2 text-xs">
+                      <Badge variant="outline" className="text-xs">
+                        {entry.productType || '-'}
+                      </Badge>
                     </td>
                     <td className="px-4 py-2 text-right">{entry.debit > 0 ? fmtPKR(entry.debit) : '-'}</td>
                     <td className="px-4 py-2 text-right">{entry.credit > 0 ? fmtPKR(entry.credit) : '-'}</td>
