@@ -907,7 +907,6 @@ export class CreditService {
           SELECT bt.transaction_datetime AS entry_date, bt.line_total AS debit_amount, 0 AS credit_amount
           FROM backdated_transactions bt
           WHERE bt.customer_id = ${customerId}::uuid
-            AND bt.payment_method = 'credit_customer'
             AND bt.deleted_at IS NULL
             AND bt.transaction_datetime < ${filters.startDate}
 
@@ -917,7 +916,6 @@ export class CreditService {
           SELECT s.sale_date AS entry_date, s.total_amount AS debit_amount, 0 AS credit_amount
           FROM sales s
           WHERE s.customer_id = ${customerId}::uuid
-            AND s.payment_method IN ('credit', 'credit_customer')
             AND (s.offline_queue_id IS NULL OR s.offline_queue_id NOT LIKE 'backdated-%')
             AND s.sale_date < ${filters.startDate}
 
@@ -975,7 +973,6 @@ export class CreditService {
           bt.created_at
         FROM backdated_transactions bt
         WHERE bt.customer_id = ${customerId}::uuid
-          AND bt.payment_method = 'credit_customer'
           AND bt.deleted_at IS NULL
           ${filters?.startDate ? Prisma.sql`AND bt.transaction_datetime >= ${filters.startDate}` : Prisma.empty}
           ${filters?.endDate ? Prisma.sql`AND bt.transaction_datetime <= ${filters.endDate}` : Prisma.empty}
@@ -1004,7 +1001,6 @@ export class CreditService {
           s.created_at
         FROM sales s
         WHERE s.customer_id = ${customerId}::uuid
-          AND s.payment_method IN ('credit', 'credit_customer')
           AND (s.offline_queue_id IS NULL OR s.offline_queue_id NOT LIKE 'backdated-%')
           ${filters?.startDate ? Prisma.sql`AND s.sale_date >= ${filters.startDate}` : Prisma.empty}
           ${filters?.endDate ? Prisma.sql`AND s.sale_date <= ${filters.endDate}` : Prisma.empty}

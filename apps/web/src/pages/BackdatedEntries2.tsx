@@ -692,6 +692,23 @@ export function BackdatedEntries2() {
       </header>
 
       {/* ═══════════════════════════════════════════════════════════════════════
+          FINALIZED DAY BANNER — Shows when day is already finalized
+          ═══════════════════════════════════════════════════════════════════════ */}
+      {dailySummaryData?.isFinalized && (
+        <div className="flex-shrink-0 bg-amber-50 border-b border-amber-200">
+          <div className="px-4 py-2.5 flex items-center gap-2">
+            <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0" />
+            <div className="flex-1">
+              <div className="font-semibold text-amber-900 text-sm">Day Finalized Already</div>
+              <div className="text-xs text-amber-700">
+                This day has been finalized. Changes are still possible but will require re-finalization.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════════════
           METER READINGS STRIP — full-width, collapsible, workflow step 1
           ═══════════════════════════════════════════════════════════════════════ */}
       <div className="flex-shrink-0 border-b bg-slate-50">

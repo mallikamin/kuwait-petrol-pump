@@ -935,6 +935,8 @@ export class ReportsService {
 
     // Get sales movement for the date range (fuel + non-fuel)
     let salesMovement: any = null;
+    let fuelMovement: any = null; // ✅ NEW: Explicit fuel movement calculation (Opening + Purchases - Sales = Closing)
+
     if (startDate && endDate) {
       try {
         const rangeStart = new Date(startDate);
@@ -980,6 +982,74 @@ export class ReportsService {
             fuelSalesMap.set(key, existing);
           });
         });
+
+        // ✅ NEW: Calculate fuel movement (Opening + Purchases - Sales = Closing)
+        // Aggregate purchases by fuel type in the same date range
+        const fuelPurchasesMap = new Map<string, { code: string; name: string; liters: number; amount: number }>();
+
+        purchases.forEach((purchase: any) => {
+          // Identify fuel purchases (name contains 'Diesel' or 'Gasoline/Petrol')
+          const nameUpper = (purchase.name || '').toUpperCase();
+          let fuelCode: string | null = null;
+
+          if (nameUpper.includes('DIESEL') || nameUpper.includes('HSD')) {
+            fuelCode = 'HSD';
+          } else if (nameUpper.includes('GASOLINE') || nameUpper.includes('PETROL') || nameUpper.includes('PMG') || nameUpper.includes('PREMIUM')) {
+            fuelCode = 'PMG';
+          }
+
+          if (fuelCode) {
+            const existing = fuelPurchasesMap.get(fuelCode) || {
+              code: fuelCode,
+              name: fuelCode === 'HSD' ? 'High Speed Diesel' : 'Premium Motor Gasoline',
+              liters: 0,
+              amount: 0,
+            };
+            existing.liters += purchase.quantityReceived || 0;
+            existing.amount += purchase.totalCost || 0;
+            fuelPurchasesMap.set(fuelCode, existing);
+          }
+        });
+
+        // Calculate movement for each fuel type (HSD and PMG)
+        const fuelMovementByType: any[] = [];
+
+        ['HSD', 'PMG'].forEach((fuelCode) => {
+          const sales = fuelSalesMap.get(fuelCode);
+          const purchases = fuelPurchasesMap.get(fuelCode);
+
+          const salesLiters = sales?.liters || 0;
+          const purchasesLiters = purchases?.liters || 0;
+
+          // Opening balance: We don't have historical data, so we calculate from current stock
+          // Closing = Current stock from stock levels
+          // Opening = Closing - Purchases + Sales
+          // This is a reverse calculation from current state
+
+          // Get current stock level for this fuel type
+          const currentFuelType = fuelTypes.find(ft => ft.code === fuelCode);
+          const currentStock = 0; // Would need to query tank levels or stock_levels for fuel
+
+          // For now, just show the movement without opening/closing
+          // Formula: Net Change = Purchases - Sales
+          const netChange = purchasesLiters - salesLiters;
+
+          fuelMovementByType.push({
+            fuelCode,
+            fuelName: fuelCode === 'HSD' ? 'High Speed Diesel' : 'Premium Motor Gasoline',
+            purchases: purchasesLiters,
+            sales: salesLiters,
+            netMovement: netChange,
+            // Note: Opening and Closing would require tank level tracking
+            // which is not currently implemented in the stock_levels table
+          });
+        });
+
+        fuelMovement = {
+          dateRange: { startDate, endDate },
+          byFuelType: fuelMovementByType,
+          formula: 'Net Movement = Purchases - Sales (Opening + Closing require tank level tracking)',
+        };
 
         // Aggregate non-fuel sales by product
         const nonFuelSalesMap = new Map<string, { id: string; name: string; quantity: number; amount: number }>();
@@ -1046,6 +1116,7 @@ export class ReportsService {
       },
       purchases: purchases,
       salesMovement: salesMovement, // Fuel + non-fuel sales in date range (if range provided)
+      fuelMovement: fuelMovement, // ✅ NEW: Explicit fuel movement calculation (Purchases - Sales)
       fuelAvailability: fuelTypes.map(ft => ({
         id: ft.id,
         name: ft.name,
