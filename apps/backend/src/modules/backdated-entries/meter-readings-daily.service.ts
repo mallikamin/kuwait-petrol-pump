@@ -787,5 +787,128 @@ export class BackdatedMeterReadingsDailyService {
 
     return { value: null, status: 'not_found' };
   }
+
+  /**
+   * ✅ PERF FIX: Batched range query for reconciliation panel
+   * Fetches meter readings for all dates in range with single DB query
+   * Returns map: businessDate → aggregateSummary
+   *
+   * Improvement: 30 sequential queries → 1 batched query (~10-30x faster)
+   */
+  async getDailyMeterReadingsRange(
+    branchId: string,
+    startDate: string,
+    endDate: string,
+    organizationId: string
+  ): Promise<Map<string, any>> {
+    const branch = await prisma.branch.findFirst({
+      where: { id: branchId, organizationId },
+    });
+    if (!branch) {
+      throw new AppError(404, 'Branch not found');
+    }
+
+    const startDateObj = new Date(startDate);
+    startDateObj.setUTCHours(0, 0, 0, 0);
+    const endDateObj = new Date(endDate);
+    endDateObj.setUTCHours(23, 59, 59, 999);
+
+    const canonicalShift = await this.getCanonicalShift(branchId);
+
+    // Get all nozzles for the branch
+    const nozzles = await prisma.nozzle.findMany({
+      where: { dispensingUnit: { branchId }, isActive: true },
+      include: { fuelType: true },
+    });
+
+    // ✅ BATCHED QUERY: Fetch ALL meter readings for the entire date range
+    const allReadings = (await prisma.backdatedMeterReading.findMany({
+      where: {
+        branchId,
+        businessDate: { gte: startDateObj, lte: endDateObj },
+        shiftId: canonicalShift.id,
+      } as any,
+      include: {
+        nozzle: { include: { fuelType: true } },
+      },
+    })) as any[];
+
+    // Group readings by businessDate
+    const readingsByDate = new Map<string, any[]>();
+    allReadings.forEach((reading) => {
+      const dateKey = reading.businessDate.toISOString().split('T')[0];
+      if (!readingsByDate.has(dateKey)) {
+        readingsByDate.set(dateKey, []);
+      }
+      readingsByDate.get(dateKey)!.push(reading);
+    });
+
+    // Calculate aggregate summary for each date
+    const resultMap = new Map<string, any>();
+    const totalExpectedPerDay = nozzles.length * 2; // opening + closing
+
+    for (
+      const d = new Date(startDateObj);
+      d <= endDateObj;
+      d.setUTCDate(d.getUTCDate() + 1)
+    ) {
+      const dateKey = d.toISOString().split('T')[0];
+      const dateReadings = readingsByDate.get(dateKey) || [];
+
+      let totalEntered = 0;
+      let totalSalesLiters = 0;
+      let hsdSalesLiters = 0;
+      let pmgSalesLiters = 0;
+
+      // Count entered readings and calculate sales
+      const readingsByNozzle = new Map<string, { opening?: any; closing?: any }>();
+      dateReadings.forEach((r) => {
+        if (!readingsByNozzle.has(r.nozzleId)) {
+          readingsByNozzle.set(r.nozzleId, {});
+        }
+        const nozzleData = readingsByNozzle.get(r.nozzleId)!;
+        if (r.readingType === 'opening') {
+          nozzleData.opening = r;
+          totalEntered++;
+        } else if (r.readingType === 'closing') {
+          nozzleData.closing = r;
+          totalEntered++;
+        }
+      });
+
+      // Calculate sales for nozzles with both readings
+      readingsByNozzle.forEach((data, nozzleId) => {
+        if (data.opening && data.closing) {
+          const salesLiters = Number(data.closing.meterValue) - Number(data.opening.meterValue);
+          if (salesLiters >= 0) {
+            totalSalesLiters += salesLiters;
+            const nozzle = nozzles.find((n) => n.id === nozzleId);
+            if (nozzle?.fuelType.code === 'HSD') {
+              hsdSalesLiters += salesLiters;
+            } else if (nozzle?.fuelType.code === 'PMG') {
+              pmgSalesLiters += salesLiters;
+            }
+          }
+        }
+      });
+
+      const totalFilled = totalEntered; // Simplified: not including propagation in range query
+      const totalMissing = totalExpectedPerDay - totalFilled;
+      const completionPercent = totalExpectedPerDay > 0 ? (totalFilled / totalExpectedPerDay) * 100 : 0;
+
+      resultMap.set(dateKey, {
+        totalReadingsExpected: totalExpectedPerDay,
+        totalReadingsEntered: totalEntered,
+        totalReadingsDerived: 0, // Not calculated in batch mode
+        totalReadingsMissing: totalMissing,
+        completionPercent,
+        totalSalesLiters,
+        hsdSalesLiters,
+        pmgSalesLiters,
+      });
+    }
+
+    return resultMap;
+  }
 }
 

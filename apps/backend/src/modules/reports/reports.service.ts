@@ -1,5 +1,6 @@
 import { prisma } from '../../config/database';
 import { AppError } from '../../middleware/error.middleware';
+import { toBranchStartOfDay, toBranchEndOfDay } from '../../utils/timezone';
 
 export class ReportsService {
   /**
@@ -780,19 +781,16 @@ export class ReportsService {
       // 3. Else => no filter (all purchases)
       let dateFilter: any = null;
       if (startDate && endDate) {
-        // Range mode: inclusive of both start and end dates
-        const rangeStart = new Date(startDate);
-        rangeStart.setHours(0, 0, 0, 0); // Start of day
-        const rangeEnd = new Date(endDate);
-        rangeEnd.setHours(23, 59, 59, 999); // End of day
+        // ✅ TIMEZONE FIX: Range mode with Asia/Karachi boundaries
+        const rangeStart = toBranchStartOfDay(startDate);
+        const rangeEnd = toBranchEndOfDay(endDate);
         dateFilter = {
           gte: rangeStart,
           lte: rangeEnd,
         };
       } else if (asOfDate) {
-        // Single-date mode: up to and including the specified date
-        const asOfDateObj = new Date(asOfDate);
-        asOfDateObj.setHours(23, 59, 59, 999); // End of that day
+        // ✅ TIMEZONE FIX: Single-date mode with Asia/Karachi end-of-day
+        const asOfDateObj = toBranchEndOfDay(asOfDate);
         dateFilter = {
           lte: asOfDateObj,
         };
@@ -939,10 +937,9 @@ export class ReportsService {
 
     if (startDate && endDate) {
       try {
-        const rangeStart = new Date(startDate);
-        rangeStart.setHours(0, 0, 0, 0);
-        const rangeEnd = new Date(endDate);
-        rangeEnd.setHours(23, 59, 59, 999);
+        // ✅ TIMEZONE FIX: Use Asia/Karachi boundaries for sales query
+        const rangeStart = toBranchStartOfDay(startDate);
+        const rangeEnd = toBranchEndOfDay(endDate);
 
         const sales = await prisma.sale.findMany({
           where: {
