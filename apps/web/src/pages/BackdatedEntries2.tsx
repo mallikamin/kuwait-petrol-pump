@@ -107,7 +107,6 @@ export function BackdatedEntries2() {
   const [addCustomerOpen, setAddCustomerOpen] = useState(false);
   const [newCustomer, setNewCustomer] = useState({ name: '', phone: '', email: '' });
   const [isSubmittingCustomer, setIsSubmittingCustomer] = useState(false);
-  const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
@@ -845,61 +844,10 @@ export function BackdatedEntries2() {
           ═══════════════════════════════════════════════════════════════════════ */}
       <div className="flex flex-1 overflow-hidden min-h-0">
 
-        {/* ── LEFT PANEL: Customer Groups ──────────────────────────────────── */}
-        {!leftCollapsed && (
-          <div className="w-[260px] border-r flex flex-col bg-muted/20 flex-shrink-0">
-            <div className="p-2 border-b flex items-center gap-1.5">
-              <Button size="sm" variant="outline" className="h-7 text-[11px] flex-1 gap-1" onClick={() => setAddGroupOpen(true)}>
-                <Plus className="h-3 w-3" /> Add Group
-              </Button>
-              <Button size="sm" variant="ghost" className="h-7 text-[11px] px-2"
-                onClick={() => addTransactionToCustomer('__walkin__', 'Walk-in Sales')}>
-                Walk-in
-              </Button>
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              {customerGroups.length === 0 && (
-                <div className="p-4 text-center text-xs text-muted-foreground">
-                  {!selectedBranchId ? 'Select a branch' : isDailySummaryLoading ? 'Loading...' : 'No transactions yet'}
-                </div>
-              )}
-              {customerGroups.map(g => (
-                <button key={g.customerId}
-                  className={cn(
-                    'w-full text-left px-3 py-2.5 border-b text-xs hover:bg-accent/50 transition-colors',
-                    activeCustomerId === g.customerId && 'bg-accent border-l-2 border-l-primary'
-                  )}
-                  onClick={() => {
-                    setActiveCustomerId(g.customerId);
-                    // Expand group if collapsed
-                    setCollapsedGroups(prev => {
-                      const next = new Set(prev);
-                      if (next.has(g.customerId)) next.delete(g.customerId);
-                      return next;
-                    });
-                    // Scroll into view
-                    setTimeout(() => {
-                      document.getElementById(`group-${g.customerId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    }, 0);
-                  }}
-                >
-                  <div className="font-medium truncate">{g.customerName}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* ── CENTER PANEL: Transactions ───────────────────────────────────── */}
         <div className="flex-1 flex flex-col overflow-hidden min-w-0">
           {/* Panel toggle toolbar */}
           <div className="flex items-center px-1 py-0.5 border-b bg-muted/10 flex-shrink-0 gap-1">
-            <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-              onClick={() => setLeftCollapsed(!leftCollapsed)}
-              title={leftCollapsed ? 'Show customer list' : 'Hide customer list'}>
-              {leftCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
-            </Button>
-            <span className="text-[10px] text-muted-foreground">{leftCollapsed ? 'Customers' : ''}</span>
             <Button size="sm" variant="outline" className="h-6 text-[11px] gap-1 px-2"
               onClick={() => setAddGroupOpen(true)}
               title="Add customer group">
@@ -1213,10 +1161,6 @@ export function BackdatedEntries2() {
                   <span className="text-slate-500">Transactions</span>
                   <span className="font-mono font-semibold">{transactions.length}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Total liters</span>
-                  <span className="font-mono font-semibold">{fmtL(transactions.reduce((s, t) => s + toNumber(t.quantity), 0))}</span>
-                </div>
                 {lastSaved && (
                   <div className="flex justify-between">
                     <span className="text-slate-500">Last saved</span>
@@ -1393,7 +1337,7 @@ export function BackdatedEntries2() {
                   </div>
                   <div className="flex justify-between text-xs">
                     <span className="text-muted-foreground">Created By:</span>
-                    <span className="font-semibold">{finalizeResult.finalizedBy?.fullName || finalizeResult.finalizedBy?.username || 'Unknown'}</span>
+                    <span className="font-semibold">{finalizeResult.finalizedBy || 'Unknown'}</span>
                   </div>
                 </div>
 
