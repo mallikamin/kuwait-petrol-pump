@@ -1116,4 +1116,234 @@ describe('DailyBackdatedEntriesService - Fuel Type Corruption Regression', () =>
 
     console.log('[TEST 9] ✅ Finalize response includes all reconciliation fields');
   });
+
+  /**
+   * TEST 10: Non-fuel products with "DIESEL" in name remain OTHER
+   *
+   * REGRESSION FIX: Products like "RIVO DALA DIESEL FILTER 070" were being
+   * misclassified as HSD fuel due to substring matching in productName.
+   *
+   * GIVEN: Transaction with productId (non-fuel), productName contains "DIESEL"
+   * WHEN: Calculate reconciliation totals
+   * THEN: Should classify as OTHER (non-fuel), not HSD
+   */
+  it('TEST 10: non-fuel products with DIESEL in name remain OTHER', async () => {
+    const testDateNonFuel = '2026-04-19';
+
+    // Setup meter readings
+    await service.saveDailyMeterReadings({
+      branchId: testBranchId,
+      businessDate: testDateNonFuel,
+      nozzles: [
+        { nozzleId: hsdNozzleId, shiftId: morningShiftId, readingType: 'opening', meterValue: 1000 },
+        { nozzleId: hsdNozzleId, shiftId: morningShiftId, readingType: 'closing', meterValue: 1100 }, // +100L HSD
+      ],
+    }, testOrganizationId);
+
+    // Create transactions:
+    // 1. HSD fuel (100L @ 340 = 34,000)
+    // 2. Non-fuel product with "DIESEL" in name (10 units @ 800 = 8,000)
+    const nonFuelProduct = await prisma.product.findFirst({
+      where: { organizationId: testOrganizationId },
+    });
+
+    const entries = await prisma.backdatedEntry.findMany({
+      where: {
+        branchId: testBranchId,
+        businessDate: new Date(`${testDateNonFuel}T00:00:00Z`),
+      },
+    });
+
+    await service.saveDailyTransactions({
+      branchId: testBranchId,
+      businessDate: testDateNonFuel,
+      transactions: [
+        // HSD fuel transaction
+        {
+          id: '00000000-0000-0000-0000-000000000010',
+          nozzleId: hsdNozzleId,
+          fuelCode: 'HSD',
+          productName: 'HSD',
+          quantity: 100,
+          unitPrice: 340,
+          lineTotal: 34000,
+          paymentMethod: 'cash',
+          transactionDateTime: new Date().toISOString(),
+        },
+        // Non-fuel product with "DIESEL" in name
+        {
+          id: '00000000-0000-0000-0000-000000000011',
+          productId: nonFuelProduct?.id || undefined,
+          productName: 'RIVO DALA DIESEL FILTER 070', // Contains "DIESEL" but is non-fuel
+          quantity: 10,
+          unitPrice: 800,
+          lineTotal: 8000,
+          paymentMethod: 'cash',
+          transactionDateTime: new Date().toISOString(),
+        },
+      ],
+    }, testOrganizationId);
+
+    // Get summary
+    const summary = await service.getDailySummary({
+      branchId: testBranchId,
+      businessDate: testDateNonFuel,
+    }, testOrganizationId);
+
+    // ✅ Verify classification:
+    // - HSD fuel: 100L posted
+    // - Non-fuel (DIESEL FILTER): NOT counted in HSD, should be in nonFuelBreakdown
+    expect(summary.postedTotals.hsdLiters).toBe(100);
+    expect(summary.postedTotals.pmgLiters).toBe(0);
+
+    // ✅ Verify non-fuel breakdown includes the diesel filter
+    const dieselFilterTxn = summary.transactions.find(t => t.productName?.includes('DIESEL FILTER'));
+    expect(dieselFilterTxn).toBeDefined();
+    expect(dieselFilterTxn?.fuelCode).toBe('OTHER'); // ✅ Must be OTHER, not HSD
+
+    console.log('[TEST 10] ✅ Non-fuel products with DIESEL in name remain OTHER');
+  });
+
+  /**
+   * TEST 11: Cash variance excludes non-fuel transactions
+   *
+   * REGRESSION FIX: Non-fuel cash transactions were inflating postedCash,
+   * causing incorrect cash variance calculations.
+   *
+   * GIVEN: Fuel cash (HSD 80L @ 300 = 24,000) + Non-fuel cash (filter 10 @ 800 = 8,000)
+   * WHEN: Calculate cash variance
+   * THEN: Only fuel cash (24,000) should be counted, non-fuel excluded
+   */
+  it('TEST 11: cash variance calculation excludes non-fuel', async () => {
+    const testDateCashVariance = '2026-04-20';
+
+    // Setup meter readings: HSD 100L @ 300 = 30,000
+    await service.saveDailyMeterReadings({
+      branchId: testBranchId,
+      businessDate: testDateCashVariance,
+      nozzles: [
+        { nozzleId: hsdNozzleId, shiftId: morningShiftId, readingType: 'opening', meterValue: 1000 },
+        { nozzleId: hsdNozzleId, shiftId: morningShiftId, readingType: 'closing', meterValue: 1100 }, // +100L HSD
+      ],
+    }, testOrganizationId);
+
+    const nonFuelProduct = await prisma.product.findFirst({
+      where: { organizationId: testOrganizationId },
+    });
+
+    // Post transactions:
+    // - HSD cash: 80L @ 300 = 24,000
+    // - HSD credit: 20L @ 300 = 6,000
+    // - Non-fuel cash: 10 @ 800 = 8,000 (should NOT affect cash variance)
+    await service.saveDailyTransactions({
+      branchId: testBranchId,
+      businessDate: testDateCashVariance,
+      transactions: [
+        // HSD fuel cash
+        {
+          id: '00000000-0000-0000-0000-000000000020',
+          nozzleId: hsdNozzleId,
+          fuelCode: 'HSD',
+          productName: 'HSD',
+          quantity: 80,
+          unitPrice: 300,
+          lineTotal: 24000,
+          paymentMethod: 'cash',
+          transactionDateTime: new Date().toISOString(),
+        },
+        // HSD fuel credit
+        {
+          id: '00000000-0000-0000-0000-000000000021',
+          nozzleId: hsdNozzleId,
+          fuelCode: 'HSD',
+          productName: 'HSD',
+          quantity: 20,
+          unitPrice: 300,
+          lineTotal: 6000,
+          paymentMethod: 'credit_customer',
+          transactionDateTime: new Date().toISOString(),
+        },
+        // Non-fuel cash (should NOT affect fuel cash variance)
+        {
+          id: '00000000-0000-0000-0000-000000000022',
+          productId: nonFuelProduct?.id || undefined,
+          productName: 'DIESEL FILTER',
+          quantity: 10,
+          unitPrice: 800,
+          lineTotal: 8000,
+          paymentMethod: 'cash',
+          transactionDateTime: new Date().toISOString(),
+        },
+      ],
+    }, testOrganizationId);
+
+    // Get summary
+    const summary = await service.getDailySummary({
+      branchId: testBranchId,
+      businessDate: testDateCashVariance,
+    }, testOrganizationId);
+
+    // ✅ Verify cash variance calculation:
+    // Meter sales = 100L * 300 = 30,000
+    // Non-cash total = 6,000 (credit only, excludes non-fuel)
+    // Expected cash = 30,000 - 6,000 = 24,000
+    // Posted cash = 24,000 (fuel only, excludes non-fuel 8,000)
+    // Cash gap = 24,000 - 24,000 = 0
+    expect(summary.backTracedCash.meterSalesPkr).toBe(30000);
+    expect(summary.backTracedCash.nonCashTotal).toBe(6000);
+    expect(summary.backTracedCash.expectedCash).toBe(24000);
+    expect(summary.backTracedCash.postedCash).toBe(24000); // ✅ Must be 24,000, not 32,000 (excludes non-fuel cash)
+    expect(summary.backTracedCash.cashGap).toBe(0);
+
+    console.log('[TEST 11] ✅ Cash variance excludes non-fuel transactions');
+  });
+
+  /**
+   * TEST 12: Finalize response includes business date
+   *
+   * GIVEN: Finalize a day
+   * WHEN: Check finalize response
+   * THEN: Response includes businessDate field for UI context
+   */
+  it('TEST 12: finalize response includes business date', async () => {
+    const testDateBusinessDate = '2026-04-21';
+
+    // Setup minimal data
+    await service.saveDailyMeterReadings({
+      branchId: testBranchId,
+      businessDate: testDateBusinessDate,
+      nozzles: [
+        { nozzleId: hsdNozzleId, shiftId: morningShiftId, readingType: 'opening', meterValue: 1000 },
+        { nozzleId: hsdNozzleId, shiftId: morningShiftId, readingType: 'closing', meterValue: 1100 },
+      ],
+    }, testOrganizationId);
+
+    await service.saveDailyTransactions({
+      branchId: testBranchId,
+      businessDate: testDateBusinessDate,
+      transactions: [
+        {
+          id: '00000000-0000-0000-0000-000000000030',
+          nozzleId: hsdNozzleId,
+          fuelCode: 'HSD',
+          quantity: 100,
+          unitPrice: 300,
+          lineTotal: 30000,
+          paymentMethod: 'cash',
+          transactionDateTime: new Date().toISOString(),
+        },
+      ],
+    }, testOrganizationId);
+
+    // Finalize
+    const result = await service.finalizeDay({
+      branchId: testBranchId,
+      businessDate: testDateBusinessDate,
+    }, testOrganizationId, testUserId);
+
+    // ✅ Verify business date is included
+    expect(result.businessDate).toBe(testDateBusinessDate);
+
+    console.log('[TEST 12] ✅ Finalize response includes business date');
+  });
 });

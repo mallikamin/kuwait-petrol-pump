@@ -166,6 +166,7 @@ export function BackdatedEntries() {
     metrics?: { hsdGap?: number; pmgGap?: number; cashGap?: number };
     salesCreated?: number;
     transactionsProcessed?: number;
+    businessDate?: string; // ✅ NEW: Business date for success modal context
     paymentBreakdown?: {
       cash: { liters: number; amount: number };
       credit: { liters: number; amount: number };
@@ -3200,6 +3201,20 @@ export function BackdatedEntries() {
                 </DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
+                {/* Business Date Context */}
+                {finalizeResult.businessDate && (
+                  <div className="bg-slate-100 border border-slate-300 rounded px-3 py-2 text-sm">
+                    <span className="font-semibold text-slate-700">Business Date: </span>
+                    <span className="font-semibold text-slate-900">
+                      {new Date(finalizeResult.businessDate + 'T00:00:00').toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                      })}
+                    </span>
+                  </div>
+                )}
+
                 <div className="text-sm text-muted-foreground">
                   {finalizeResult.message}
                 </div>
@@ -3264,21 +3279,25 @@ export function BackdatedEntries() {
                     <span className="text-muted-foreground">Created By:</span>
                     <span className="font-semibold">{finalizeResult.finalizedBy?.fullName || finalizeResult.finalizedBy?.username || 'Unknown'}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Date/Time:</span>
-                    <span className="font-semibold">
-                      {finalizeResult.finalizedAt
-                        ? new Date(finalizeResult.finalizedAt).toLocaleString('en-US', {
-                            year: 'numeric',
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })
-                        : businessDate}
+                </div>
+
+                {/* Finalization Timestamp Footer */}
+                {finalizeResult.finalizedAt && (
+                  <div className="text-xs text-center text-muted-foreground border-t pt-3">
+                    Finalized & Reconciled on Date/Time:{' '}
+                    <span className="font-semibold text-slate-700">
+                      {new Date(finalizeResult.finalizedAt).toLocaleString('en-US', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                      })}
                     </span>
                   </div>
-                </div>
+                )}
+
                 {!finalizeResult.alreadyFinalized && (
                   <div className="text-xs text-muted-foreground">
                     Transactions will be synced to QuickBooks in the background.

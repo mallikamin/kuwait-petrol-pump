@@ -62,22 +62,58 @@ export class DailyBackdatedEntriesService {
     return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
   }
 
+  /**
+   * Canonical fuel classification resolver
+   *
+   * RULES (non-negotiable):
+   * 1. If transaction has fuelTypeId → classify by fuelType (HSD/PMG)
+   * 2. Else if transaction has productId AND fuelTypeId is null → classify as OTHER (non-fuel)
+   * 3. Parse productName ONLY as last-resort legacy fallback when BOTH fuelTypeId and productId are null
+   *
+   * This prevents non-fuel products like "DIESEL FILTER" from being misclassified as HSD fuel.
+   */
+  private resolveFuelCodeCanonical(txn: {
+    fuelTypeId?: string | null;
+    productId?: string | null;
+    fuelType?: { code?: string } | null;
+    productName?: string | null;
+    backdatedEntry?: { nozzle?: { fuelType?: { code?: string } | null } | null } | null;
+  }): 'HSD' | 'PMG' | 'OTHER' {
+    // Priority 1: Explicit fuel type from transaction
+    const explicit = (txn.fuelType?.code || '').toUpperCase();
+    if (explicit === 'HSD' || explicit === 'PMG') return explicit as 'HSD' | 'PMG';
+
+    // Priority 2: Nozzle fuel type (for legacy transactions linked to nozzles)
+    const nozzleFuel = (txn.backdatedEntry?.nozzle?.fuelType?.code || '').toUpperCase();
+    if (nozzleFuel === 'HSD' || nozzleFuel === 'PMG') return nozzleFuel as 'HSD' | 'PMG';
+
+    // Priority 3: If productId exists but fuelTypeId is null → non-fuel item
+    if (txn.productId && !txn.fuelTypeId) {
+      return 'OTHER';
+    }
+
+    // Priority 4: LAST RESORT - Parse productName only when BOTH fuelTypeId and productId are null
+    // This is for legacy data migration only
+    if (!txn.fuelTypeId && !txn.productId) {
+      const productNameUpper = (txn.productName || '').toUpperCase();
+      // Only match exact fuel keywords, not substrings in product names
+      if (productNameUpper === 'HSD' || productNameUpper === 'DIESEL') return 'HSD';
+      if (productNameUpper === 'PMG' || productNameUpper === 'PETROL') return 'PMG';
+    }
+
+    // Default: Non-fuel
+    return 'OTHER';
+  }
+
   private resolveFuelCodeForChecklist(txn: {
+    fuelTypeId?: string | null;
+    productId?: string | null;
     fuelType?: { code?: string } | null;
     productName?: string | null;
     backdatedEntry?: { nozzle?: { fuelType?: { code?: string } | null } | null } | null;
   }): 'HSD' | 'PMG' | null {
-    const explicit = (txn.fuelType?.code || '').toUpperCase();
-    if (explicit === 'HSD' || explicit === 'PMG') return explicit as 'HSD' | 'PMG';
-
-    const nozzleFuel = (txn.backdatedEntry?.nozzle?.fuelType?.code || '').toUpperCase();
-    if (nozzleFuel === 'HSD' || nozzleFuel === 'PMG') return nozzleFuel as 'HSD' | 'PMG';
-
-    const productNameUpper = (txn.productName || '').toUpperCase();
-    if (productNameUpper.includes('HSD') || productNameUpper.includes('DIESEL')) return 'HSD';
-    if (productNameUpper.includes('PMG') || productNameUpper.includes('PETROL')) return 'PMG';
-
-    return null;
+    const code = this.resolveFuelCodeCanonical(txn);
+    return code === 'OTHER' ? null : code;
   }
 
   /**
@@ -539,29 +575,15 @@ export class DailyBackdatedEntriesService {
       };
     });
 
-    // Helper: Resolve fuel code with fallback priority
+    // Helper: Resolve fuel code using canonical classification
     const resolveFuelCode = (txn: any, entry: any): string => {
-      // Priority 1: Try transaction's explicit fuel type
-      if (txn.fuelType?.code) {
-        return txn.fuelType.code;
-      }
-
-      // Priority 2: Fallback to nozzle's fuel type (legacy transactions with null fuelTypeId)
-      if (entry.nozzle?.fuelType?.code) {
-        return entry.nozzle.fuelType.code;
-      }
-
-      // Priority 3: Parse from productName (HSD, Diesel => 'HSD', PMG, Petrol => 'PMG')
-      const productNameUpper = (txn.productName || '').toUpperCase();
-      if (productNameUpper.includes('HSD') || productNameUpper.includes('DIESEL')) {
-        return 'HSD';
-      }
-      if (productNameUpper.includes('PMG') || productNameUpper.includes('PETROL')) {
-        return 'PMG';
-      }
-
-      // Explicit non-fuel bucket for transactions without fuel mapping.
-      return 'OTHER';
+      return this.resolveFuelCodeCanonical({
+        fuelTypeId: txn.fuelTypeId,
+        productId: txn.productId,
+        fuelType: txn.fuelType,
+        productName: txn.productName,
+        backdatedEntry: { nozzle: entry.nozzle },
+      });
     };
 
     // Collect all transactions
@@ -1212,7 +1234,7 @@ export class DailyBackdatedEntriesService {
 
   /**
    * ✅ Helper: Calculate payment method breakdown (Cash, Credit, Bank Card, PSO Card)
-   * Note: Includes both fuel and non-fuel transactions. Liters are 0 for non-fuel.
+   * FUEL ONLY - Non-fuel transactions excluded to ensure correct cash variance calculation.
    */
   private calculatePaymentBreakdown(
     transactions: any[]
@@ -1230,12 +1252,14 @@ export class DailyBackdatedEntriesService {
     };
 
     for (const txn of transactions) {
-      // Include both fuel and non-fuel transactions
-      // For non-fuel: liters = 0 (quantity is pieces/units, not liters)
-      // Explicit classification: fuel = HSD or PMG only
+      // FUEL ONLY: Only include HSD/PMG transactions in payment breakdown
+      // Non-fuel transactions are tracked separately and don't affect cash variance
       const fuelCode = (txn as any).fuelCode || ((txn as any).fuelType?.code);
       const isFuel = fuelCode === 'HSD' || fuelCode === 'PMG';
-      const liters = isFuel ? parseFloat(txn.quantity.toString()) : 0;
+
+      if (!isFuel) continue; // ✅ FIX: Skip non-fuel transactions entirely
+
+      const liters = parseFloat(txn.quantity.toString());
       const amount = parseFloat(txn.lineTotal.toString());
       const method = (txn.paymentMethod || '').toLowerCase();
 
@@ -1703,9 +1727,10 @@ export class DailyBackdatedEntriesService {
       reportSyncStatus: 'completed',
       paymentBreakdown, // ✅ Payment method breakdown (legacy, kept for compatibility)
       reconciliationTotals, // ✅ NEW: Reconciliation totals for success dialog
+      businessDate, // ✅ NEW: Business date being finalized (for success modal context)
       branchName: branch.name, // ✅ NEW: Branch name
       finalizedBy: finalizerInfo, // ✅ NEW: User who finalized
-      finalizedAt: new Date().toISOString(), // ✅ NEW: Finalization timestamp
+      finalizedAt: new Date().toISOString(), // ✅ NEW: Finalization timestamp (latest finalization)
       details: {
         entriesFinalized: entries.length,
         transactionsProcessed: plainTransactions.length,

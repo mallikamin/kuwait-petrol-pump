@@ -1293,6 +1293,20 @@ export function BackdatedEntries2() {
                 </DialogTitle>
               </DialogHeader>
               <div className="space-y-4 text-sm">
+                {/* Business Date Context */}
+                {finalizeResult.businessDate && (
+                  <div className="bg-slate-100 border border-slate-300 rounded px-3 py-2 text-xs">
+                    <span className="font-semibold text-slate-700">Business Date: </span>
+                    <span className="font-semibold text-slate-900">
+                      {new Date(finalizeResult.businessDate + 'T00:00:00').toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                      })}
+                    </span>
+                  </div>
+                )}
+
                 {/* Summary message */}
                 <p className="text-muted-foreground">{finalizeResult.message}</p>
 
@@ -1357,17 +1371,19 @@ export function BackdatedEntries2() {
                   </div>
                   <div className="flex justify-between text-xs">
                     <span className="text-muted-foreground">Created By:</span>
-                    <span className="font-semibold">{finalizeResult.finalizedBy || 'Unknown'}</span>
-                  </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground">Date/Time:</span>
-                    <span className="font-semibold">
-                      {finalizeResult.finalizedAt
-                        ? format(new Date(finalizeResult.finalizedAt), 'PPp')
-                        : format(new Date(businessDate), 'PPP')}
-                    </span>
+                    <span className="font-semibold">{finalizeResult.finalizedBy?.fullName || finalizeResult.finalizedBy?.username || 'Unknown'}</span>
                   </div>
                 </div>
+
+                {/* Finalization Timestamp Footer */}
+                {finalizeResult.finalizedAt && (
+                  <div className="text-xs text-center text-muted-foreground border-t pt-3">
+                    Finalized & Reconciled on Date/Time:{' '}
+                    <span className="font-semibold text-slate-700">
+                      {format(new Date(finalizeResult.finalizedAt), 'PPpp')}
+                    </span>
+                  </div>
+                )}
 
                 {/* Cash Gap Warning (if present) */}
                 {finalizeResult.cashGapWarning && (
