@@ -921,16 +921,22 @@ export class ReportsService {
       sl => sl.quantity >= (sl.product.lowStockThreshold || 0)
     );
 
-    // Calculate totals
-    const totalItems = stockLevels.length;
+    // Calculate totals (include both stock_levels AND received purchases)
+    // ✅ FIX: Include fuel purchases in totals (they use tank_level_logs, not stock_levels)
+    const totalItems = stockLevels.length + purchases.length; // Count both product stock + received purchases
     const totalQuantity = stockLevels.reduce((sum, sl) => sum + sl.quantity, 0);
     const lowStockCount = lowStockProducts.length;
 
-    // Calculate total value
-    const totalValue = stockLevels.reduce(
+    // Calculate total value (stock_levels + received purchases)
+    const stockLevelsValue = stockLevels.reduce(
       (sum, sl) => sum + (sl.quantity * sl.product.unitPrice.toNumber()),
       0
     );
+    const purchasesValue = purchases.reduce(
+      (sum, p: any) => sum + (p.totalCost || 0),
+      0
+    );
+    const totalValue = stockLevelsValue + purchasesValue;
 
     // Get sales movement for the date range (fuel + non-fuel)
     let salesMovement: any = null;

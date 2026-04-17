@@ -68,8 +68,15 @@ export const getSalesQuerySchema = z.object({
 export const getSummaryQuerySchema = z.object({
   branchId: z.string().uuid(),
   shiftInstanceId: z.string().uuid().optional(),
-  startDate: z.string().datetime().transform(val => new Date(val)).optional(),
-  endDate: z.string().datetime().transform(val => new Date(val)).optional(),
+  // ✅ FIX: Accept both YYYY-MM-DD and ISO datetime formats
+  startDate: z.string().refine(
+    (val) => /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}.*)?$/.test(val),
+    { message: 'Invalid date format. Expected YYYY-MM-DD or ISO datetime' }
+  ).transform(val => new Date(val)).optional(),
+  endDate: z.string().refine(
+    (val) => /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}.*)?$/.test(val),
+    { message: 'Invalid date format. Expected YYYY-MM-DD or ISO datetime' }
+  ).transform(val => new Date(val)).optional(),
 });
 
 export const idParamSchema = z.object({

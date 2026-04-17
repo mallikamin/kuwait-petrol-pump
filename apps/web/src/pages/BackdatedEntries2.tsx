@@ -381,13 +381,46 @@ export function BackdatedEntries2() {
       });
       return res.data.data;
     },
-    onSuccess: () => {
+    onSuccess: (savedData) => {
+      // ✅ FIX: Use returned data immediately to avoid race condition with refetch
+      if (savedData?.transactions && savedData.transactions.length > 0) {
+        const hydrated = savedData.transactions.map((txn: any): Transaction => ({
+          id: txn.id,
+          nozzleId: txn.nozzleId || '',
+          customerId: txn.customerId || '',
+          customerName: txn.customer?.name || '',
+          fuelCode: (txn.fuelCode || '') as any,
+          vehicleNumber: txn.vehicleNumber || '',
+          slipNumber: txn.slipNumber || '',
+          productName: txn.productName || '',
+          quantity: toNumber(txn.quantity).toString(),
+          unitPrice: toNumber(txn.unitPrice).toFixed(2),
+          lineTotal: toNumber(txn.lineTotal).toFixed(2),
+          paymentMethod: txn.paymentMethod,
+          bankId: txn.bankId || '',
+          createdBy: txn.createdBy,
+          createdByUser: txn.createdByUser,
+          updatedBy: txn.updatedBy,
+          updatedByUser: txn.updatedByUser,
+          createdAt: txn.createdAt,
+          updatedAt: txn.updatedAt,
+          _localStatus: 'saved' as const,
+        }));
+        hydratingRef.current = true;
+        setTransactions(hydrated);
+        setSyncMessage(`Saved ${hydrated.length} transactions.`);
+      } else {
+        hydratingRef.current = true;
+        setTransactions([]);
+        setSyncMessage('Draft saved (no transactions).');
+      }
       toast.success('Draft saved');
       setLastSaved(new Date());
       setIsDirty(false);
       justSavedRef.current = true;
       setLoadedKey('');
       setDeletedTransactionIds([]);
+      // Still refetch in background for metrics/summary updates
       refetchDailySummary();
     },
     onError: (err: any) => {
