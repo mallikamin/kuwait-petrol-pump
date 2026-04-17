@@ -44,6 +44,8 @@ export interface LedgerEntry {
   vehicleNumber?: string;
   slipNumber?: string;
   receiptNumber?: string;
+  paymentMethod?: string;
+  productType?: string;
   debit: number;
   credit: number;
   balance: number;
