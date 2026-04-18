@@ -18,30 +18,7 @@ import { useAuthStore } from '@/store/auth';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { MeterReadingCapture, type MeterReadingData } from '@/components/MeterReadingCapture';
-
-// ── Types (local, matches API contract) ─────────────────────────────────────
-interface Transaction {
-  id?: string;
-  nozzleId?: string;
-  customerId?: string;
-  customerName?: string;
-  fuelCode: 'HSD' | 'PMG' | 'OTHER' | '';
-  vehicleNumber?: string;
-  slipNumber?: string;
-  productName: string;
-  quantity: string;
-  unitPrice: string;
-  lineTotal: string;
-  paymentMethod: 'cash' | 'credit_card' | 'bank_card' | 'pso_card' | 'credit_customer';
-  bankId?: string;
-  _localStatus?: 'draft' | 'saved';
-  createdBy?: string;
-  createdByUser?: { id: string; fullName: string; username: string } | null;
-  updatedBy?: string;
-  updatedByUser?: { id: string; fullName: string; username: string } | null;
-  createdAt?: string;
-  updatedAt?: string;
-}
+import { buildCustomerGroups, mapApiTxnToLocal, type BackdatedTxn as Transaction } from './BackdatedEntries2.utils';
 
 // ── Utilities ────────────────────────────────────────────────────────────────
 const toNumber = (v: unknown): number => {
@@ -232,26 +209,7 @@ export function BackdatedEntries2() {
   });
 
   // ── Computed ───────────────────────────────────────────────────────────────
-  const customerGroups = useMemo(() => {
-    const grouped = new Map<string, { indices: number[]; txns: Transaction[] }>();
-    transactions.forEach((txn, idx) => {
-      const key = txn.customerId || '__walkin__';
-      if (!grouped.has(key)) grouped.set(key, { indices: [], txns: [] });
-      grouped.get(key)!.indices.push(idx);
-      grouped.get(key)!.txns.push(txn);
-    });
-    return Array.from(grouped.entries())
-      .map(([customerId, { indices, txns }]) => ({
-        customerId,
-        customerName: customerId === '__walkin__' ? 'Walk-in Sales' : (txns[0].customerName || 'Unknown'),
-        indices,
-        transactions: txns,
-        totalLiters: txns.reduce((s, t) => s + toNumber(t.quantity), 0),
-        totalAmount: txns.reduce((s, t) => s + toNumber(t.lineTotal), 0),
-        firstIndex: indices[0],
-      }))
-      .sort((a, b) => b.firstIndex - a.firstIndex);
-  }, [transactions]);
+  const customerGroups = useMemo(() => buildCustomerGroups(transactions), [transactions]);
 
   const nonFuelProductOptions = useMemo(() => {
     const map = new Map<string, { id: string; name: string; unitPrice?: number; isLegacy?: boolean }>();
@@ -303,27 +261,7 @@ export function BackdatedEntries2() {
     if (isDirty && loadedKey === currentKey) return;
 
     if (dailySummaryData?.transactions?.length > 0) {
-      const hydrated = dailySummaryData.transactions.map((txn: any): Transaction => ({
-        id: txn.id,
-        nozzleId: txn.nozzle?.id || '',
-        customerId: txn.customer?.id || '',
-        customerName: txn.customer?.name || '',
-        fuelCode: (txn.fuelCode || '') as any,
-        vehicleNumber: txn.vehicleNumber || '',
-        slipNumber: txn.slipNumber || '',
-        productName: txn.productName || '',
-        quantity: toNumber(txn.quantity).toString(),
-        unitPrice: toNumber(txn.unitPrice).toFixed(2),
-        lineTotal: toNumber(txn.lineTotal).toFixed(2),
-        paymentMethod: txn.paymentMethod,
-        bankId: txn.bankId || '',
-        createdBy: txn.createdBy,
-        createdByUser: txn.createdByUser,
-        updatedBy: txn.updatedBy,
-        updatedByUser: txn.updatedByUser,
-        createdAt: txn.createdAt,
-        updatedAt: txn.updatedAt,
-      }));
+      const hydrated = dailySummaryData.transactions.map(mapApiTxnToLocal);
       hydratingRef.current = true;
       setTransactions(hydrated);
       setSyncMessage(`Loaded ${hydrated.length} transactions.`);
@@ -382,28 +320,14 @@ export function BackdatedEntries2() {
       return res.data.data;
     },
     onSuccess: (savedData) => {
-      // ✅ FIX: Use returned data immediately to avoid race condition with refetch
+      // Use server response immediately to avoid race condition with refetch.
+      // The save endpoint returns getDailySummary()'s shape (customer: {id,name},
+      // nozzle: {id,name}). Use the same mapper as GET hydration so grouping
+      // keys (customerId) resolve identically — otherwise every row collapses
+      // into one Walk-in group until the next refetch.
       if (savedData?.transactions && savedData.transactions.length > 0) {
-        const hydrated = savedData.transactions.map((txn: any): Transaction => ({
-          id: txn.id,
-          nozzleId: txn.nozzleId || '',
-          customerId: txn.customerId || '',
-          customerName: txn.customer?.name || '',
-          fuelCode: (txn.fuelCode || '') as any,
-          vehicleNumber: txn.vehicleNumber || '',
-          slipNumber: txn.slipNumber || '',
-          productName: txn.productName || '',
-          quantity: toNumber(txn.quantity).toString(),
-          unitPrice: toNumber(txn.unitPrice).toFixed(2),
-          lineTotal: toNumber(txn.lineTotal).toFixed(2),
-          paymentMethod: txn.paymentMethod,
-          bankId: txn.bankId || '',
-          createdBy: txn.createdBy,
-          createdByUser: txn.createdByUser,
-          updatedBy: txn.updatedBy,
-          updatedByUser: txn.updatedByUser,
-          createdAt: txn.createdAt,
-          updatedAt: txn.updatedAt,
+        const hydrated = savedData.transactions.map((txn: any) => ({
+          ...mapApiTxnToLocal(txn),
           _localStatus: 'saved' as const,
         }));
         hydratingRef.current = true;
