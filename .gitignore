@@ -76,3 +76,11 @@ qb-entities-*.json
 *-reconciliation-*.xlsx
 parity_check.py
 DEPLOY_LOG_*.md
+
+# QB rule-mining local artifacts
+qb_tokens.json
+outputs/qb-rule-mining/
+
+# Python cache
+__pycache__/
+*.pyc
