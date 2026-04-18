@@ -28,6 +28,7 @@ import { useAuthStore } from '@/store/auth';
 import { formatCurrency } from '@/utils/format';
 import { ProductSelector, ALL_PRODUCTS_VALUE } from '@/components/ui/product-selector';
 import { buildProductMovementCSV, type ProductMovementRow } from './Reports.inventory.utils';
+import { MonthlyInventoryGainLoss } from '@/components/MonthlyInventoryGainLoss';
 
 type ReportType =
   | 'daily-sales'
@@ -170,7 +171,7 @@ export function Reports() {
   const [inventoryFilterMode, setInventoryFilterMode] = useState<FilterMode>('date-range');
   // Product-Wise Movement filters within the Inventory Report.
   // Stay null/'all' when the user only wants the legacy view.
-  const [inventoryCategory, setInventoryCategory] = useState<'all' | 'HSD' | 'PMG' | 'non_fuel'>('all');
+  const [inventoryCategory, setInventoryCategory] = useState<'all' | 'total_fuel' | 'HSD' | 'PMG' | 'non_fuel'>('all');
   const [inventoryProductId, setInventoryProductId] = useState<string>(ALL_PRODUCTS_VALUE);
 
   // Daily Sales (supports no-filter, single date, and date range)
@@ -951,13 +952,14 @@ export function Reports() {
                       <Label>Category</Label>
                       <Select
                         value={inventoryCategory}
-                        onValueChange={(v) => { setInventoryCategory(v as 'all' | 'HSD' | 'PMG' | 'non_fuel'); setFetchEnabled(false); }}
+                        onValueChange={(v) => { setInventoryCategory(v as 'all' | 'total_fuel' | 'HSD' | 'PMG' | 'non_fuel'); setFetchEnabled(false); }}
                       >
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">All</SelectItem>
+                          <SelectItem value="total_fuel">Total Fuel</SelectItem>
                           <SelectItem value="HSD">HSD</SelectItem>
                           <SelectItem value="PMG">PMG</SelectItem>
                           <SelectItem value="non_fuel">Non-Fuel</SelectItem>
@@ -1720,6 +1722,7 @@ export function Reports() {
                   Product-Wise Movement
                   <span className="ml-2 text-xs font-normal text-muted-foreground">
                     {inventoryCategory === 'all' ? 'All categories' :
+                      inventoryCategory === 'total_fuel' ? 'Total Fuel' :
                       inventoryCategory === 'HSD' ? 'HSD' :
                       inventoryCategory === 'PMG' ? 'PMG' : 'Non-Fuel'}
                     {' · '}
@@ -1929,6 +1932,10 @@ export function Reports() {
               </Table>
             </CardContent>
           </Card>
+
+          {/* Monthly Gain/Loss — additive section with its own month picker.
+              Placed at the bottom of Inventory Report so existing flow stays unchanged. */}
+          {branchId && <MonthlyInventoryGainLoss branchId={branchId} />}
         </div>
       )}
 

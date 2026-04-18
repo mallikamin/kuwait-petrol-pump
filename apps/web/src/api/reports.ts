@@ -62,7 +62,7 @@ export const reportsApi = {
     asOfDate?: string,
     startDate?: string,
     endDate?: string,
-    category?: 'all' | 'HSD' | 'PMG' | 'non_fuel',
+    category?: 'all' | 'total_fuel' | 'HSD' | 'PMG' | 'non_fuel',
     productId?: string,
   ): Promise<any> => {
     const params: any = { branchId };

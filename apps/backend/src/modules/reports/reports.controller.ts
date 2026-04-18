@@ -63,7 +63,7 @@ const inventoryReportQuerySchema = z.object({
   endDate: z.string().optional(), // ISO date string for range end
   // Product-Wise Movement filters (date-range mode only). Optional — keeps
   // backward compatibility with existing consumers that don't send these.
-  category: z.enum(['all', 'HSD', 'PMG', 'non_fuel']).optional(),
+  category: z.enum(['all', 'total_fuel', 'HSD', 'PMG', 'non_fuel']).optional(),
   productId: z.string().uuid().optional(),
 });
 
@@ -378,7 +378,7 @@ export class ReportsController {
         query.asOfDate,
         query.startDate,
         query.endDate,
-        query.category || 'all',
+        (query.category as 'all' | 'total_fuel' | 'HSD' | 'PMG' | 'non_fuel' | undefined) || 'all',
         query.productId
       );
 

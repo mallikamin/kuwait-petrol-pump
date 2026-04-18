@@ -73,4 +73,17 @@ describe('buildProductMovementCSV', () => {
     const csv = buildProductMovementCSV([], baseMeta({ category: 'non_fuel' }));
     expect(csv).toContain('"Category","Non-Fuel"');
   });
+
+  it('renders Total Fuel category label as "Total Fuel" not "total_fuel"', () => {
+    const csv = buildProductMovementCSV(
+      [
+        makeRow({ productType: 'HSD', productName: 'High Speed Diesel', unit: 'L', purchasedQty: 1000, soldQty: 200, netMovement: 800 }),
+        makeRow({ productType: 'PMG', productName: 'Premium Motor Gasoline', unit: 'L', purchasedQty: 500, soldQty: 50, netMovement: 450, productId: 'PMG' }),
+      ],
+      baseMeta({ category: 'total_fuel', productLabel: 'All products' }),
+    );
+    expect(csv).toContain('"Category","Total Fuel"');
+    expect(csv).toContain('"High Speed Diesel","HSD","L",1000,200,800');
+    expect(csv).toContain('"Premium Motor Gasoline","PMG","L",500,50,450');
+  });
 });

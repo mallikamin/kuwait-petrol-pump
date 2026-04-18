@@ -571,6 +571,30 @@ describe('Inventory Report - Product-Wise Movement', () => {
     expect(out.productMovement.rows[0].netMovement).toBe(-50);
   });
 
+  it('category=total_fuel returns HSD + PMG rows only (no non-fuel)', async () => {
+    seedRichFixture();
+    const out = await reportsService.getInventoryReport(
+      testBranchId, testOrgId, undefined, '2026-04-01', '2026-04-30', 'total_fuel',
+    );
+    const rows = out.productMovement.rows;
+    expect(rows).toHaveLength(2);
+    const types = rows.map((r: any) => r.productType).sort();
+    expect(types).toEqual(['HSD', 'PMG']);
+    expect(rows.every((r: any) => r.productType !== 'non_fuel')).toBe(true);
+    expect(out.productMovement.filters.category).toBe('total_fuel');
+  });
+
+  it('category=total_fuel works with ISO-Z date inputs', async () => {
+    seedRichFixture();
+    const out = await reportsService.getInventoryReport(
+      testBranchId, testOrgId, undefined,
+      '2026-04-01T00:00:00.000Z', '2026-04-30T00:00:00.000Z', 'total_fuel',
+    );
+    const types = out.productMovement.rows.map((r: any) => r.productType).sort();
+    expect(types).toEqual(['HSD', 'PMG']);
+    expect(out.diagnostics.errors).toEqual([]);
+  });
+
   it('category=non_fuel returns only non-fuel rows', async () => {
     seedRichFixture();
     const out = await reportsService.getInventoryReport(

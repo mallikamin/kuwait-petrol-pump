@@ -744,7 +744,7 @@ export class ReportsService {
     asOfDate?: string,
     startDate?: string,
     endDate?: string,
-    category: 'all' | 'HSD' | 'PMG' | 'non_fuel' = 'all',
+    category: 'all' | 'total_fuel' | 'HSD' | 'PMG' | 'non_fuel' = 'all',
     productId?: string,
   ) {
     // Verify branch belongs to organization
@@ -1229,10 +1229,13 @@ export class ReportsService {
 
         const allRows: PMRow[] = [...fuelRows, ...Array.from(nonFuelByProductId.values())];
 
-        // Apply category filter
+        // Apply category filter. 'total_fuel' returns both fuels (HSD + PMG)
+        // — the spec's "Total Fuel" lens, distinct from 'all' which also
+        // includes non-fuel products.
         let filteredByCategory: PMRow[];
         if (category === 'HSD') filteredByCategory = allRows.filter(r => r.productType === 'HSD');
         else if (category === 'PMG') filteredByCategory = allRows.filter(r => r.productType === 'PMG');
+        else if (category === 'total_fuel') filteredByCategory = allRows.filter(r => r.productType === 'HSD' || r.productType === 'PMG');
         else if (category === 'non_fuel') filteredByCategory = allRows.filter(r => r.productType === 'non_fuel');
         else filteredByCategory = allRows;
 

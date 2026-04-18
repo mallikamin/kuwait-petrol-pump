@@ -17,7 +17,7 @@ export interface ProductMovementCSVMeta {
   branchName: string;
   startDate: string; // YYYY-MM-DD
   endDate: string;   // YYYY-MM-DD
-  category: 'all' | 'HSD' | 'PMG' | 'non_fuel';
+  category: 'all' | 'total_fuel' | 'HSD' | 'PMG' | 'non_fuel';
   productLabel: string; // "All products" or specific product name
   generatedAt?: Date;
 }
@@ -30,6 +30,7 @@ const csvEscape = (v: string | number): string => {
 const labelForCategory = (c: ProductMovementCSVMeta['category']): string => {
   if (c === 'HSD') return 'HSD';
   if (c === 'PMG') return 'PMG';
+  if (c === 'total_fuel') return 'Total Fuel';
   if (c === 'non_fuel') return 'Non-Fuel';
   return 'All';
 };

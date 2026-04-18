@@ -40,11 +40,12 @@ export function MonthlyInventoryGainLoss({ branchId }: MonthlyGainLossProps) {
 
   const queryClient = useQueryClient();
 
-  // Get fuel types
+  // Get fuel types. Canonical endpoint is /api/fuel-prices/fuel-types — the
+  // bare /fuel-types path 404s in production (no such route mounted).
   const { data: fuelTypes = [] } = useQuery({
     queryKey: ['fuelTypes'],
     queryFn: async () => {
-      const response = await apiClient.get('/fuel-types');
+      const response = await apiClient.get('/fuel-prices/fuel-types');
       return response.data;
     },
   });
