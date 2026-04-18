@@ -1116,7 +1116,7 @@ export function BackdatedEntries2() {
                   <div className="space-y-1.5 text-xs">
                     {paymentSummary.nonFuel > 0 && (
                       <div className="flex justify-between font-semibold">
-                        <span className="text-slate-700">Total (Cash + Credit)</span>
+                        <span className="text-slate-700">Total Non-Fuel Sale (Cash + Credit)</span>
                         <span className="font-mono text-slate-900">{fmtPKR(paymentSummary.nonFuel)}</span>
                       </div>
                     )}

@@ -11,6 +11,10 @@ const makeRow = (over: Partial<ProductMovementRow> = {}): ProductMovementRow => 
   netMovement: 0,
   purchasedValue: 0,
   soldValue: 0,
+  openingQty: 0,
+  gainLossQty: 0,
+  closingQty: 0,
+  openingSource: 'bootstrap',
   ...over,
 });
 
@@ -25,31 +29,99 @@ const baseMeta = (over: Partial<ProductMovementCSVMeta> = {}): ProductMovementCS
 });
 
 describe('buildProductMovementCSV', () => {
-  it('emits metadata block then header then rows', () => {
+  it('emits branded company block, report filters, header, then rows', () => {
     const csv = buildProductMovementCSV(
-      [makeRow({ productName: 'Filter A', purchasedQty: 50, soldQty: 10, netMovement: 40, purchasedValue: 5000, soldValue: 1500 })],
+      [
+        makeRow({
+          productName: 'Filter A',
+          openingQty: 5,
+          purchasedQty: 50,
+          soldQty: 10,
+          gainLossQty: 0,
+          closingQty: 45,
+          netMovement: 40,
+          purchasedValue: 5000,
+          soldValue: 1500,
+        }),
+      ],
       baseMeta(),
     );
-    const lines = csv.split('\n');
-    expect(lines[0]).toBe('"Inventory — Product-Wise Movement"');
-    expect(lines[1]).toBe('"Branch","Main Branch"');
-    expect(lines[2]).toBe('"Date Range","2026-01-01","to","2026-04-18"');
-    expect(lines[3]).toBe('"Category","All"');
-    expect(lines[4]).toBe('"Product","All products"');
-    expect(lines[5]).toBe('"Generated At","2026-04-18T01:00:00.000Z"');
-    expect(lines[6]).toBe(''); // blank separator
-    expect(lines[7]).toBe('"Product","Type","Unit","Purchased","Sold","Net Movement","Purchased Value","Sold Value"');
-    expect(lines[8]).toBe('"Filter A","Non-Fuel","units",50,10,40,5000,1500');
+    // Brand block is always first - company identity before per-report meta.
+    expect(csv).toContain('"Absormax Hygiene Products (Pvt) LTD"');
+    expect(csv).toContain('"Sundar Industrial Estate, Lahore"');
+    expect(csv).toContain('"Inventory - Product-Wise Movement"');
+    // Per-report meta
+    expect(csv).toContain('"Branch","Main Branch"');
+    expect(csv).toContain('"Date Range","2026-01-01","to","2026-04-18"');
+    expect(csv).toContain('"Category","All"');
+    expect(csv).toContain('"Product","All products"');
+    // New opening-cycle columns in the data header
+    expect(csv).toContain(
+      '"Product","Type","Unit","Opening","Purchased","Sold","Gain/Loss","Quantity in Hand (Net Movement)","Opening Source","Purchased Value","Sold Value"',
+    );
+    // Row values in new column order
+    expect(csv).toContain('"Filter A","Non-Fuel","units",5,50,10,0,45,"bootstrap",5000,1500');
   });
 
-  it('reflects applied filters in metadata block', () => {
+  it('marks rows with no bootstrap as assumed in the Opening Source column', () => {
     const csv = buildProductMovementCSV(
-      [makeRow({ productType: 'HSD', productName: 'High Speed Diesel', unit: 'L', purchasedQty: 1000, soldQty: 200, netMovement: 800 })],
+      [
+        makeRow({
+          productName: 'Filter B',
+          openingQty: 0,
+          purchasedQty: 10,
+          soldQty: 3,
+          closingQty: 7,
+          openingSource: 'assumed',
+        }),
+      ],
+      baseMeta(),
+    );
+    expect(csv).toContain('"Filter B","Non-Fuel","units",0,10,3,0,7,"assumed (not provided)"');
+  });
+
+  it('falls back to purchased-minus-sold when backend omits closingQty (legacy response)', () => {
+    const csv = buildProductMovementCSV(
+      [
+        {
+          productId: 'old-1',
+          productName: 'Legacy',
+          productType: 'non_fuel',
+          unit: 'units',
+          purchasedQty: 12,
+          soldQty: 4,
+          netMovement: 8,
+          purchasedValue: 0,
+          soldValue: 0,
+          // intentionally no opening/closing/source fields - older backend
+        },
+      ],
+      baseMeta(),
+    );
+    // Closing column must be populated even when backend skipped the field.
+    expect(csv).toContain('"Legacy","Non-Fuel","units",0,12,4,0,8,"assumed (not provided)"');
+  });
+
+  it('reflects applied filters in per-report metadata', () => {
+    const csv = buildProductMovementCSV(
+      [
+        makeRow({
+          productType: 'HSD',
+          productName: 'High Speed Diesel',
+          unit: 'L',
+          openingQty: 500,
+          purchasedQty: 1000,
+          soldQty: 200,
+          gainLossQty: -5,
+          closingQty: 1295,
+          netMovement: 800,
+        }),
+      ],
       baseMeta({ category: 'HSD', productLabel: 'High Speed Diesel' }),
     );
     expect(csv).toContain('"Category","HSD"');
     expect(csv).toContain('"Product","High Speed Diesel"');
-    expect(csv).toContain('"High Speed Diesel","HSD","L",1000,200,800');
+    expect(csv).toContain('"High Speed Diesel","HSD","L",500,1000,200,-5,1295,"bootstrap"');
   });
 
   it('escapes commas and quotes inside product names', () => {
@@ -57,16 +129,20 @@ describe('buildProductMovementCSV', () => {
       [makeRow({ productName: 'Filter "A", premium' })],
       baseMeta(),
     );
-    // " inside the value must be doubled (CSV standard) and the whole field quoted.
     expect(csv).toContain('"Filter ""A"", premium"');
   });
 
   it('handles empty row set (header still present)', () => {
     const csv = buildProductMovementCSV([], baseMeta());
-    const lines = csv.split('\n');
-    // 6 metadata lines + 1 blank + 1 header = 8 lines, no data rows
-    expect(lines).toHaveLength(8);
-    expect(lines[7]).toBe('"Product","Type","Unit","Purchased","Sold","Net Movement","Purchased Value","Sold Value"');
+    expect(csv).toContain(
+      '"Product","Type","Unit","Opening","Purchased","Sold","Gain/Loss","Quantity in Hand (Net Movement)","Opening Source","Purchased Value","Sold Value"',
+    );
+    // No data rows beyond the header
+    const afterHeader = csv.split(
+      '"Product","Type","Unit","Opening","Purchased","Sold","Gain/Loss","Quantity in Hand (Net Movement)","Opening Source","Purchased Value","Sold Value"',
+    )[1];
+    // Allow a trailing newline but nothing resembling a data row.
+    expect(afterHeader.trim()).toBe('');
   });
 
   it('renders Non-Fuel category label as "Non-Fuel" not "non_fuel"', () => {
@@ -77,13 +153,30 @@ describe('buildProductMovementCSV', () => {
   it('renders Total Fuel category label as "Total Fuel" not "total_fuel"', () => {
     const csv = buildProductMovementCSV(
       [
-        makeRow({ productType: 'HSD', productName: 'High Speed Diesel', unit: 'L', purchasedQty: 1000, soldQty: 200, netMovement: 800 }),
-        makeRow({ productType: 'PMG', productName: 'Premium Motor Gasoline', unit: 'L', purchasedQty: 500, soldQty: 50, netMovement: 450, productId: 'PMG' }),
+        makeRow({
+          productType: 'HSD',
+          productName: 'High Speed Diesel',
+          unit: 'L',
+          purchasedQty: 1000,
+          soldQty: 200,
+          closingQty: 800,
+          netMovement: 800,
+        }),
+        makeRow({
+          productType: 'PMG',
+          productName: 'Premium Motor Gasoline',
+          unit: 'L',
+          purchasedQty: 500,
+          soldQty: 50,
+          closingQty: 450,
+          netMovement: 450,
+          productId: 'PMG',
+        }),
       ],
       baseMeta({ category: 'total_fuel', productLabel: 'All products' }),
     );
     expect(csv).toContain('"Category","Total Fuel"');
-    expect(csv).toContain('"High Speed Diesel","HSD","L",1000,200,800');
-    expect(csv).toContain('"Premium Motor Gasoline","PMG","L",500,50,450');
+    expect(csv).toContain('"High Speed Diesel","HSD","L",0,1000,200,0,800,"bootstrap"');
+    expect(csv).toContain('"Premium Motor Gasoline","PMG","L",0,500,50,0,450,"bootstrap"');
   });
 });

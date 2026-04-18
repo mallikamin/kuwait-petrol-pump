@@ -72,6 +72,7 @@ model Branch {
   customerBranchLimits   CustomerBranchLimit[]
   customerReceipts       CustomerReceipt[]
   monthlyInventoryGainLoss MonthlyInventoryGainLoss[]
+  inventoryBootstrap       InventoryBootstrap[]
 
   @@map("branches")
 }
@@ -96,6 +97,7 @@ model FuelType {
   fuelInventory           FuelInventory[]
   backdatedTransactions   BackdatedTransaction[]
   monthlyInventoryGainLoss MonthlyInventoryGainLoss[]
+  inventoryBootstrap       InventoryBootstrap[]
 
   @@map("fuel_types")
 }
@@ -730,6 +732,7 @@ model Product {
   qbSyncLogs            QBSyncLog[]
   purchaseOrderItems    PurchaseOrderItem[]
   backdatedTransactions BackdatedTransaction[]
+  inventoryBootstrap    InventoryBootstrap[]
 
   @@unique([organizationId, sku])
   @@index([organizationId], name: "idx_products_org")
@@ -1358,4 +1361,34 @@ model MonthlyInventoryGainLoss {
   @@index([month], name: "idx_inv_gain_loss_month")
   @@index([fuelTypeId, month], name: "idx_inv_gain_loss_fuel_month")
   @@map("monthly_inventory_gain_loss")
+}
+
+/// InventoryBootstrap - per-branch opening-stock snapshot used as the baseline
+/// for the rolling Inventory Report cycle. A row anchors quantity at as_of_date
+/// so the report can compute any period's opening as:
+///   opening = bootstrap + purchases[bootstrap_date, period_start)
+///                        - sales[bootstrap_date, period_start)
+///                        + gainLoss[bootstrap_date, period_start)
+/// and closing = opening + period activity. Exactly one of productId or
+/// fuelTypeId is set per row (enforced by DB CHECK).
+model InventoryBootstrap {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  branchId   String   @map("branch_id") @db.Uuid
+  productId  String?  @map("product_id") @db.Uuid
+  fuelTypeId String?  @map("fuel_type_id") @db.Uuid
+  asOfDate   DateTime @map("as_of_date") @db.Date
+  quantity   Decimal  @db.Decimal(14, 3)
+  source     String   @db.VarChar(64) // e.g. 'bootstrap_2026-01-01'
+  notes      String?  @db.Text
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  branch   Branch    @relation(fields: [branchId], references: [id])
+  product  Product?  @relation(fields: [productId], references: [id])
+  fuelType FuelType? @relation(fields: [fuelTypeId], references: [id])
+
+  @@index([branchId, asOfDate], name: "idx_inv_bootstrap_branch_date")
+  @@index([productId], name: "idx_inv_bootstrap_product")
+  @@index([fuelTypeId], name: "idx_inv_bootstrap_fuel")
+  @@map("inventory_bootstrap")
 }

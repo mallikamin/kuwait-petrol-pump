@@ -29,6 +29,13 @@ import { formatCurrency } from '@/utils/format';
 import { ProductSelector, ALL_PRODUCTS_VALUE } from '@/components/ui/product-selector';
 import { buildProductMovementCSV, type ProductMovementRow } from './Reports.inventory.utils';
 import { MonthlyInventoryGainLoss } from '@/components/MonthlyInventoryGainLoss';
+import {
+  buildCsvMetaBlock,
+  buildPrintHeaderHtml,
+  PRINT_STYLES,
+  REPORT_BRAND,
+  type ReportMeta,
+} from '@/utils/reportBranding';
 
 type ReportType =
   | 'daily-sales'
@@ -74,6 +81,19 @@ function downloadCSV(filename: string, csvContent: string) {
   URL.revokeObjectURL(url);
 }
 
+// Every CSV export on the Reports page goes through this helper so the
+// branded metadata block (company, branch, range, timestamp) is consistent
+// across reports. Call sites only provide report-specific headers + rows.
+function downloadBrandedCSV(
+  filename: string,
+  meta: ReportMeta,
+  headers: string[],
+  rows: (string | number)[][],
+) {
+  const csv = buildCsvMetaBlock(meta) + toCSV(headers, rows);
+  downloadCSV(filename, csv);
+}
+
 function printReport(
   title: string,
   contentHtml: string,
@@ -81,38 +101,35 @@ function printReport(
     branchName?: string;
     subtitle?: string;
     periodText?: string;
+    startDate?: string;
+    endDate?: string;
   }
 ) {
   const win = window.open('', '_blank', 'width=900,height=700');
   if (!win) return;
-  const branchName = options?.branchName || 'Sundar Industrial Petrol Pump - Main Branch, Lahore';
+
+  // Period/subtitle may arrive as legacy free-form strings from older call
+  // sites. Surface them as "Extra" meta lines so the new header layout shows
+  // them without breaking existing screens.
+  const extra: ReportMeta['extra'] = [];
+  if (options?.subtitle) extra.push({ label: 'Summary', value: options.subtitle });
+  if (options?.periodText && !(options.startDate && options.endDate)) {
+    extra.push({ label: 'Period', value: options.periodText });
+  }
+
+  const header = buildPrintHeaderHtml({
+    reportName: title,
+    branchName: options?.branchName,
+    startDate: options?.startDate,
+    endDate: options?.endDate,
+    extra,
+  });
+
   win.document.write(`<!DOCTYPE html><html><head><title>${title}</title>
-    <style>
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      body { font-family: Arial, sans-serif; font-size: 12px; padding: 20px; }
-      h1 { font-size: 18px; margin-bottom: 4px; }
-      h2 { font-size: 14px; margin-top: 16px; margin-bottom: 8px; }
-      .meta { color: #666; margin-bottom: 16px; font-size: 11px; }
-      table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
-      th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; font-size: 11px; }
-      th { background: #f5f5f5; font-weight: bold; }
-      .right { text-align: right; }
-      .bold { font-weight: bold; }
-      .summary { display: flex; gap: 24px; margin-bottom: 16px; }
-      .summary-item { }
-      .summary-label { color: #666; font-size: 10px; }
-      .summary-value { font-size: 16px; font-weight: bold; }
-      .brand { font-size: 16px; font-weight: 700; margin-bottom: 2px; text-align: center; }
-      .subtitle { font-size: 13px; text-align: center; margin-bottom: 2px; }
-      .period { font-size: 12px; text-align: center; margin-bottom: 10px; }
-      @media print { body { padding: 0; } }
-    </style></head><body>
-    <div class="brand">${branchName}</div>
-    ${options?.subtitle ? `<div class="subtitle">${options.subtitle}</div>` : ''}
-    ${options?.periodText ? `<div class="period">${options.periodText}</div>` : ''}
-    <h1>${title}</h1>
-    <p class="meta">Generated: ${new Date().toLocaleString('en-PK')} | Petrol Pump POS</p>
+    <style>${PRINT_STYLES}</style></head><body>
+    ${header}
     ${contentHtml}
+    <div class="foot">${REPORT_BRAND.systemLabel}</div>
     <script>window.onload = function() { window.print(); }<\/script>
   </body></html>`);
   win.document.close();
@@ -524,7 +541,16 @@ export function Reports() {
       ...shiftFuels.map((sf: any) => [sf.shiftName || '-', sf.fuelType || '-', Number(sf.liters || 0).toFixed(2), sf.count || 0, Number(sf.amount || 0)]),
     ];
 
-    downloadCSV(`daily-sales-${reportDate}.csv`, toCSV(['', '', '', '', ''], rows));
+    const dailyMeta: ReportMeta = {
+      reportName: 'Daily Sales Report',
+      branchName: dailySales?.branch?.name,
+      startDate: dailySalesFilterMode === 'date-range' ? startDate : reportDate,
+      endDate: dailySalesFilterMode === 'date-range' ? endDate : reportDate,
+    };
+    downloadCSV(
+      `daily-sales-${reportDate}.csv`,
+      buildCsvMetaBlock(dailyMeta) + toCSV(['', '', '', '', ''], rows),
+    );
   };
 
   const printDailySales = () => {
@@ -563,8 +589,10 @@ export function Reports() {
         <tr><th>Shift</th><th>Fuel Type</th><th class="right">Liters</th><th class="right">Count</th><th class="right">Amount</th></tr>
         ${shiftFuels.map((sf: any) => `<tr><td>${sf.shiftName || '-'}</td><td>${sf.fuelType || '-'}</td><td class="right">${Number(sf.liters || 0).toFixed(2)} L</td><td class="right">${sf.count || 0}</td><td class="right">${formatCurrency(Number(sf.amount || 0))}</td></tr>`).join('')}
       </table>`;
-    printReport(`Daily Sales Report - ${formatDate(reportDate)}`, html, {
+    printReport('Daily Sales Report', html, {
       branchName: dailySales?.branch?.name,
+      startDate: dailySalesFilterMode === 'date-range' ? startDate : reportDate,
+      endDate: dailySalesFilterMode === 'date-range' ? endDate : reportDate,
     });
   };
 
@@ -586,7 +614,17 @@ export function Reports() {
         p.receiptDate ? new Date(p.receiptDate).toLocaleDateString('en-PK') : '-',
         p.status === 'received_with_receipt' ? 'Received' : 'Pending Receipt',
       ]);
-      downloadCSV(`inventory-purchases-${new Date().toISOString().split('T')[0]}.csv`, toCSV(headers, rows));
+      downloadBrandedCSV(
+        `inventory-purchases-${new Date().toISOString().split('T')[0]}.csv`,
+        {
+          reportName: 'Inventory - Purchases',
+          branchName: inventory?.branch?.name,
+          startDate: inventoryFilterMode === 'date-range' ? startDate : undefined,
+          endDate: inventoryFilterMode === 'date-range' ? endDate : undefined,
+        },
+        headers,
+        rows,
+      );
       return;
     }
 
@@ -615,7 +653,15 @@ export function Reports() {
         qty <= (p.lowStockThreshold || 10) ? 'LOW STOCK' : 'OK',
       ];
     });
-    downloadCSV(`inventory-stock-${new Date().toISOString().split('T')[0]}.csv`, toCSV(headers, rows));
+    downloadBrandedCSV(
+      `inventory-stock-${new Date().toISOString().split('T')[0]}.csv`,
+      {
+        reportName: 'Inventory - Current Stock',
+        branchName: inventory?.branch?.name,
+      },
+      headers,
+      rows,
+    );
   };
 
   const exportProductMovementCSV = () => {
@@ -646,18 +692,77 @@ export function Reports() {
     if (!inventory) return;
     const products = inventory.nonFuelProducts || {};
     const allProducts = [...(products.normal || []), ...(products.lowStock || [])];
-    let html = `
-      <h2>Inventory Report</h2>
-      <table>
-        <tr><th>Product</th><th>SKU</th><th>Category</th><th class="right">Qty</th><th class="right">Price</th><th>Status</th></tr>
-        ${allProducts.map((p: any) => {
-          const qty = p.quantity ?? p.stockLevel ?? 0;
-          const low = qty <= (p.lowStockThreshold || 10);
-          return `<tr><td>${p.name || '-'}</td><td>${p.sku || '-'}</td><td>${p.category || '-'}</td><td class="right">${qty}</td><td class="right">${formatCurrency(Number(p.unitPrice || 0))}</td><td>${low ? '<b style="color:red">LOW</b>' : 'OK'}</td></tr>`;
-        }).join('')}
-      </table>`;
+
+    // Product-Wise Movement section (date-range only). Printed after the
+    // current-stock listing so accountants can read opening -> closing flow
+    // alongside the live stock snapshot.
+    const movement = inventory.productMovement;
+    const movementRows: ProductMovementRow[] = movement?.rows || [];
+    const fmtQty = (n: number, unit: 'L' | 'units') =>
+      Number(n || 0).toFixed(unit === 'L' ? 3 : 2);
+
+    const movementHtml = movement && movementRows.length > 0
+      ? `
+        <h2>Product-Wise Movement</h2>
+        <p class="meta-line" style="text-align:left; margin-bottom:6px;">
+          Formula: Opening + Purchased - Sold +/- Gain/Loss = Quantity in Hand (Net Movement)
+        </p>
+        <table>
+          <tr>
+            <th>Product</th>
+            <th>Type</th>
+            <th>Unit</th>
+            <th class="right">Opening</th>
+            <th class="right">Purchased</th>
+            <th class="right">Sold</th>
+            <th class="right">Gain/Loss</th>
+            <th class="right">Quantity in Hand</th>
+          </tr>
+          ${movementRows.map((r) => {
+            const label = r.productType === 'non_fuel' ? 'Non-Fuel' : r.productType;
+            const assumed = r.openingSource === 'assumed';
+            const openingCell = assumed
+              ? `${fmtQty(Number(r.openingQty ?? 0), r.unit)}<sup>*</sup>`
+              : fmtQty(Number(r.openingQty ?? 0), r.unit);
+            return `
+              <tr>
+                <td>${r.productName}</td>
+                <td>${label}</td>
+                <td>${r.unit}</td>
+                <td class="right">${openingCell}</td>
+                <td class="right">${fmtQty(r.purchasedQty, r.unit)}</td>
+                <td class="right">${fmtQty(r.soldQty, r.unit)}</td>
+                <td class="right">${fmtQty(Number(r.gainLossQty ?? 0), r.unit)}</td>
+                <td class="right bold">${fmtQty(Number(r.closingQty ?? (r.purchasedQty - r.soldQty)), r.unit)}</td>
+              </tr>
+            `;
+          }).join('')}
+        </table>
+        ${movementRows.some((r) => r.openingSource === 'assumed')
+          ? '<p class="meta-line" style="text-align:left;"><sup>*</sup> Opening not provided - assumed 0. Ask accountant to set bootstrap.</p>'
+          : ''}
+      `
+      : '';
+
+    const stockHtml = allProducts.length > 0
+      ? `
+        <h2>Current Stock</h2>
+        <table>
+          <tr><th>Product</th><th>SKU</th><th>Category</th><th class="right">Qty</th><th class="right">Price</th><th>Status</th></tr>
+          ${allProducts.map((p: any) => {
+            const qty = p.quantity ?? p.stockLevel ?? 0;
+            const low = qty <= (p.lowStockThreshold || 10);
+            return `<tr><td>${p.name || '-'}</td><td>${p.sku || '-'}</td><td>${p.category || '-'}</td><td class="right">${qty}</td><td class="right">${formatCurrency(Number(p.unitPrice || 0))}</td><td>${low ? '<b style="color:red">LOW</b>' : 'OK'}</td></tr>`;
+          }).join('')}
+        </table>
+      `
+      : '';
+
+    const html = movementHtml + stockHtml;
     printReport('Inventory Report', html, {
       branchName: inventory?.branch?.name,
+      startDate: inventoryFilterMode === 'date-range' ? startDate : undefined,
+      endDate: inventoryFilterMode === 'date-range' ? endDate : undefined,
     });
   };
 
@@ -681,7 +786,17 @@ export function Reports() {
         ]);
       });
     });
-    downloadCSV(`variance-${startDate}-to-${endDate}.csv`, toCSV(headers, rows));
+    downloadBrandedCSV(
+      `variance-${startDate}-to-${endDate}.csv`,
+      {
+        reportName: 'Variance Report',
+        branchName: variance?.branch?.name,
+        startDate,
+        endDate,
+      },
+      headers,
+      rows,
+    );
   };
 
   return (
@@ -1456,7 +1571,17 @@ export function Reports() {
                   ['Fuel Sales', shiftReport.sales?.fuel?.amount || 0],
                   ['Non-Fuel Sales', shiftReport.sales?.nonFuel?.amount || 0],
                 ];
-                downloadCSV(`shift-report-${shiftReport.shiftInstance?.id || 'unknown'}.csv`, toCSV(headers, rows));
+                downloadBrandedCSV(
+                  `shift-report-${shiftReport.shiftInstance?.id || 'unknown'}.csv`,
+                  {
+                    reportName: 'Shift Report',
+                    branchName: shiftReport?.branch?.name,
+                    startDate: shiftReport?.shiftInstance?.date,
+                    endDate: shiftReport?.shiftInstance?.date,
+                  },
+                  headers,
+                  rows,
+                );
               }}>
                 <Download className="mr-2 h-4 w-4" /> CSV
               </Button>
@@ -1613,7 +1738,20 @@ export function Reports() {
                     t.runningBalance || 0,
                   ]];
                 }).flat();
-                downloadCSV(`customer-ledger-${customerLedger.customer?.name || 'unknown'}-${startDate}-to-${endDate}.csv`, toCSV(headers, rows));
+                downloadBrandedCSV(
+                  `customer-ledger-${customerLedger.customer?.name || 'unknown'}-${startDate}-to-${endDate}.csv`,
+                  {
+                    reportName: 'Customer Ledger',
+                    branchName: customerLedger?.branch?.name,
+                    startDate,
+                    endDate,
+                    extra: [
+                      { label: 'Customer', value: customerLedger.customer?.name || '-' },
+                    ],
+                  },
+                  headers,
+                  rows,
+                );
               }}>
                 <Download className="mr-2 h-4 w-4" /> CSV
               </Button>
@@ -1744,34 +1882,57 @@ export function Reports() {
                         <TableHead>Product</TableHead>
                         <TableHead>Type</TableHead>
                         <TableHead>Unit</TableHead>
+                        <TableHead className="text-right">Opening</TableHead>
                         <TableHead className="text-right">Purchased</TableHead>
                         <TableHead className="text-right">Sold</TableHead>
-                        <TableHead className="text-right">Net Movement</TableHead>
+                        <TableHead className="text-right">Gain/Loss</TableHead>
+                        <TableHead className="text-right">Quantity in Hand</TableHead>
                         <TableHead className="text-right">Purchased Value</TableHead>
                         <TableHead className="text-right">Sold Value</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {inventory.productMovement.rows.map((r: ProductMovementRow) => (
-                        <TableRow key={`${r.productType}-${r.productId}`}>
-                          <TableCell className="font-medium">{r.productName}</TableCell>
-                          <TableCell>
-                            {r.productType === 'non_fuel' ? 'Non-Fuel' : r.productType}
-                          </TableCell>
-                          <TableCell>{r.unit}</TableCell>
-                          <TableCell className="text-right">{Number(r.purchasedQty).toFixed(r.unit === 'L' ? 3 : 2)}</TableCell>
-                          <TableCell className="text-right">{Number(r.soldQty).toFixed(r.unit === 'L' ? 3 : 2)}</TableCell>
-                          <TableCell className={`text-right font-bold ${r.netMovement < 0 ? 'text-destructive' : ''}`}>
-                            {Number(r.netMovement).toFixed(r.unit === 'L' ? 3 : 2)}
-                          </TableCell>
-                          <TableCell className="text-right">{formatCurrency(Number(r.purchasedValue || 0))}</TableCell>
-                          <TableCell className="text-right">{formatCurrency(Number(r.soldValue || 0))}</TableCell>
-                        </TableRow>
-                      ))}
+                      {inventory.productMovement.rows.map((r: ProductMovementRow) => {
+                        const opening = Number(r.openingQty ?? 0);
+                        const gainLoss = Number(r.gainLossQty ?? 0);
+                        const closing = Number(
+                          r.closingQty ?? (opening + r.purchasedQty - r.soldQty + gainLoss),
+                        );
+                        const assumed = r.openingSource === 'assumed';
+                        const fixed = r.unit === 'L' ? 3 : 2;
+                        return (
+                          <TableRow key={`${r.productType}-${r.productId}`}>
+                            <TableCell className="font-medium">{r.productName}</TableCell>
+                            <TableCell>
+                              {r.productType === 'non_fuel' ? 'Non-Fuel' : r.productType}
+                            </TableCell>
+                            <TableCell>{r.unit}</TableCell>
+                            <TableCell
+                              className={`text-right ${assumed ? 'text-muted-foreground italic' : ''}`}
+                              title={assumed ? 'Opening not provided - assumed 0' : 'From inventory bootstrap'}
+                            >
+                              {opening.toFixed(fixed)}
+                              {assumed && <span aria-hidden>*</span>}
+                            </TableCell>
+                            <TableCell className="text-right">{Number(r.purchasedQty).toFixed(fixed)}</TableCell>
+                            <TableCell className="text-right">{Number(r.soldQty).toFixed(fixed)}</TableCell>
+                            <TableCell className={`text-right ${gainLoss < 0 ? 'text-destructive' : ''}`}>
+                              {gainLoss.toFixed(fixed)}
+                            </TableCell>
+                            <TableCell className={`text-right font-bold ${closing < 0 ? 'text-destructive' : ''}`}>
+                              {closing.toFixed(fixed)}
+                            </TableCell>
+                            <TableCell className="text-right">{formatCurrency(Number(r.purchasedValue || 0))}</TableCell>
+                            <TableCell className="text-right">{formatCurrency(Number(r.soldValue || 0))}</TableCell>
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 )}
                 <p className="text-xs text-muted-foreground mt-2">
+                  Quantity in Hand (Net Movement) = Opening + Purchased - Sold +/- Gain/Loss.
+                  Rows with <span className="italic">* asterisk</span> opening used 0 because no bootstrap was set for that product.
                   Movement-only: products with no activity in the date range are excluded.
                 </p>
               </CardContent>
@@ -1958,8 +2119,10 @@ export function Reports() {
                   });
                 });
                 html += '</table>';
-                printReport(`Variance Report - ${formatDate(startDate)} to ${formatDate(endDate)}`, html, {
+                printReport('Variance Report', html, {
                   branchName: variance?.branch?.name,
+                  startDate,
+                  endDate,
                 });
               }}>
                 <Printer className="mr-2 h-4 w-4" /> Print / PDF
@@ -2034,7 +2197,16 @@ export function Reports() {
                   change.percentageChange !== null ? change.percentageChange.toFixed(2) + '%' : 'N/A',
                   change.changedBy,
                 ]);
-                downloadCSV(`fuel-price-history-${startDate}-to-${endDate}.csv`, toCSV(headers, rows));
+                downloadBrandedCSV(
+                  `fuel-price-history-${startDate}-to-${endDate}.csv`,
+                  {
+                    reportName: 'Fuel Price History',
+                    startDate,
+                    endDate,
+                  },
+                  headers,
+                  rows,
+                );
               }}>
                 <Download className="mr-2 h-4 w-4" /> CSV
               </Button>
@@ -2045,8 +2217,10 @@ export function Reports() {
                   html += `<tr><td>${formatDate(change.date)}</td><td>${change.fuelType} (${change.fuelTypeCode})</td><td class="right">${change.oldPrice !== null ? formatCurrency(change.oldPrice) : '-'}</td><td class="right">${formatCurrency(change.newPrice)}</td><td class="right">${change.priceChange !== null ? change.priceChange.toFixed(3) : '-'}</td><td class="right">${change.percentageChange !== null ? change.percentageChange.toFixed(2) + '%' : '-'}</td><td>${change.changedBy}</td></tr>`;
                 });
                 html += '</table>';
-                printReport(`Fuel Price History - ${formatDate(startDate)} to ${formatDate(endDate)}`, html, {
+                printReport('Fuel Price History', html, {
                   branchName: (user as any)?.branch?.name,
+                  startDate,
+                  endDate,
                 });
               }}>
                 <Printer className="mr-2 h-4 w-4" /> Print / PDF
@@ -2152,7 +2326,16 @@ export function Reports() {
                   detail.paymentMethod,
                   detail.vehicleNumber || '-',
                 ]);
-                downloadCSV(`customer-wise-sales-${startDate}-to-${endDate}.csv`, toCSV(headers, rows));
+                downloadBrandedCSV(
+                  `customer-wise-sales-${startDate}-to-${endDate}.csv`,
+                  {
+                    reportName: 'Customer-Wise Sales',
+                    startDate,
+                    endDate,
+                  },
+                  headers,
+                  rows,
+                );
               }}>
                 <Download className="mr-2 h-4 w-4" /> CSV
               </Button>
@@ -2301,7 +2484,17 @@ export function Reports() {
                         r.paymentMethod || '-',
                       ]);
                       csvRows.push(['TOTAL', '', '', '', Number(productWiseSummary.totalAmount || 0), '', '']);
-                      downloadCSV(`product-wise-summary-${displayFromDate}-to-${displayToDate}.csv`, toCSV(headers, csvRows));
+                      downloadBrandedCSV(
+                        `product-wise-summary-${displayFromDate}-to-${displayToDate}.csv`,
+                        {
+                          reportName: 'Product-Wise Summary',
+                          branchName,
+                          startDate: displayFromDate,
+                          endDate: displayToDate,
+                        },
+                        headers,
+                        csvRows,
+                      );
                     }}>
                       <Download className="mr-2 h-4 w-4" /> CSV
                     </Button>
@@ -2335,6 +2528,8 @@ export function Reports() {
                           branchName,
                           subtitle: `BILL FOR THE MONTH OF ${monthText}`,
                           periodText,
+                          startDate: displayFromDate,
+                          endDate: displayToDate,
                         }
                       );
                     }}>
@@ -2482,9 +2677,22 @@ export function Reports() {
                           row.amount,
                         ]);
                         csvRows.push(['', '', '', 'TOTAL', '', totalAmount]);
-                        downloadCSV(
+                        downloadBrandedCSV(
                           `vehicle-wise-${customerName}-${displayFromDate}-to-${displayToDate}.csv`,
-                          toCSV(headers, csvRows)
+                          {
+                            reportName: 'Vehicle-Wise Report',
+                            branchName: vehicleWiseLedger?.branch?.name,
+                            startDate: displayFromDate,
+                            endDate: displayToDate,
+                            extra: [
+                              { label: 'Customer', value: customerName },
+                              ...(selectedVehicleNumber !== 'ALL'
+                                ? [{ label: 'Vehicle', value: selectedVehicleNumber }]
+                                : []),
+                            ],
+                          },
+                          headers,
+                          csvRows,
                         );
                       }}
                     >
@@ -2513,10 +2721,12 @@ export function Reports() {
                             </tr>
                           </table>
                         `;
-                        printReport(`Vehicle-Wise Report (${formatDate(displayFromDate)} - ${formatDate(displayToDate)})`, html, {
+                        printReport('Vehicle-Wise Report', html, {
                           branchName,
                           subtitle: `${customerName.toUpperCase()} - BILL FOR THE MONTH OF ${headerMonth}`,
                           periodText: `FOR THE PERIOD FROM ${periodStart} TO ${periodEnd}`,
+                          startDate: displayFromDate,
+                          endDate: displayToDate,
                         });
                       }}
                     >

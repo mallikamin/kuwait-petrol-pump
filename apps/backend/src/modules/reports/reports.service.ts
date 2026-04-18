@@ -1,6 +1,10 @@
 import { prisma } from '../../config/database';
 import { AppError } from '../../middleware/error.middleware';
 import { toBranchStartOfDay, toBranchEndOfDay } from '../../utils/timezone';
+import {
+  computeInventoryOpeningClosing,
+  openingClosingKey,
+} from './inventory-opening.service';
 
 export class ReportsService {
   /**
@@ -978,6 +982,13 @@ export class ReportsService {
     // Stays null in single-date and no-filter modes — UI must handle that.
     let productMovement: {
       filters: { category: string; productId: string | null };
+      // netMovement retained for backward compatibility (= purchasedQty - soldQty).
+      // openingQty / gainLossQty / closingQty are additive fields introduced
+      // with the opening-stock cycle:
+      //   closingQty = openingQty + purchasedQty - soldQty + gainLossQty
+      // closingQty is the "Quantity in Hand (Net Movement)" label clients use.
+      // openingSource is 'bootstrap' when computed from inventory_bootstrap,
+      // 'assumed' when no bootstrap row exists for that item (treated as 0).
       rows: Array<{
         productId: string;
         productName: string;
@@ -988,6 +999,10 @@ export class ReportsService {
         soldQty: number;
         soldValue: number;
         netMovement: number;
+        openingQty: number;
+        gainLossQty: number;
+        closingQty: number;
+        openingSource: 'bootstrap' | 'assumed';
       }>;
     } | null = null;
 
@@ -1156,6 +1171,11 @@ export class ReportsService {
             soldQty,
             soldValue: sold?.amount || 0,
             netMovement: purchasedQty - soldQty,
+            // Opening-cycle fields - populated by the enrichment step below.
+            openingQty: 0,
+            gainLossQty: 0,
+            closingQty: purchasedQty - soldQty,
+            openingSource: 'assumed' as const,
           };
         });
 
@@ -1194,6 +1214,10 @@ export class ReportsService {
             soldQty: s.quantity,
             soldValue: s.amount,
             netMovement: -s.quantity,
+            openingQty: 0,
+            gainLossQty: 0,
+            closingQty: -s.quantity,
+            openingSource: 'assumed' as const,
           });
         });
 
@@ -1223,11 +1247,55 @@ export class ReportsService {
               soldQty: 0,
               soldValue: 0,
               netMovement: purchasedQty,
+              openingQty: 0,
+              gainLossQty: 0,
+              closingQty: purchasedQty,
+              openingSource: 'assumed' as const,
             });
           }
         });
 
         const allRows: PMRow[] = [...fuelRows, ...Array.from(nonFuelByProductId.values())];
+
+        // Enrich each row with opening/gain-loss/closing from the rolling
+        // inventory-bootstrap cycle. The helper returns a map keyed by
+        // "product:{uuid}" or "fuel:{code}"; rows missing from the map
+        // (e.g. a new product without a bootstrap row) fall through with
+        // openingQty=0 and openingSource='assumed' so the UI can annotate.
+        try {
+          const ocMap = await computeInventoryOpeningClosing({
+            branchId,
+            startDate,
+            endDate,
+          });
+          allRows.forEach((r) => {
+            const key =
+              r.productType === 'non_fuel'
+                ? openingClosingKey({ kind: 'product', key: r.productId })
+                : openingClosingKey({ kind: 'fuel', key: r.productId });
+            const oc = ocMap.get(key);
+            if (oc) {
+              r.openingQty = oc.openingQty;
+              r.gainLossQty = oc.gainLossQtyInPeriod;
+              r.closingQty = oc.closingQty;
+              r.openingSource = 'bootstrap';
+            } else {
+              r.openingQty = 0;
+              r.gainLossQty = 0;
+              r.closingQty = r.purchasedQty - r.soldQty;
+              r.openingSource = 'assumed';
+            }
+          });
+        } catch (error) {
+          console.warn('[Inventory Report] Opening/closing compute failed:', error);
+          diagnosticErrors.push('opening_closing_compute_failed');
+          allRows.forEach((r) => {
+            r.openingQty = 0;
+            r.gainLossQty = 0;
+            r.closingQty = r.purchasedQty - r.soldQty;
+            r.openingSource = 'assumed';
+          });
+        }
 
         // Apply category filter. 'total_fuel' returns both fuels (HSD + PMG)
         // — the spec's "Total Fuel" lens, distinct from 'all' which also
