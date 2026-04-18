@@ -59,13 +59,20 @@ export async function computeInventoryOpeningClosing(params: {
   const periodStart = toBranchStartOfDay(startDate);
   const periodEnd = toBranchEndOfDay(endDate);
 
-  // 1. Load bootstrap rows for this branch. We accept any bootstrap date
-  //    <= periodStart (currently only 2026-01-01 exists, but the logic is
-  //    future-proof for re-basing).
+  // 1. Load bootstrap rows for this branch.
+  //
+  // inventory_bootstrap.as_of_date is DATE (midnight UTC) while periodStart
+  // is a Timestamptz shifted into Asia/Karachi local time - in UTC that's
+  // the previous day's 19:00. Comparing `asOfDate <= periodStart` would
+  // therefore reject a bootstrap whose calendar date IS the report's start
+  // date (midnight-UTC > previous-day-19:00-UTC). Use a calendar-day cutoff
+  // built from the startDate string instead, so we accept any bootstrap
+  // whose stored date <= the report's start calendar date.
+  const bootstrapCutoff = new Date(`${startDate}T23:59:59.999Z`);
   const bootstraps = await prisma.inventoryBootstrap.findMany({
     where: {
       branchId,
-      asOfDate: { lte: periodStart },
+      asOfDate: { lte: bootstrapCutoff },
     },
     include: {
       product: { select: { id: true } },

@@ -1268,6 +1268,7 @@ export class ReportsService {
             startDate,
             endDate,
           });
+          let assumedCount = 0;
           allRows.forEach((r) => {
             const key =
               r.productType === 'non_fuel'
@@ -1284,8 +1285,18 @@ export class ReportsService {
               r.gainLossQty = 0;
               r.closingQty = r.purchasedQty - r.soldQty;
               r.openingSource = 'assumed';
+              assumedCount += 1;
             }
           });
+          // Coverage diagnostics: surface partial or total bootstrap misses
+          // so operators can tell the difference between "everything looks
+          // zero because opening really is zero" and "bootstrap wasn't
+          // seeded / lookup failed for some keys".
+          if (allRows.length > 0 && ocMap.size === 0) {
+            diagnosticErrors.push('inventory_bootstrap_missing');
+          } else if (assumedCount > 0) {
+            diagnosticErrors.push(`inventory_bootstrap_partial:${assumedCount}_of_${allRows.length}`);
+          }
         } catch (error) {
           console.warn('[Inventory Report] Opening/closing compute failed:', error);
           diagnosticErrors.push('opening_closing_compute_failed');

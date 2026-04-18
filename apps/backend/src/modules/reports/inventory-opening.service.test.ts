@@ -202,6 +202,30 @@ describe('computeInventoryOpeningClosing - accountant cycle', () => {
     expect(map.get('fuel:PMG')!.closingQty).toBe(160);
   });
 
+  it('accepts a bootstrap stored as DATE (midnight UTC) even when period_start is ahead of UTC', async () => {
+    // Regression: asOfDate stored as midnight UTC 2026-01-01 was being
+    // excluded by `asOfDate <= toBranchStartOfDay(startDate)` because
+    // Karachi's start-of-day is the previous day 19:00 UTC. Verify that
+    // the calendar-day cutoff used in the service now includes it.
+    (prisma.inventoryBootstrap.findMany as jest.Mock).mockImplementation(async ({ where }: any) => {
+      const cutoff = where?.asOfDate?.lte as Date | undefined;
+      const dateIso = new Date('2026-01-01T00:00:00.000Z');
+      // Accept the row if cutoff is strictly after midnight UTC on 2026-01-01.
+      if (cutoff && cutoff.getTime() >= dateIso.getTime()) {
+        return [bootstrap(50, dateIso)];
+      }
+      return [];
+    });
+
+    const map = await computeInventoryOpeningClosing({
+      branchId,
+      startDate: '2026-01-01',
+      endDate: '2026-01-31',
+    });
+    expect(map.size).toBe(1);
+    expect(map.get(`product:${productId}`)!.openingQty).toBe(50);
+  });
+
   it('splits purchase vs PO-only to avoid double counting', async () => {
     (prisma.inventoryBootstrap.findMany as jest.Mock).mockResolvedValue([bootstrap(0)]);
     // Same qty appears as both a stock receipt AND a PO - but the PO has a
