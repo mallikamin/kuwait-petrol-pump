@@ -18,7 +18,13 @@ import { useAuthStore } from '@/store/auth';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { MeterReadingCapture, type MeterReadingData } from '@/components/MeterReadingCapture';
-import { buildCustomerGroups, mapApiTxnToLocal, type BackdatedTxn as Transaction } from './BackdatedEntries2.utils';
+import {
+  buildCustomerGroups,
+  computePaymentSummary,
+  formatReconciledDateHeader,
+  mapApiTxnToLocal,
+  type BackdatedTxn as Transaction,
+} from './BackdatedEntries2.utils';
 
 // ── Utilities ────────────────────────────────────────────────────────────────
 const toNumber = (v: unknown): number => {
@@ -243,6 +249,7 @@ export function BackdatedEntries2() {
     return bd;
   }, [transactions]);
   const totalPKR = useMemo(() => transactions.reduce((s, t) => s + toNumber(t.lineTotal), 0), [transactions]);
+  const paymentSummary = useMemo(() => computePaymentSummary(transactions), [transactions]);
 
   const filteredCustomers = useMemo(() => {
     if (!customerSearch.trim()) return customersData || [];
@@ -383,6 +390,7 @@ export function BackdatedEntries2() {
         cashGapWarning: data?.cashGapWarning,
         finalizedAt,
         finalizedBy,
+        businessDate, // for the reconciled-date dialog title
       });
       setFinalizeDialogOpen(true);
       queryClient.invalidateQueries({ predicate: (q) => { const k = q.queryKey?.[0]; return k === 'sales' || k === 'sales-summary'; } });
@@ -1093,33 +1101,33 @@ export function BackdatedEntries2() {
                   </div>
                 ))}
                 <div className="flex justify-between font-bold border-t border-slate-200 pt-2 mt-2 text-sm">
-                  <span className="text-slate-700">Total</span>
-                  <span className="font-mono text-slate-900">{fmtPKR(totalPKR)}</span>
+                  <span className="text-slate-700">Total Sales (Fuel + Non-fuel)</span>
+                  <span className="font-mono text-slate-900">{fmtPKR(paymentSummary.total)}</span>
                 </div>
               </div>
             </div>
 
-            {/* Non-Fuel Summary */}
-            {(() => {
-              const nonFuelTotal = transactions
-                .filter(t => !t.fuelCode || t.fuelCode === 'OTHER')
-                .reduce((sum, t) => sum + toNumber(t.lineTotal), 0);
-              if (nonFuelTotal === 0) return null;
-              return (
-                <>
-                  <div className="h-px bg-slate-200" />
-                  <div>
-                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Non-Fuel</div>
-                    <div className="space-y-1.5 text-xs">
+            {/* Non-Fuel + Fuel breakdown */}
+            {paymentSummary.total > 0 && (
+              <>
+                <div className="h-px bg-slate-200" />
+                <div>
+                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Breakdown</div>
+                  <div className="space-y-1.5 text-xs">
+                    {paymentSummary.nonFuel > 0 && (
                       <div className="flex justify-between font-semibold">
                         <span className="text-slate-700">Total (Cash + Credit)</span>
-                        <span className="font-mono text-slate-900">{fmtPKR(nonFuelTotal)}</span>
+                        <span className="font-mono text-slate-900">{fmtPKR(paymentSummary.nonFuel)}</span>
                       </div>
+                    )}
+                    <div className="flex justify-between font-semibold">
+                      <span className="text-slate-700">Total Fuel Sale for the day</span>
+                      <span className="font-mono text-slate-900">{fmtPKR(paymentSummary.fuel)}</span>
                     </div>
                   </div>
-                </>
-              );
-            })()}
+                </div>
+              </>
+            )}
 
             <div className="h-px bg-slate-200" />
 
@@ -1229,17 +1237,9 @@ export function BackdatedEntries2() {
             <>
               <DialogHeader>
                 <DialogTitle className="text-emerald-700">
-                  {finalizeResult.businessDate ? (
-                    (() => {
-                      const date = new Date(finalizeResult.businessDate + 'T00:00:00');
-                      const day = date.getDate();
-                      const month = date.toLocaleDateString('en-US', { month: 'long' });
-                      const year = date.getFullYear();
-                      return `${day} ${month} ${year} Reconciliation Summary`;
-                    })()
-                  ) : (
-                    finalizeResult.alreadyFinalized ? 'Day Already Finalized' : 'Successfully Finalized!'
-                  )}
+                  {finalizeResult.alreadyFinalized
+                    ? 'Day Already Finalized'
+                    : (formatReconciledDateHeader(finalizeResult.businessDate) || 'Successfully Reconciled!')}
                 </DialogTitle>
               </DialogHeader>
               <div className="space-y-4 text-sm">

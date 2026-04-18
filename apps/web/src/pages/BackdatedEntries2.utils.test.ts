@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { buildCustomerGroups, mapApiTxnToLocal } from './BackdatedEntries2.utils';
+import {
+  buildCustomerGroups,
+  computePaymentSummary,
+  formatReconciledDateHeader,
+  mapApiTxnToLocal,
+  type BackdatedTxn,
+} from './BackdatedEntries2.utils';
 
 // Shape returned by GET /api/backdated-entries/daily and by the POST save
 // endpoint (which also returns getDailySummary()). Verifies the post-save
@@ -92,6 +98,51 @@ describe('buildCustomerGroups — multi-group dataset', () => {
     const gGet = buildCustomerGroups(fromGet).map(g => ({ id: g.customerId, n: g.transactions.length }));
     expect(gSave).toEqual(gGet);
     expect(gSave).toHaveLength(3); // not collapsed into one Walk-in
+  });
+
+  it('computePaymentSummary splits fuel vs non-fuel correctly', () => {
+    const txns: BackdatedTxn[] = [
+      { id: '1', fuelCode: 'HSD', productName: 'HSD', quantity: '10', unitPrice: '340', lineTotal: '3400', paymentMethod: 'cash' },
+      { id: '2', fuelCode: 'PMG', productName: 'PMG', quantity: '5',  unitPrice: '458', lineTotal: '2290', paymentMethod: 'cash' },
+      { id: '3', fuelCode: 'OTHER', productName: 'Oil', quantity: '1', unitPrice: '500', lineTotal: '500', paymentMethod: 'cash' },
+      { id: '4', fuelCode: '',      productName: 'Misc', quantity: '1', unitPrice: '250', lineTotal: '250', paymentMethod: 'credit_customer' },
+    ];
+    const s = computePaymentSummary(txns);
+    // Total Sales (Fuel + Non-fuel)
+    expect(s.total).toBe(6440);
+    // Total (Cash + Credit) — non-fuel only
+    expect(s.nonFuel).toBe(750);
+    // Total Fuel Sale for the day = total − non-fuel
+    expect(s.fuel).toBe(5690);
+  });
+
+  it('computePaymentSummary returns zeros for empty list and is rounding-safe', () => {
+    expect(computePaymentSummary([])).toEqual({ total: 0, nonFuel: 0, fuel: 0 });
+    const s = computePaymentSummary([
+      { id: 'a', fuelCode: 'HSD', productName: 'HSD', quantity: '3', unitPrice: '340.333', lineTotal: '1020.999', paymentMethod: 'cash' },
+    ]);
+    expect(s.total).toBeCloseTo(1021.00, 2);
+    expect(s.nonFuel).toBe(0);
+    expect(s.fuel).toBeCloseTo(1021.00, 2);
+  });
+
+  it('formatReconciledDateHeader applies correct ordinal suffixes and month name', () => {
+    expect(formatReconciledDateHeader('2026-01-14')).toBe('14th January 2026 Successfully Reconciled!');
+    expect(formatReconciledDateHeader('2026-01-01')).toBe('1st January 2026 Successfully Reconciled!');
+    expect(formatReconciledDateHeader('2026-02-02')).toBe('2nd February 2026 Successfully Reconciled!');
+    expect(formatReconciledDateHeader('2026-03-03')).toBe('3rd March 2026 Successfully Reconciled!');
+    expect(formatReconciledDateHeader('2026-03-11')).toBe('11th March 2026 Successfully Reconciled!');
+    expect(formatReconciledDateHeader('2026-03-21')).toBe('21st March 2026 Successfully Reconciled!');
+    expect(formatReconciledDateHeader('2026-03-22')).toBe('22nd March 2026 Successfully Reconciled!');
+    expect(formatReconciledDateHeader('2026-03-23')).toBe('23rd March 2026 Successfully Reconciled!');
+    expect(formatReconciledDateHeader('2026-03-31')).toBe('31st March 2026 Successfully Reconciled!');
+  });
+
+  it('formatReconciledDateHeader returns null for missing/invalid input', () => {
+    expect(formatReconciledDateHeader(null)).toBeNull();
+    expect(formatReconciledDateHeader(undefined)).toBeNull();
+    expect(formatReconciledDateHeader('')).toBeNull();
+    expect(formatReconciledDateHeader('not-a-date')).toBeNull();
   });
 
   it('row-save round-trip preserves grouping (single-row save returns full day; grouping stable)', () => {

@@ -1703,6 +1703,42 @@ export function Reports() {
             </Card>
           )}
 
+          {/* Net Fuel Movement (Purchases − Sales). Negative is allowed. */}
+          {inventory.fuelMovement?.byFuelType?.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Net Fuel Movement</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Fuel</TableHead>
+                      <TableHead className="text-right">Purchases (L)</TableHead>
+                      <TableHead className="text-right">Sales (L)</TableHead>
+                      <TableHead className="text-right">Net Movement (L)</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {inventory.fuelMovement.byFuelType.map((row: any) => (
+                      <TableRow key={row.fuelCode}>
+                        <TableCell className="font-medium">{row.fuelName || row.fuelCode}</TableCell>
+                        <TableCell className="text-right">{Number(row.purchases || 0).toFixed(3)}</TableCell>
+                        <TableCell className="text-right">{Number(row.sales || 0).toFixed(3)}</TableCell>
+                        <TableCell className={`text-right font-bold ${Number(row.netMovement) < 0 ? 'text-destructive' : ''}`}>
+                          {Number(row.netMovement || 0).toFixed(3)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                {inventory.fuelMovement.formula && (
+                  <p className="text-xs text-muted-foreground mt-2">{inventory.fuelMovement.formula}</p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {/* All Products */}
           <Card>
             <CardHeader><CardTitle className="text-base">Current Stock</CardTitle></CardHeader>

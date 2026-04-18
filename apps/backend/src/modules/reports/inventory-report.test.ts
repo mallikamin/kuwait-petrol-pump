@@ -1,15 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ReportsService } from './reports.service';
 import { prisma } from '../../config/database';
 
 // Mock Prisma
-vi.mock('../../config/database', () => ({
+jest.mock('../../config/database', () => ({
   prisma: {
-    branch: { findFirst: vi.fn() },
-    stockLevel: { findMany: vi.fn() },
-    fuelType: { findMany: vi.fn() },
-    stockReceipt: { findMany: vi.fn() },
-    purchaseOrder: { findMany: vi.fn() },
+    branch: { findFirst: jest.fn() },
+    stockLevel: { findMany: jest.fn() },
+    fuelType: { findMany: jest.fn() },
+    stockReceipt: { findMany: jest.fn() },
+    purchaseOrder: { findMany: jest.fn() },
+    sale: { findMany: jest.fn() },
   },
 }));
 
@@ -21,11 +21,11 @@ describe('Inventory Report - Date Filtering', () => {
 
   beforeEach(() => {
     reportsService = new ReportsService();
-    vi.clearAllMocks();
+    jest.clearAllMocks();
   });
 
   afterEach(() => {
-    vi.clearAllMocks();
+    jest.clearAllMocks();
   });
 
   describe('Precedence: startDate/endDate > asOfDate > no filter', () => {
@@ -57,11 +57,15 @@ describe('Inventory Report - Date Filtering', () => {
       expect(stockReceiptCall[0].where.receiptDate.gte).toBeDefined();
       expect(stockReceiptCall[0].where.receiptDate.lte).toBeDefined();
 
-      // Verify PO query was called with range filter
+      // PO query uses OR to admit both stamped receivedDate and null-receivedDate rows
+      // (via updatedAt fallback). Range bounds must still appear on one of the clauses.
       const poCall = (prisma.purchaseOrder.findMany as any).mock.calls[0];
-      expect(poCall[0].where.receivedDate).toBeDefined();
-      expect(poCall[0].where.receivedDate.gte).toBeDefined();
-      expect(poCall[0].where.receivedDate.lte).toBeDefined();
+      expect(Array.isArray(poCall[0].where.OR)).toBe(true);
+      expect(poCall[0].where.OR[0].receivedDate.gte).toBeDefined();
+      expect(poCall[0].where.OR[0].receivedDate.lte).toBeDefined();
+      expect(poCall[0].where.OR[1].receivedDate).toBeNull();
+      expect(poCall[0].where.OR[1].updatedAt.gte).toBeDefined();
+      expect(poCall[0].where.OR[1].updatedAt.lte).toBeDefined();
     });
 
     it('should use single-date filter when only asOfDate is provided', async () => {
@@ -91,11 +95,13 @@ describe('Inventory Report - Date Filtering', () => {
       expect(stockReceiptCall[0].where.receiptDate.lte).toBeDefined();
       expect(stockReceiptCall[0].where.receiptDate.gte).toBeUndefined();
 
-      // Verify PO query was called with single-date filter (lte only)
+      // Single-date PO filter: OR of receivedDate{lte} and receivedDate=null+updatedAt{lte}.
       const poCall = (prisma.purchaseOrder.findMany as any).mock.calls[0];
-      expect(poCall[0].where.receivedDate).toBeDefined();
-      expect(poCall[0].where.receivedDate.lte).toBeDefined();
-      expect(poCall[0].where.receivedDate.gte).toBeUndefined();
+      expect(Array.isArray(poCall[0].where.OR)).toBe(true);
+      expect(poCall[0].where.OR[0].receivedDate.lte).toBeDefined();
+      expect(poCall[0].where.OR[0].receivedDate.gte).toBeUndefined();
+      expect(poCall[0].where.OR[1].receivedDate).toBeNull();
+      expect(poCall[0].where.OR[1].updatedAt.lte).toBeDefined();
     });
 
     it('should include all purchases when no date filter provided', async () => {
@@ -121,9 +127,10 @@ describe('Inventory Report - Date Filtering', () => {
       const stockReceiptCall = (prisma.stockReceipt.findMany as any).mock.calls[0];
       expect(stockReceiptCall[0].where.receiptDate).toBeUndefined();
 
-      // Verify PO query was called WITHOUT date filter
+      // Verify PO query was called WITHOUT any date filter (neither top-level nor OR)
       const poCall = (prisma.purchaseOrder.findMany as any).mock.calls[0];
       expect(poCall[0].where.receivedDate).toBeUndefined();
+      expect(poCall[0].where.OR).toBeUndefined();
     });
   });
 
@@ -195,6 +202,142 @@ describe('Inventory Report - Date Filtering', () => {
       expectedEnd.setHours(23, 59, 59, 999);
       expect(dateFilter.lte.getTime()).toBe(expectedEnd.getTime());
     });
+  });
+});
+
+describe('Inventory Report - PO status + null receivedDate handling', () => {
+  let reportsService: ReportsService;
+  const testBranchId = 'branch-abc';
+  const testOrgId = 'org-abc';
+  const testBranch = { id: testBranchId, name: 'Test Branch', organizationId: testOrgId };
+
+  beforeEach(() => {
+    reportsService = new ReportsService();
+    jest.clearAllMocks();
+  });
+
+  it('PO status filter includes received AND partial_received', async () => {
+    (prisma.branch.findFirst as any).mockResolvedValueOnce(testBranch);
+    (prisma.stockLevel.findMany as any).mockResolvedValueOnce([]);
+    (prisma.fuelType.findMany as any).mockResolvedValueOnce([]);
+    (prisma.stockReceipt.findMany as any).mockResolvedValueOnce([]);
+    (prisma.purchaseOrder.findMany as any).mockResolvedValueOnce([]);
+
+    await reportsService.getInventoryReport(testBranchId, testOrgId, undefined, '2026-04-01', '2026-04-30');
+
+    const poCall = (prisma.purchaseOrder.findMany as any).mock.calls[0];
+    expect(poCall[0].where.status).toEqual({ in: ['received', 'partial_received'] });
+  });
+
+  it('PO date filter uses OR to also admit rows with null receivedDate via updatedAt', async () => {
+    (prisma.branch.findFirst as any).mockResolvedValueOnce(testBranch);
+    (prisma.stockLevel.findMany as any).mockResolvedValueOnce([]);
+    (prisma.fuelType.findMany as any).mockResolvedValueOnce([]);
+    (prisma.stockReceipt.findMany as any).mockResolvedValueOnce([]);
+    (prisma.purchaseOrder.findMany as any).mockResolvedValueOnce([]);
+
+    await reportsService.getInventoryReport(testBranchId, testOrgId, undefined, '2026-04-01', '2026-04-30');
+
+    const poCall = (prisma.purchaseOrder.findMany as any).mock.calls[0];
+    expect(Array.isArray(poCall[0].where.OR)).toBe(true);
+    expect(poCall[0].where.OR).toHaveLength(2);
+    expect(poCall[0].where.OR[0]).toHaveProperty('receivedDate');
+    expect(poCall[0].where.OR[1]).toEqual(
+      expect.objectContaining({ receivedDate: null })
+    );
+    expect(poCall[0].where.OR[1]).toHaveProperty('updatedAt');
+    // Ensure no lingering top-level receivedDate filter (would exclude nulls).
+    expect(poCall[0].where.receivedDate).toBeUndefined();
+  });
+
+  it('received PO with null receivedDate still contributes to purchases + totals', async () => {
+    (prisma.branch.findFirst as any).mockResolvedValueOnce(testBranch);
+    (prisma.stockLevel.findMany as any).mockResolvedValueOnce([]);
+    (prisma.fuelType.findMany as any).mockResolvedValueOnce([]);
+    (prisma.stockReceipt.findMany as any).mockResolvedValueOnce([]);
+    (prisma.purchaseOrder.findMany as any).mockResolvedValueOnce([
+      {
+        id: 'po-1',
+        poNumber: 'PO-001',
+        status: 'partial_received',
+        receivedDate: null,
+        updatedAt: new Date('2026-04-15'),
+        supplier: { name: 'Acme Fuels' },
+        items: [
+          {
+            id: 'item-1',
+            product: null,
+            fuelType: { code: 'HSD', name: 'High Speed Diesel' },
+            quantityReceived: { toString: () => '500' },
+            costPerUnit: { toString: () => '300' },
+            totalCost: { toString: () => '150000' },
+          },
+        ],
+      },
+    ]);
+    (prisma.sale.findMany as any).mockResolvedValueOnce([]);
+
+    const out = await reportsService.getInventoryReport(testBranchId, testOrgId, undefined, '2026-04-01', '2026-04-30');
+
+    expect(out.purchases).toHaveLength(1);
+    expect(out.purchases[0]).toEqual(expect.objectContaining({
+      poNumber: 'PO-001',
+      name: 'High Speed Diesel',
+      fuelCode: 'HSD',
+      quantityReceived: 500,
+      totalCost: 150000,
+      status: 'partial_received',
+    }));
+    expect(Number(out.summary.totalValue)).toBe(150000);
+    expect(out.summary.totalProducts).toBe(1);
+    expect(out.diagnostics.purchasesFound).toBe(1);
+  });
+
+  it('fuel movement aggregates via fuelType.code and allows negative net (sales > purchases)', async () => {
+    (prisma.branch.findFirst as any).mockResolvedValueOnce(testBranch);
+    (prisma.stockLevel.findMany as any).mockResolvedValueOnce([]);
+    (prisma.fuelType.findMany as any).mockResolvedValueOnce([]);
+    (prisma.stockReceipt.findMany as any).mockResolvedValueOnce([]);
+    (prisma.purchaseOrder.findMany as any).mockResolvedValueOnce([
+      {
+        id: 'po-2',
+        poNumber: 'PO-002',
+        status: 'received',
+        receivedDate: new Date('2026-04-10'),
+        updatedAt: new Date('2026-04-10'),
+        supplier: { name: 'S1' },
+        items: [
+          {
+            id: 'item-A',
+            product: null,
+            // Deliberately non-matching name to prove fuelType.code drives aggregation.
+            fuelType: { code: 'HSD', name: 'Ultra Low Sulphur' },
+            quantityReceived: { toString: () => '100' },
+            costPerUnit: { toString: () => '300' },
+            totalCost: { toString: () => '30000' },
+          },
+        ],
+      },
+    ]);
+    // Sales > purchases → negative net movement expected for HSD.
+    (prisma.sale.findMany as any).mockResolvedValueOnce([
+      {
+        totalAmount: { toNumber: () => 102000 },
+        fuelSales: [
+          { quantityLiters: { toNumber: () => 340 }, totalAmount: { toNumber: () => 102000 }, fuelType: { code: 'HSD', name: 'HSD' } },
+        ],
+        nonFuelSales: [],
+      },
+    ]);
+
+    const out = await reportsService.getInventoryReport(testBranchId, testOrgId, undefined, '2026-04-01', '2026-04-30');
+
+    expect(out.fuelMovement).toBeTruthy();
+    const hsd = out.fuelMovement.byFuelType.find((r: any) => r.fuelCode === 'HSD');
+    expect(hsd).toBeDefined();
+    expect(hsd.purchases).toBe(100);
+    expect(hsd.sales).toBe(340);
+    expect(hsd.netMovement).toBe(-240); // negative allowed
   });
 });
 

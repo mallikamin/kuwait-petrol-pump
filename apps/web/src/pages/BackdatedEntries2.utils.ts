@@ -68,6 +68,46 @@ export interface CustomerGroup {
   firstIndex: number;
 }
 
+// Format "YYYY-MM-DD" as "14th January 2026 Successfully Reconciled!" for the
+// finalize success dialog header.
+export function formatReconciledDateHeader(businessDate: string | null | undefined): string | null {
+  if (!businessDate) return null;
+  const d = new Date(`${businessDate}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  const day = d.getDate();
+  const month = d.toLocaleDateString('en-US', { month: 'long' });
+  const year = d.getFullYear();
+  const suffix =
+    day % 100 >= 11 && day % 100 <= 13 ? 'th' :
+    day % 10 === 1 ? 'st' :
+    day % 10 === 2 ? 'nd' :
+    day % 10 === 3 ? 'rd' : 'th';
+  return `${day}${suffix} ${month} ${year} Successfully Reconciled!`;
+}
+
+// Payments totals for the right-side summary panel. `total` is the grand total
+// of all posted rows; `nonFuel` is the subset without a fuel code (or fuelCode
+// === 'OTHER'); `fuel` is the remainder (the actual fuel sale for the day).
+export function computePaymentSummary(transactions: BackdatedTxn[]): {
+  total: number;
+  nonFuel: number;
+  fuel: number;
+} {
+  let total = 0;
+  let nonFuel = 0;
+  for (const t of transactions) {
+    const amt = toNum(t.lineTotal);
+    total += amt;
+    if (!t.fuelCode || t.fuelCode === 'OTHER') nonFuel += amt;
+  }
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  return {
+    total: round2(total),
+    nonFuel: round2(nonFuel),
+    fuel: round2(total - nonFuel),
+  };
+}
+
 export function buildCustomerGroups(transactions: BackdatedTxn[]): CustomerGroup[] {
   const grouped = new Map<string, { indices: number[]; txns: BackdatedTxn[] }>();
   transactions.forEach((txn, idx) => {

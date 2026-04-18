@@ -836,7 +836,8 @@ export class ReportsService {
         },
       });
 
-      // Transform stock receipts for display
+      // Transform stock receipts for display. Preserve fuelType.code so fuel-movement
+      // aggregation can key on the authoritative fuel code rather than matching on name.
       const stockReceiptPurchases = stockReceipts.flatMap(receipt =>
         receipt.purchaseOrder.items.map(item => ({
           poNumber: receipt.purchaseOrder.poNumber,
@@ -844,6 +845,7 @@ export class ReportsService {
           id: item.id,
           name: item.product?.name || item.fuelType?.name || 'Unknown',
           sku: item.product?.sku || '',
+          fuelCode: item.fuelType?.code || null,
           supplierName: receipt.purchaseOrder.supplier?.name,
           quantityReceived: parseFloat(item.quantityReceived.toString()),
           costPerUnit: parseFloat(item.costPerUnit.toString()),
@@ -855,14 +857,21 @@ export class ReportsService {
         }))
       );
 
-      // Query 2: Get PurchaseOrders with status='received' that might not have stock receipts yet
+      // Query 2: Get PurchaseOrders in receiving states that may not have stock receipts yet.
+      // Include 'received' AND 'partial_received' — both hold received stock (partial_received
+      // has items in quantityReceived even if receivedDate is not yet stamped). Allow POs with
+      // NULL receivedDate (common for partial_received) to qualify via updatedAt fallback so
+      // stock-moved rows aren't dropped by the date filter.
       const poWhere: any = {
         branchId,
-        status: 'received',
+        status: { in: ['received', 'partial_received'] },
       };
 
       if (dateFilter) {
-        poWhere.receivedDate = dateFilter;
+        poWhere.OR = [
+          { receivedDate: dateFilter },
+          { receivedDate: null, updatedAt: dateFilter },
+        ];
       }
 
       const receivedPos = await prisma.purchaseOrder.findMany({
@@ -877,30 +886,35 @@ export class ReportsService {
           },
         },
         orderBy: {
-          receivedDate: 'desc',
+          updatedAt: 'desc',
         },
       });
 
-      // Transform received POs for display (exclude those already in stock receipts)
+      // Transform received POs for display (exclude those already in stock receipts).
+      // Skip items with quantityReceived <= 0 so open/zero lines on partial_received POs
+      // don't pad the report with empty rows.
       const poNumbers = new Set(stockReceipts.map(r => r.purchaseOrder.poNumber));
       const receivedPoPurchases = receivedPos
         .filter(po => !poNumbers.has(po.poNumber))
         .flatMap(po =>
-          po.items.map(item => ({
-            poNumber: po.poNumber,
-            receiptNumber: null,
-            id: item.id,
-            name: item.product?.name || item.fuelType?.name || 'Unknown',
-            sku: item.product?.sku || '',
-            supplierName: po.supplier?.name,
-            quantityReceived: parseFloat(item.quantityReceived.toString()),
-            costPerUnit: parseFloat(item.costPerUnit.toString()),
-            totalCost: parseFloat(item.totalCost.toString()),
-            receiptDate: po.receivedDate,
-            status: 'received_no_receipt',
-            receivedBy: 'Pending Receipt Form',
-            receivedByUsername: null,
-          }))
+          po.items
+            .filter(item => parseFloat(item.quantityReceived.toString()) > 0)
+            .map(item => ({
+              poNumber: po.poNumber,
+              receiptNumber: null,
+              id: item.id,
+              name: item.product?.name || item.fuelType?.name || 'Unknown',
+              sku: item.product?.sku || '',
+              fuelCode: item.fuelType?.code || null,
+              supplierName: po.supplier?.name,
+              quantityReceived: parseFloat(item.quantityReceived.toString()),
+              costPerUnit: parseFloat(item.costPerUnit.toString()),
+              totalCost: parseFloat(item.totalCost.toString()),
+              receiptDate: po.receivedDate || po.updatedAt,
+              status: po.status === 'received' ? 'received_no_receipt' : 'partial_received',
+              receivedBy: 'Pending Receipt Form',
+              receivedByUsername: null,
+            }))
         );
 
       // Combine both sources and sort by date
@@ -992,14 +1006,21 @@ export class ReportsService {
         const fuelPurchasesMap = new Map<string, { code: string; name: string; liters: number; amount: number }>();
 
         purchases.forEach((purchase: any) => {
-          // Identify fuel purchases (name contains 'Diesel' or 'Gasoline/Petrol')
-          const nameUpper = (purchase.name || '').toUpperCase();
-          let fuelCode: string | null = null;
-
-          if (nameUpper.includes('DIESEL') || nameUpper.includes('HSD')) {
-            fuelCode = 'HSD';
-          } else if (nameUpper.includes('GASOLINE') || nameUpper.includes('PETROL') || nameUpper.includes('PMG') || nameUpper.includes('PREMIUM')) {
-            fuelCode = 'PMG';
+          // Prefer the authoritative fuel code carried from PurchaseOrderItem.fuelType.
+          // Fall back to name-matching only for legacy rows that lack a fuelType join.
+          let fuelCode: string | null = (purchase.fuelCode || '').toUpperCase() || null;
+          if (!fuelCode) {
+            const nameUpper = (purchase.name || '').toUpperCase();
+            if (nameUpper.includes('DIESEL') || nameUpper.includes('HSD')) {
+              fuelCode = 'HSD';
+            } else if (
+              nameUpper.includes('GASOLINE') ||
+              nameUpper.includes('PETROL') ||
+              nameUpper.includes('PMG') ||
+              nameUpper.includes('PREMIUM')
+            ) {
+              fuelCode = 'PMG';
+            }
           }
 
           if (fuelCode) {
