@@ -57,7 +57,14 @@ export const reportsApi = {
     return response.data.report || response.data;
   },
 
-  getInventoryReport: async (branchId: string, asOfDate?: string, startDate?: string, endDate?: string): Promise<any> => {
+  getInventoryReport: async (
+    branchId: string,
+    asOfDate?: string,
+    startDate?: string,
+    endDate?: string,
+    category?: 'all' | 'HSD' | 'PMG' | 'non_fuel',
+    productId?: string,
+  ): Promise<any> => {
     const params: any = { branchId };
     // Date filter precedence:
     // 1. If startDate/endDate provided => range mode
@@ -69,6 +76,9 @@ export const reportsApi = {
     } else if (asOfDate) {
       params.asOfDate = asOfDate;
     }
+    // Product-Wise Movement filters — server applies them; UI/CSV stay consistent.
+    if (category && category !== 'all') params.category = category;
+    if (productId) params.productId = productId;
     const response = await apiClient.get('/api/reports/inventory', { params });
     return response.data.report || response.data;
   },

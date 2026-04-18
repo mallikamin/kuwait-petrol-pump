@@ -425,6 +425,199 @@ describe('Inventory Report - ISO date input regression', () => {
   });
 });
 
+describe('Inventory Report - Product-Wise Movement', () => {
+  let reportsService: ReportsService;
+  const testBranchId = 'branch-pw';
+  const testOrgId = 'org-pw';
+  const testBranch = { id: testBranchId, name: 'Test Branch', organizationId: testOrgId };
+
+  beforeEach(() => {
+    reportsService = new ReportsService();
+    // resetAllMocks (vs clearAllMocks) drains queued mockResolvedValueOnce
+    // values from prior describe blocks. Each test in this block seeds its
+    // own fixture and we want every getInventoryReport call to be served by
+    // exactly the values queued in the same test.
+    jest.resetAllMocks();
+  });
+
+  // Two non-fuel products + HSD purchase + HSD/PMG sales lets us assert every
+  // category branch and the movement-only filter in a single fixture.
+  const seedRichFixture = () => {
+    (prisma.branch.findFirst as any).mockResolvedValueOnce(testBranch);
+    (prisma.stockLevel.findMany as any).mockResolvedValueOnce([]);
+    (prisma.fuelType.findMany as any).mockResolvedValueOnce([]);
+    (prisma.stockReceipt.findMany as any).mockResolvedValueOnce([]);
+    (prisma.purchaseOrder.findMany as any).mockResolvedValueOnce([
+      // Fuel PO — HSD 1000L @ 300
+      {
+        id: 'po-hsd', poNumber: 'PO-HSD', status: 'received',
+        receivedDate: new Date('2026-04-10'), updatedAt: new Date('2026-04-10'),
+        supplier: { name: 'S' },
+        items: [{
+          id: 'i-hsd', product: null,
+          fuelType: { code: 'HSD', name: 'High Speed Diesel' },
+          quantityReceived: { toString: () => '1000' },
+          costPerUnit: { toString: () => '300' },
+          totalCost: { toString: () => '300000' },
+        }],
+      },
+      // Non-fuel PO — Product A purchased 50 units, no sales
+      {
+        id: 'po-a', poNumber: 'PO-A', status: 'received',
+        receivedDate: new Date('2026-04-12'), updatedAt: new Date('2026-04-12'),
+        supplier: { name: 'S' },
+        items: [{
+          id: 'i-a',
+          product: { id: 'prod-A', name: 'Filter A', sku: 'A-001' },
+          fuelType: null,
+          quantityReceived: { toString: () => '50' },
+          costPerUnit: { toString: () => '100' },
+          totalCost: { toString: () => '5000' },
+        }],
+      },
+    ]);
+    (prisma.sale.findMany as any).mockResolvedValueOnce([
+      // HSD sold 200L @ 300, PMG sold 50L @ 280, Product B sold 10 @ 150
+      {
+        totalAmount: { toNumber: () => 60000 },
+        fuelSales: [{
+          quantityLiters: { toNumber: () => 200 },
+          totalAmount: { toNumber: () => 60000 },
+          fuelType: { code: 'HSD', name: 'HSD' },
+        }],
+        nonFuelSales: [],
+      },
+      {
+        totalAmount: { toNumber: () => 14000 },
+        fuelSales: [{
+          quantityLiters: { toNumber: () => 50 },
+          totalAmount: { toNumber: () => 14000 },
+          fuelType: { code: 'PMG', name: 'PMG' },
+        }],
+        nonFuelSales: [],
+      },
+      {
+        totalAmount: { toNumber: () => 1500 },
+        fuelSales: [],
+        nonFuelSales: [{
+          productId: 'prod-B', quantity: 10,
+          unitPrice: { toNumber: () => 150 },
+          totalAmount: { toNumber: () => 1500 },
+          product: { name: 'Filter B' },
+        }],
+      },
+    ]);
+  };
+
+  it('returns null productMovement in single-date mode (no sales query)', async () => {
+    (prisma.branch.findFirst as any).mockResolvedValueOnce(testBranch);
+    (prisma.stockLevel.findMany as any).mockResolvedValueOnce([]);
+    (prisma.fuelType.findMany as any).mockResolvedValueOnce([]);
+    (prisma.stockReceipt.findMany as any).mockResolvedValueOnce([]);
+    (prisma.purchaseOrder.findMany as any).mockResolvedValueOnce([]);
+    const out = await reportsService.getInventoryReport(testBranchId, testOrgId, '2026-04-15');
+    expect(out.productMovement).toBeNull();
+  });
+
+  it('category=all returns HSD + PMG + non-fuel rows with movement only', async () => {
+    seedRichFixture();
+    const out = await reportsService.getInventoryReport(
+      testBranchId, testOrgId, undefined, '2026-04-01', '2026-04-30', 'all',
+    );
+    expect(out.productMovement).toBeTruthy();
+    expect(out.productMovement.filters.category).toBe('all');
+
+    const rows = out.productMovement.rows;
+    // Expect 4 rows: HSD (purch+sold), PMG (sold only), Filter A (purch only), Filter B (sold only)
+    const byKey = Object.fromEntries(rows.map((r: any) => [r.productId, r]));
+
+    expect(byKey['HSD']).toEqual(expect.objectContaining({
+      productType: 'HSD', unit: 'L',
+      purchasedQty: 1000, soldQty: 200, netMovement: 800,
+      purchasedValue: 300000, soldValue: 60000,
+    }));
+    expect(byKey['PMG']).toEqual(expect.objectContaining({
+      productType: 'PMG', unit: 'L',
+      purchasedQty: 0, soldQty: 50, netMovement: -50,
+      soldValue: 14000,
+    }));
+    expect(byKey['prod-A']).toEqual(expect.objectContaining({
+      productType: 'non_fuel', unit: 'units',
+      purchasedQty: 50, soldQty: 0, netMovement: 50,
+    }));
+    expect(byKey['prod-B']).toEqual(expect.objectContaining({
+      productType: 'non_fuel', unit: 'units',
+      purchasedQty: 0, soldQty: 10, netMovement: -10, soldValue: 1500,
+    }));
+  });
+
+  it('category=HSD returns HSD row only', async () => {
+    seedRichFixture();
+    const out = await reportsService.getInventoryReport(
+      testBranchId, testOrgId, undefined, '2026-04-01', '2026-04-30', 'HSD',
+    );
+    expect(out.productMovement.rows).toHaveLength(1);
+    expect(out.productMovement.rows[0].productType).toBe('HSD');
+    expect(out.productMovement.filters.category).toBe('HSD');
+  });
+
+  it('category=PMG returns PMG row only', async () => {
+    seedRichFixture();
+    const out = await reportsService.getInventoryReport(
+      testBranchId, testOrgId, undefined, '2026-04-01', '2026-04-30', 'PMG',
+    );
+    expect(out.productMovement.rows).toHaveLength(1);
+    expect(out.productMovement.rows[0].productType).toBe('PMG');
+    expect(out.productMovement.rows[0].netMovement).toBe(-50);
+  });
+
+  it('category=non_fuel returns only non-fuel rows', async () => {
+    seedRichFixture();
+    const out = await reportsService.getInventoryReport(
+      testBranchId, testOrgId, undefined, '2026-04-01', '2026-04-30', 'non_fuel',
+    );
+    expect(out.productMovement.rows.every((r: any) => r.productType === 'non_fuel')).toBe(true);
+    expect(out.productMovement.rows).toHaveLength(2);
+  });
+
+  it('productId filter (non-fuel) returns single row', async () => {
+    seedRichFixture();
+    const out = await reportsService.getInventoryReport(
+      testBranchId, testOrgId, undefined, '2026-04-01', '2026-04-30', 'non_fuel', 'prod-B',
+    );
+    expect(out.productMovement.rows).toHaveLength(1);
+    expect(out.productMovement.rows[0].productId).toBe('prod-B');
+    expect(out.productMovement.filters.productId).toBe('prod-B');
+  });
+
+  it('movement-only: products with no purchase and no sale are excluded', async () => {
+    // Empty fixture — no purchases, no sales → no rows
+    (prisma.branch.findFirst as any).mockResolvedValueOnce(testBranch);
+    (prisma.stockLevel.findMany as any).mockResolvedValueOnce([]);
+    (prisma.fuelType.findMany as any).mockResolvedValueOnce([]);
+    (prisma.stockReceipt.findMany as any).mockResolvedValueOnce([]);
+    (prisma.purchaseOrder.findMany as any).mockResolvedValueOnce([]);
+    (prisma.sale.findMany as any).mockResolvedValueOnce([]);
+    const out = await reportsService.getInventoryReport(
+      testBranchId, testOrgId, undefined, '2026-04-01', '2026-04-30',
+    );
+    expect(out.productMovement.rows).toEqual([]);
+    expect(out.diagnostics.productMovementRows).toBe(0);
+    expect(out.diagnostics.errors).toEqual([]);
+  });
+
+  it('accepts ISO-Z dates with category filter end-to-end', async () => {
+    seedRichFixture();
+    const out = await reportsService.getInventoryReport(
+      testBranchId, testOrgId, undefined,
+      '2026-04-01T00:00:00.000Z', '2026-04-30T00:00:00.000Z', 'HSD',
+    );
+    expect(out.productMovement.rows).toHaveLength(1);
+    expect(out.productMovement.rows[0].productType).toBe('HSD');
+    expect(out.diagnostics.errors).toEqual([]);
+  });
+});
+
 describe('Inventory Report - CSV Export Completeness', () => {
   it('should include purchases in response when available', async () => {
     // This is tested at the integration level

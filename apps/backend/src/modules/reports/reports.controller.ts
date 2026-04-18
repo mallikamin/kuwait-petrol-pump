@@ -61,6 +61,10 @@ const inventoryReportQuerySchema = z.object({
   asOfDate: z.string().optional(), // ISO date string for snapshot as-of-date (single date)
   startDate: z.string().optional(), // ISO date string for range start
   endDate: z.string().optional(), // ISO date string for range end
+  // Product-Wise Movement filters (date-range mode only). Optional — keeps
+  // backward compatibility with existing consumers that don't send these.
+  category: z.enum(['all', 'HSD', 'PMG', 'non_fuel']).optional(),
+  productId: z.string().uuid().optional(),
 });
 
 const fuelPriceHistoryQuerySchema = z.object({
@@ -373,7 +377,9 @@ export class ReportsController {
         req.user.organizationId,
         query.asOfDate,
         query.startDate,
-        query.endDate
+        query.endDate,
+        query.category || 'all',
+        query.productId
       );
 
       res.json({

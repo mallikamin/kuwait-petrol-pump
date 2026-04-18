@@ -738,7 +738,15 @@ export class ReportsService {
   /**
    * Get inventory report with current stock levels, low-stock alerts, and purchases received
    */
-  async getInventoryReport(branchId: string, organizationId: string, asOfDate?: string, startDate?: string, endDate?: string) {
+  async getInventoryReport(
+    branchId: string,
+    organizationId: string,
+    asOfDate?: string,
+    startDate?: string,
+    endDate?: string,
+    category: 'all' | 'HSD' | 'PMG' | 'non_fuel' = 'all',
+    productId?: string,
+  ) {
     // Verify branch belongs to organization
     const branch = await prisma.branch.findFirst({
       where: { id: branchId, organizationId },
@@ -848,6 +856,8 @@ export class ReportsService {
           poNumber: receipt.purchaseOrder.poNumber,
           receiptNumber: receipt.receiptNumber,
           id: item.id,
+          // productId carried so productMovement can join non-fuel purchases ↔ sales by UUID.
+          productId: item.product?.id || null,
           name: item.product?.name || item.fuelType?.name || 'Unknown',
           sku: item.product?.sku || '',
           fuelCode: item.fuelType?.code || null,
@@ -908,6 +918,7 @@ export class ReportsService {
               poNumber: po.poNumber,
               receiptNumber: null,
               id: item.id,
+              productId: item.product?.id || null,
               name: item.product?.name || item.fuelType?.name || 'Unknown',
               sku: item.product?.sku || '',
               fuelCode: item.fuelType?.code || null,
@@ -962,6 +973,23 @@ export class ReportsService {
     // Get sales movement for the date range (fuel + non-fuel)
     let salesMovement: any = null;
     let fuelMovement: any = null; // ✅ NEW: Explicit fuel movement calculation (Opening + Purchases - Sales = Closing)
+    // Product-Wise Movement: per-product purchased/sold/net for the date range.
+    // Only populated in date-range mode (sales data is only queried then).
+    // Stays null in single-date and no-filter modes — UI must handle that.
+    let productMovement: {
+      filters: { category: string; productId: string | null };
+      rows: Array<{
+        productId: string;
+        productName: string;
+        productType: 'HSD' | 'PMG' | 'non_fuel';
+        unit: 'L' | 'units';
+        purchasedQty: number;
+        purchasedValue: number;
+        soldQty: number;
+        soldValue: number;
+        netMovement: number;
+      }>;
+    } | null = null;
 
     if (startDate && endDate) {
       try {
@@ -1106,10 +1134,125 @@ export class ReportsService {
           nonFuelSold: Array.from(nonFuelSalesMap.values()),
           totalSalesAmount: sales.reduce((sum, s) => sum + s.totalAmount.toNumber(), 0),
         };
+
+        // Build Product-Wise Movement: combine purchases + sales per product.
+        // Fuel rows keyed by fuel code (HSD/PMG); non-fuel rows keyed by product UUID.
+        // Movement-only filter: only rows with purchasedQty > 0 OR soldQty > 0.
+        // Category and productId filters are applied at the row level so the
+        // CSV/UI render exactly what the API returned.
+        type PMRow = NonNullable<typeof productMovement>['rows'][number];
+        const fuelRows: PMRow[] = (['HSD', 'PMG'] as const).map(code => {
+          const purch = fuelPurchasesMap.get(code);
+          const sold = fuelSalesMap.get(code);
+          const purchasedQty = purch?.liters || 0;
+          const soldQty = sold?.liters || 0;
+          return {
+            productId: code,
+            productName: code === 'HSD' ? 'High Speed Diesel' : 'Premium Motor Gasoline',
+            productType: code as 'HSD' | 'PMG',
+            unit: 'L' as const,
+            purchasedQty,
+            purchasedValue: purch?.amount || 0,
+            soldQty,
+            soldValue: sold?.amount || 0,
+            netMovement: purchasedQty - soldQty,
+          };
+        });
+
+        const nonFuelPurchasesMap = new Map<string, { id: string; name: string; qty: number; amount: number }>();
+        purchases.forEach((p: any) => {
+          // A purchase row is non-fuel iff it has a productId from PurchaseOrderItem.product
+          // and no fuelType code. The id field on the purchase row is the PO item id, so
+          // we re-derive product identity from sku as a fallback when product join is null.
+          const isFuel = !!p.fuelCode;
+          if (isFuel) return;
+          // Skip rows without an identifiable product — they can't be aggregated meaningfully.
+          const key: string | null = p.sku ? `sku:${p.sku}` : null;
+          if (!key) return;
+          const existing = nonFuelPurchasesMap.get(key) || { id: key, name: p.name || 'Unknown', qty: 0, amount: 0 };
+          existing.qty += p.quantityReceived || 0;
+          existing.amount += p.totalCost || 0;
+          nonFuelPurchasesMap.set(key, existing);
+        });
+
+        // Non-fuel sales come from nonFuelSalesMap which is keyed by productId (UUID).
+        // To merge purchases (keyed by sku) with sales (keyed by UUID), we need both
+        // sides to use a common key. Sales carry productId; purchases carry sku via
+        // the product join (already pulled into the purchase row). Build a unified
+        // product index keyed by productId for accurate joining.
+        const nonFuelByProductId = new Map<string, PMRow>();
+
+        // Seed from sales (productId is authoritative).
+        Array.from(nonFuelSalesMap.values()).forEach(s => {
+          nonFuelByProductId.set(s.id, {
+            productId: s.id,
+            productName: s.name,
+            productType: 'non_fuel',
+            unit: 'units' as const,
+            purchasedQty: 0,
+            purchasedValue: 0,
+            soldQty: s.quantity,
+            soldValue: s.amount,
+            netMovement: -s.quantity,
+          });
+        });
+
+        // Add purchases — each purchase row already carries id (po item id) and we
+        // need the underlying product id. Re-pull from receivedPos by walking purchases'
+        // metadata, but a simpler accurate path: stockReceiptPurchases and
+        // receivedPoPurchases were built from `item.product` which has `id`. The
+        // current `purchases` shape doesn't carry productId — extend it now to keep
+        // join honest (additive field, no consumer breakage).
+        purchases.forEach((p: any) => {
+          if (p.fuelCode) return; // fuel handled above
+          if (!p.productId) return; // pre-existing rows without productId — skip silently
+          const existing = nonFuelByProductId.get(p.productId);
+          if (existing) {
+            existing.purchasedQty += p.quantityReceived || 0;
+            existing.purchasedValue += p.totalCost || 0;
+            existing.netMovement = existing.purchasedQty - existing.soldQty;
+          } else {
+            const purchasedQty = p.quantityReceived || 0;
+            nonFuelByProductId.set(p.productId, {
+              productId: p.productId,
+              productName: p.name || 'Unknown',
+              productType: 'non_fuel',
+              unit: 'units' as const,
+              purchasedQty,
+              purchasedValue: p.totalCost || 0,
+              soldQty: 0,
+              soldValue: 0,
+              netMovement: purchasedQty,
+            });
+          }
+        });
+
+        const allRows: PMRow[] = [...fuelRows, ...Array.from(nonFuelByProductId.values())];
+
+        // Apply category filter
+        let filteredByCategory: PMRow[];
+        if (category === 'HSD') filteredByCategory = allRows.filter(r => r.productType === 'HSD');
+        else if (category === 'PMG') filteredByCategory = allRows.filter(r => r.productType === 'PMG');
+        else if (category === 'non_fuel') filteredByCategory = allRows.filter(r => r.productType === 'non_fuel');
+        else filteredByCategory = allRows;
+
+        // Apply productId filter (non-fuel rows only — for fuel use category=HSD/PMG)
+        const filteredByProduct = productId
+          ? filteredByCategory.filter(r => r.productId === productId)
+          : filteredByCategory;
+
+        // Movement-only: drop rows with no activity in the window
+        const movementOnly = filteredByProduct.filter(r => r.purchasedQty > 0 || r.soldQty > 0);
+
+        productMovement = {
+          filters: { category, productId: productId || null },
+          rows: movementOnly.sort((a, b) => a.productName.localeCompare(b.productName)),
+        };
       } catch (error) {
         console.warn('[Inventory Report] Failed to fetch sales movement:', error);
         diagnosticErrors.push('sales_movement_query_failed');
         salesMovement = null;
+        productMovement = null;
       }
     }
 
@@ -1119,6 +1262,7 @@ export class ReportsService {
       purchasesFound: purchases.length,
       dateFilter: startDate && endDate ? 'date-range' : (asOfDate ? 'single-date' : 'none'),
       dateRange: startDate && endDate ? { startDate, endDate } : null,
+      productMovementRows: productMovement?.rows.length ?? 0,
       // Sanitized failure codes from any sub-query that swallowed an error above.
       // Empty array = clean run. UI can surface these without leaking stack traces.
       errors: diagnosticErrors,
@@ -1162,6 +1306,9 @@ export class ReportsService {
       purchases: purchases,
       salesMovement: salesMovement, // Fuel + non-fuel sales in date range (if range provided)
       fuelMovement: fuelMovement, // ✅ NEW: Explicit fuel movement calculation (Purchases - Sales)
+      // Product-Wise Movement (per-product purchased/sold/net for the date range).
+      // Null when no startDate+endDate provided. Filters echoed in shape.
+      productMovement: productMovement,
       fuelAvailability: fuelTypes.map(ft => ({
         id: ft.id,
         name: ft.name,

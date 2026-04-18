@@ -26,6 +26,8 @@ import { toast } from 'sonner';
 import { reportsApi, apiClient, productsApi } from '@/api';
 import { useAuthStore } from '@/store/auth';
 import { formatCurrency } from '@/utils/format';
+import { ProductSelector, ALL_PRODUCTS_VALUE } from '@/components/ui/product-selector';
+import { buildProductMovementCSV, type ProductMovementRow } from './Reports.inventory.utils';
 
 type ReportType =
   | 'daily-sales'
@@ -166,6 +168,10 @@ export function Reports() {
   const [selectedVehicleNumber, setSelectedVehicleNumber] = useState<string>('ALL');
   const [vehicleSearch, setVehicleSearch] = useState<string>('');
   const [inventoryFilterMode, setInventoryFilterMode] = useState<FilterMode>('date-range');
+  // Product-Wise Movement filters within the Inventory Report.
+  // Stay null/'all' when the user only wants the legacy view.
+  const [inventoryCategory, setInventoryCategory] = useState<'all' | 'HSD' | 'PMG' | 'non_fuel'>('all');
+  const [inventoryProductId, setInventoryProductId] = useState<string>(ALL_PRODUCTS_VALUE);
 
   // Daily Sales (supports no-filter, single date, and date range)
   const { data: dailySales, isLoading: loadingDaily, isError: errorDaily } = useQuery({
@@ -192,21 +198,26 @@ export function Reports() {
 
   // Inventory
   const { data: inventory, isLoading: loadingInventory, isError: errorInventory } = useQuery({
-    queryKey: ['report-inventory', branchId, inventoryFilterMode, reportDate, startDate, endDate],
+    queryKey: ['report-inventory', branchId, inventoryFilterMode, reportDate, startDate, endDate, inventoryCategory, inventoryProductId],
     queryFn: () => {
+      const productIdParam = inventoryProductId !== ALL_PRODUCTS_VALUE ? inventoryProductId : undefined;
       if (inventoryFilterMode === 'date-range') {
         return reportsApi.getInventoryReport(
           branchId,
           undefined,
           startDate ? new Date(startDate).toISOString() : undefined,
-          endDate ? new Date(endDate).toISOString() : undefined
+          endDate ? new Date(endDate).toISOString() : undefined,
+          inventoryCategory,
+          productIdParam,
         );
       } else if (inventoryFilterMode === 'single-date') {
         return reportsApi.getInventoryReport(
           branchId,
           new Date(reportDate).toISOString(),
           undefined,
-          undefined
+          undefined,
+          inventoryCategory,
+          productIdParam,
         );
       } else {
         // no-filter mode
@@ -403,7 +414,7 @@ export function Reports() {
   const { data: nonFuelProductsData } = useQuery({
     queryKey: ['non-fuel-products-report'],
     queryFn: () => productsApi.getAll({ size: 1000 }),
-    enabled: selectedReport === 'product-wise-summary',
+    enabled: selectedReport === 'product-wise-summary' || selectedReport === 'inventory',
   });
   const nonFuelProducts = (nonFuelProductsData?.items || []).filter((p: any) => p.isActive !== false);
 
@@ -440,6 +451,14 @@ export function Reports() {
       setSelectedNonFuelProductId('ALL');
     }
   }, [productWiseType]);
+
+  // Inventory product picker is only meaningful for non-fuel; clear it when
+  // the user switches to All/HSD/PMG so a stale UUID doesn't suppress rows.
+  useEffect(() => {
+    if (inventoryCategory !== 'non_fuel') {
+      setInventoryProductId(ALL_PRODUCTS_VALUE);
+    }
+  }, [inventoryCategory]);
 
   const isLoading =
     loadingDaily ||
@@ -596,6 +615,30 @@ export function Reports() {
       ];
     });
     downloadCSV(`inventory-stock-${new Date().toISOString().split('T')[0]}.csv`, toCSV(headers, rows));
+  };
+
+  const exportProductMovementCSV = () => {
+    if (!inventory?.productMovement) {
+      toast.info('No data to export', { description: 'Product-Wise Movement is only available in Date Range mode.' });
+      return;
+    }
+    const rows: ProductMovementRow[] = inventory.productMovement.rows || [];
+    if (rows.length === 0) {
+      toast.info('No data to export', { description: 'No product movement for the selected filters.' });
+      return;
+    }
+    const productLabel =
+      inventoryProductId !== ALL_PRODUCTS_VALUE
+        ? (nonFuelProducts.find((p: any) => p.id === inventoryProductId)?.name || inventoryProductId)
+        : (inventoryCategory === 'non_fuel' ? 'All non-fuel products' : 'All products');
+    const csv = buildProductMovementCSV(rows, {
+      branchName: inventory?.branch?.name || 'Branch',
+      startDate,
+      endDate,
+      category: inventoryCategory,
+      productLabel,
+    });
+    downloadCSV(`inventory-movement-${new Date().toISOString().split('T')[0]}.csv`, csv);
   };
 
   const printInventory = () => {
@@ -898,6 +941,46 @@ export function Reports() {
                     <div className="space-y-2">
                       <Label>End Date</Label>
                       <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setFetchEnabled(false); }} />
+                    </div>
+                  </>
+                )}
+                {/* Product-Wise Movement filters — date-range mode only (sales aren't queried otherwise) */}
+                {inventoryFilterMode === 'date-range' && (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Category</Label>
+                      <Select
+                        value={inventoryCategory}
+                        onValueChange={(v) => { setInventoryCategory(v as 'all' | 'HSD' | 'PMG' | 'non_fuel'); setFetchEnabled(false); }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All</SelectItem>
+                          <SelectItem value="HSD">HSD</SelectItem>
+                          <SelectItem value="PMG">PMG</SelectItem>
+                          <SelectItem value="non_fuel">Non-Fuel</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Product</Label>
+                      <ProductSelector
+                        products={nonFuelProducts.map((p: any) => ({
+                          id: p.id, name: p.name, sku: p.sku, category: p.category,
+                        }))}
+                        value={inventoryProductId}
+                        onChange={(v) => { setInventoryProductId(v); setFetchEnabled(false); }}
+                        placeholder="Select non-fuel product..."
+                        allLabel="All non-fuel products"
+                        disabled={inventoryCategory !== 'non_fuel'}
+                      />
+                      {inventoryCategory !== 'non_fuel' && (
+                        <p className="text-xs text-muted-foreground">
+                          Product picker is for non-fuel only. For fuel, choose HSD or PMG above.
+                        </p>
+                      )}
                     </div>
                   </>
                 )}
@@ -1615,6 +1698,11 @@ export function Reports() {
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold">Inventory Report</h2>
             <div className="flex gap-2">
+              {inventory.productMovement?.rows?.length > 0 && (
+                <Button variant="outline" size="sm" onClick={() => exportProductMovementCSV()}>
+                  <Download className="mr-2 h-4 w-4" /> Movement CSV
+                </Button>
+              )}
               <Button variant="outline" size="sm" onClick={exportInventoryCSV}>
                 <Download className="mr-2 h-4 w-4" /> CSV
               </Button>
@@ -1623,6 +1711,69 @@ export function Reports() {
               </Button>
             </div>
           </div>
+
+          {/* Product-Wise Movement (date-range only). Additive — existing sections below stay. */}
+          {inventory.productMovement && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">
+                  Product-Wise Movement
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">
+                    {inventoryCategory === 'all' ? 'All categories' :
+                      inventoryCategory === 'HSD' ? 'HSD' :
+                      inventoryCategory === 'PMG' ? 'PMG' : 'Non-Fuel'}
+                    {' · '}
+                    {inventoryProductId !== ALL_PRODUCTS_VALUE
+                      ? (nonFuelProducts.find((p: any) => p.id === inventoryProductId)?.name || 'Selected product')
+                      : 'All products'}
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {inventory.productMovement.rows.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4">
+                    No purchases or sales for the selected filters in this date range.
+                  </p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Product</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Unit</TableHead>
+                        <TableHead className="text-right">Purchased</TableHead>
+                        <TableHead className="text-right">Sold</TableHead>
+                        <TableHead className="text-right">Net Movement</TableHead>
+                        <TableHead className="text-right">Purchased Value</TableHead>
+                        <TableHead className="text-right">Sold Value</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {inventory.productMovement.rows.map((r: ProductMovementRow) => (
+                        <TableRow key={`${r.productType}-${r.productId}`}>
+                          <TableCell className="font-medium">{r.productName}</TableCell>
+                          <TableCell>
+                            {r.productType === 'non_fuel' ? 'Non-Fuel' : r.productType}
+                          </TableCell>
+                          <TableCell>{r.unit}</TableCell>
+                          <TableCell className="text-right">{Number(r.purchasedQty).toFixed(r.unit === 'L' ? 3 : 2)}</TableCell>
+                          <TableCell className="text-right">{Number(r.soldQty).toFixed(r.unit === 'L' ? 3 : 2)}</TableCell>
+                          <TableCell className={`text-right font-bold ${r.netMovement < 0 ? 'text-destructive' : ''}`}>
+                            {Number(r.netMovement).toFixed(r.unit === 'L' ? 3 : 2)}
+                          </TableCell>
+                          <TableCell className="text-right">{formatCurrency(Number(r.purchasedValue || 0))}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(Number(r.soldValue || 0))}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+                <p className="text-xs text-muted-foreground mt-2">
+                  Movement-only: products with no activity in the date range are excluded.
+                </p>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Summary */}
           {inventory.summary && (
