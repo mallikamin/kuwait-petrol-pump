@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { FileText, Download, Printer, Loader2, Calendar } from 'lucide-react';
+import { toast } from 'sonner';
 import { reportsApi, apiClient, productsApi } from '@/api';
 import { useAuthStore } from '@/store/auth';
 import { formatCurrency } from '@/utils/format';
@@ -571,8 +572,16 @@ export function Reports() {
 
     // Fall back to current stock if no purchases
     const products = inventory.nonFuelProducts || [];
-    const headers = ['Product', 'SKU', 'Category', 'Quantity', 'Unit Price', 'Stock Value', 'Status'];
     const allProducts = [...(products.normal || []), ...(products.lowStock || [])];
+
+    // Don't dump a header-only file when there's nothing to export — surface
+    // the empty state explicitly instead.
+    if (allProducts.length === 0) {
+      toast.info('No data to export', { description: 'Inventory report is empty for the selected filter.' });
+      return;
+    }
+
+    const headers = ['Product', 'SKU', 'Category', 'Quantity', 'Unit Price', 'Stock Value', 'Status'];
     const rows: (string | number)[][] = allProducts.map((p: any) => {
       const qty = p.quantity ?? p.stockLevel ?? 0;
       const unitPrice = Number(p.unitPrice || 0);

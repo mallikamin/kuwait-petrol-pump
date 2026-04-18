@@ -341,6 +341,90 @@ describe('Inventory Report - PO status + null receivedDate handling', () => {
   });
 });
 
+describe('Inventory Report - ISO date input regression', () => {
+  // Production bug 2026-04-18: Reports.tsx forwards dates as
+  // `new Date(value).toISOString()` ("2026-04-18T00:00:00.000Z").
+  // The pre-fix timezone helpers threw on the ISO suffix; the inventory
+  // try/catch swallowed the throw and returned all-zero data.
+  // These tests ensure both formats now produce equivalent results AND that
+  // diagnostics.errors stays empty on the happy path.
+  let reportsService: ReportsService;
+  const testBranchId = 'branch-iso';
+  const testOrgId = 'org-iso';
+  const testBranch = { id: testBranchId, name: 'Test Branch', organizationId: testOrgId };
+
+  beforeEach(() => {
+    reportsService = new ReportsService();
+    jest.clearAllMocks();
+  });
+
+  const seedHappyPath = () => {
+    (prisma.branch.findFirst as any).mockResolvedValueOnce(testBranch);
+    (prisma.stockLevel.findMany as any).mockResolvedValueOnce([]);
+    (prisma.fuelType.findMany as any).mockResolvedValueOnce([]);
+    (prisma.stockReceipt.findMany as any).mockResolvedValueOnce([]);
+    (prisma.purchaseOrder.findMany as any).mockResolvedValueOnce([
+      {
+        id: 'po-iso',
+        poNumber: 'PO-ISO',
+        status: 'received',
+        receivedDate: new Date('2026-04-10'),
+        updatedAt: new Date('2026-04-10'),
+        supplier: { name: 'S' },
+        items: [
+          {
+            id: 'item-iso',
+            product: null,
+            fuelType: { code: 'HSD', name: 'High Speed Diesel' },
+            quantityReceived: { toString: () => '100' },
+            costPerUnit: { toString: () => '300' },
+            totalCost: { toString: () => '30000' },
+          },
+        ],
+      },
+    ]);
+    (prisma.sale.findMany as any).mockResolvedValueOnce([]);
+  };
+
+  it('accepts ISO-Z startDate/endDate end-to-end (no silent zeros)', async () => {
+    seedHappyPath();
+    const out = await reportsService.getInventoryReport(
+      testBranchId,
+      testOrgId,
+      undefined,
+      '2026-04-01T00:00:00.000Z',
+      '2026-04-30T00:00:00.000Z',
+    );
+    expect(out.purchases).toHaveLength(1);
+    expect(out.diagnostics.purchasesFound).toBe(1);
+    expect(out.diagnostics.errors).toEqual([]);
+    expect(out.fuelMovement).toBeTruthy();
+  });
+
+  it('accepts ISO-Z asOfDate (single-date mode)', async () => {
+    seedHappyPath();
+    const out = await reportsService.getInventoryReport(
+      testBranchId,
+      testOrgId,
+      '2026-04-30T00:00:00.000Z',
+    );
+    expect(out.purchases).toHaveLength(1);
+    expect(out.diagnostics.errors).toEqual([]);
+  });
+
+  it('diagnostics.errors stays [] on a clean run with YYYY-MM-DD input', async () => {
+    seedHappyPath();
+    const out = await reportsService.getInventoryReport(
+      testBranchId,
+      testOrgId,
+      undefined,
+      '2026-04-01',
+      '2026-04-30',
+    );
+    expect(out.diagnostics.errors).toEqual([]);
+  });
+});
+
 describe('Inventory Report - CSV Export Completeness', () => {
   it('should include purchases in response when available', async () => {
     // This is tested at the integration level

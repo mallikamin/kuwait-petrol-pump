@@ -11,36 +11,38 @@ import { fromZonedTime, toZonedTime } from 'date-fns-tz';
 const BRANCH_TIMEZONE = 'Asia/Karachi'; // PKT (Pakistan Time, UTC+5)
 
 /**
- * Convert date string (YYYY-MM-DD) to branch-local start-of-day in UTC
- * Example: "2026-01-15" → 2026-01-15T00:00:00 PKT → 2026-01-14T19:00:00Z
+ * Accepts both "YYYY-MM-DD" and any ISO-prefixed string ("YYYY-MM-DDTHH:MM:SS.sssZ",
+ * "YYYY-MM-DD...+05:00", etc.). Only the calendar-date prefix is consumed; any
+ * time/zone suffix is intentionally discarded so branch-local boundaries are
+ * computed from the date the caller wrote, not the UTC instant they typed.
  */
-export function toBranchStartOfDay(dateString: string): Date {
-  const [year, month, day] = dateString.split('-').map(Number);
+function parseBranchDateParts(dateString: string): [number, number, number] {
+  const [year, month, day] = dateString.slice(0, 10).split('-').map(Number);
   if (!year || !month || !day) {
     throw new Error(`Invalid date string: ${dateString}`);
   }
+  return [year, month, day];
+}
 
-  // Create date at midnight in branch timezone
+/**
+ * Convert date string to branch-local start-of-day in UTC.
+ * Example: "2026-01-15" → 2026-01-15T00:00:00 PKT → 2026-01-14T19:00:00Z
+ * Also accepts ISO-prefixed input — only the leading YYYY-MM-DD is used.
+ */
+export function toBranchStartOfDay(dateString: string): Date {
+  const [year, month, day] = parseBranchDateParts(dateString);
   const localMidnight = new Date(year, month - 1, day, 0, 0, 0, 0);
-
-  // Convert to UTC
   return fromZonedTime(localMidnight, BRANCH_TIMEZONE);
 }
 
 /**
- * Convert date string (YYYY-MM-DD) to branch-local end-of-day in UTC
+ * Convert date string to branch-local end-of-day in UTC.
  * Example: "2026-01-15" → 2026-01-15T23:59:59.999 PKT → 2026-01-15T18:59:59.999Z
+ * Also accepts ISO-prefixed input — only the leading YYYY-MM-DD is used.
  */
 export function toBranchEndOfDay(dateString: string): Date {
-  const [year, month, day] = dateString.split('-').map(Number);
-  if (!year || !month || !day) {
-    throw new Error(`Invalid date string: ${dateString}`);
-  }
-
-  // Create date at end-of-day in branch timezone
+  const [year, month, day] = parseBranchDateParts(dateString);
   const localEndOfDay = new Date(year, month - 1, day, 23, 59, 59, 999);
-
-  // Convert to UTC
   return fromZonedTime(localEndOfDay, BRANCH_TIMEZONE);
 }
 
@@ -78,9 +80,6 @@ export async function getBusinessDate(_organizationId?: string): Promise<Date> {
  * For date-only comparisons where timezone doesn't matter
  */
 export function normalizeBusinessDateUTC(dateString: string): Date {
-  const [year, month, day] = dateString.split('-').map(Number);
-  if (!year || !month || !day) {
-    throw new Error(`Invalid date string: ${dateString}`);
-  }
+  const [year, month, day] = parseBranchDateParts(dateString);
   return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
 }

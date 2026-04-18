@@ -773,6 +773,11 @@ export class ReportsService {
       },
     });
 
+    // Sanitized diagnostic error codes surfaced in the response so the UI can
+    // distinguish "no data" from "sub-query failed". Raw error messages/stacks
+    // are kept out of the payload and only logged server-side.
+    const diagnosticErrors: string[] = [];
+
     // Get purchases received (stock receipts with items)
     let purchases: any[] = [];
     try {
@@ -922,8 +927,10 @@ export class ReportsService {
         (a, b) => new Date(b.receiptDate).getTime() - new Date(a.receiptDate).getTime()
       );
     } catch (error) {
-      // If purchases query fails, continue without purchases data
+      // If purchases query fails, continue without purchases data.
+      // Surface a sanitized code in diagnostics; full error stays in server logs.
       console.warn('[Inventory Report] Failed to fetch purchases:', error);
+      diagnosticErrors.push('purchases_query_failed');
       purchases = [];
     }
 
@@ -1101,6 +1108,7 @@ export class ReportsService {
         };
       } catch (error) {
         console.warn('[Inventory Report] Failed to fetch sales movement:', error);
+        diagnosticErrors.push('sales_movement_query_failed');
         salesMovement = null;
       }
     }
@@ -1111,6 +1119,9 @@ export class ReportsService {
       purchasesFound: purchases.length,
       dateFilter: startDate && endDate ? 'date-range' : (asOfDate ? 'single-date' : 'none'),
       dateRange: startDate && endDate ? { startDate, endDate } : null,
+      // Sanitized failure codes from any sub-query that swallowed an error above.
+      // Empty array = clean run. UI can surface these without leaking stack traces.
+      errors: diagnosticErrors,
     };
 
     return {
