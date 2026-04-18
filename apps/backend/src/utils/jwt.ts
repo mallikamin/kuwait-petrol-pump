@@ -7,6 +7,9 @@ export interface TokenPayload {
   role: string;
   organizationId: string;
   branchId?: string;
+  // Per-login session identifier so multiple devices/tabs can coexist
+  // without orphaning each other's refresh tokens.
+  sessionId?: string;
 }
 
 export function generateAccessToken(payload: TokenPayload): string {

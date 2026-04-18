@@ -25,6 +25,7 @@ import { Credit } from '@/pages/Credit';
 import { NotFound } from '@/pages/NotFound';
 import { useAuthStore } from '@/store/auth';
 import { useThemeStore } from '@/store/theme';
+import { useSessionKeepAlive } from '@/hooks/useSessionKeepAlive';
 import { useEffect } from 'react';
 
 const queryClient = new QueryClient({
@@ -43,6 +44,10 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 function App() {
   const { theme } = useThemeStore();
+
+  // Proactively refresh the session while the user is authenticated so the
+  // 24h access-token boundary never produces a mid-work logout.
+  useSessionKeepAlive();
 
   useEffect(() => {
     if (theme === 'dark') {

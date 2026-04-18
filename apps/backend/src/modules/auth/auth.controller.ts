@@ -49,7 +49,7 @@ export class AuthController {
       if (!req.user) {
         return res.status(401).json({ error: 'Not authenticated' });
       }
-      await this.authService.logout(req.user.userId);
+      await this.authService.logout(req.user.userId, req.user.sessionId);
       res.json({ message: 'Logged out successfully' });
     } catch (error) {
       next(error);

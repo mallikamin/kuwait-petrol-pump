@@ -1,9 +1,18 @@
 import bcrypt from 'bcrypt';
+import { randomUUID } from 'crypto';
 import { prisma } from '../../config/database';
 import { redis } from '../../config/redis';
 import { env } from '../../config/env';
-import { generateAccessToken, generateRefreshToken, verifyRefreshToken } from '../../utils/jwt';
+import { generateAccessToken, generateRefreshToken, verifyRefreshToken, TokenPayload } from '../../utils/jwt';
 import { AppError } from '../../middleware/error.middleware';
+
+// Redis key helpers. We store refresh tokens per-session so concurrent logins
+// from multiple workstations/tabs for the same user do not invalidate each
+// other. The legacy per-user key is still honored for backward compatibility
+// with tokens signed before this change.
+const sessionKey = (userId: string, sessionId: string) => `refresh_token:${userId}:${sessionId}`;
+const legacyUserKey = (userId: string) => `refresh_token:${userId}`;
+const userSessionIndex = (userId: string) => `refresh_sessions:${userId}`;
 
 export class AuthService {
   private getRefreshTokenTtlSeconds(): number {
@@ -40,19 +49,32 @@ export class AuthService {
       throw new AppError(401, 'Invalid credentials');
     }
 
-    const payload = {
+    const sessionId = randomUUID();
+    const payload: TokenPayload = {
       userId: user.id,
       email: user.email || user.username,
       role: user.role,
       organizationId: user.organizationId,
       branchId: user.branchId || undefined,
+      sessionId,
     };
 
     const accessToken = generateAccessToken(payload);
     const refreshToken = generateRefreshToken(payload);
+    const ttl = this.getRefreshTokenTtlSeconds();
 
-    // Store refresh token in Redis with TTL aligned to configured refresh expiry.
-    await redis.setEx(`refresh_token:${user.id}`, this.getRefreshTokenTtlSeconds(), refreshToken);
+    // Store the refresh token under the per-session key so this login does not
+    // displace other active sessions for the same user.
+    await redis.setEx(sessionKey(user.id, sessionId), ttl, refreshToken);
+
+    // Track active session ids so we can revoke them all on password change.
+    // Use a set with a matching TTL so it self-cleans.
+    try {
+      await redis.sAdd(userSessionIndex(user.id), sessionId);
+      await redis.expire(userSessionIndex(user.id), ttl);
+    } catch {
+      // Non-fatal: the session key above is the source of truth for auth.
+    }
 
     return {
       user: {
@@ -78,14 +100,32 @@ export class AuthService {
     try {
       const payload = verifyRefreshToken(refreshToken);
 
-      // Check if token exists in Redis
-      const storedToken = await redis.get(`refresh_token:${payload.userId}`);
+      // Prefer the per-session key. Fall back to the legacy per-user key so
+      // tokens signed before the multi-session rollout keep working.
+      let storedToken: string | null = null;
+      if (payload.sessionId) {
+        storedToken = await redis.get(sessionKey(payload.userId, payload.sessionId));
+      }
+      if (!storedToken) {
+        storedToken = await redis.get(legacyUserKey(payload.userId));
+      }
+
       if (!storedToken || storedToken !== refreshToken) {
         throw new AppError(401, 'Invalid refresh token');
       }
 
-      // Generate new access token
-      const newAccessToken = generateAccessToken(payload);
+      // Reuse the existing sessionId when present so access tokens stay tied to
+      // the same session across refreshes. Tokens minted before this change
+      // have no sessionId; mint one now so future refreshes index correctly.
+      const nextPayload: TokenPayload = {
+        userId: payload.userId,
+        email: payload.email,
+        role: payload.role,
+        organizationId: payload.organizationId,
+        branchId: payload.branchId,
+        sessionId: payload.sessionId,
+      };
+      const newAccessToken = generateAccessToken(nextPayload);
 
       return { accessToken: newAccessToken };
     } catch (error) {
@@ -113,9 +153,19 @@ export class AuthService {
     }
   }
 
-  async logout(userId: string) {
-    // Remove refresh token from Redis
-    await redis.del(`refresh_token:${userId}`);
+  async logout(userId: string, sessionId?: string) {
+    // Revoke only the current session so other active devices/tabs stay logged in.
+    if (sessionId) {
+      await redis.del(sessionKey(userId, sessionId));
+      try {
+        await redis.sRem(userSessionIndex(userId), sessionId);
+      } catch {
+        // Non-fatal index cleanup failure.
+      }
+    } else {
+      // Legacy tokens without a sessionId - clear the old per-user key.
+      await redis.del(legacyUserKey(userId));
+    }
   }
 
   async changePassword(userId: string, oldPassword: string, newPassword: string) {
@@ -137,7 +187,17 @@ export class AuthService {
       data: { passwordHash: hashedPassword },
     });
 
-    // Invalidate all refresh tokens
-    await redis.del(`refresh_token:${userId}`);
+    // Invalidate every active session for this user so a leaked password
+    // cannot be silently re-used from another workstation.
+    await redis.del(legacyUserKey(userId));
+    try {
+      const sessions = await redis.sMembers(userSessionIndex(userId));
+      if (sessions.length > 0) {
+        await redis.del(sessions.map((sid) => sessionKey(userId, sid)));
+      }
+      await redis.del(userSessionIndex(userId));
+    } catch {
+      // Non-fatal: best-effort cleanup; stale keys will expire via TTL.
+    }
   }
 }

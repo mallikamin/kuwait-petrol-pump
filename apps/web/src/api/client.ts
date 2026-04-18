@@ -69,7 +69,10 @@ const attemptRefreshWithRetry = async (
     return newAccessToken;
   } catch (error: any) {
     const status = error.response?.status;
-    const isTransient = !status || status >= 500;
+    // 429 (nginx auth rate-limit) is transient too: backing off and retrying
+    // avoids forced logout when the browser briefly bursts refresh calls
+    // (e.g. multiple tabs waking from sleep at once).
+    const isTransient = !status || status >= 500 || status === 429;
 
     // If transient error and retries remaining, wait and retry
     if (isTransient && retryCount < MAX_TRANSIENT_RETRIES) {
@@ -86,6 +89,52 @@ const attemptRefreshWithRetry = async (
 
     // No more retries or non-transient error, rethrow
     throw error;
+  }
+};
+
+/**
+ * Proactively refresh the access token without waiting for a 401.
+ *
+ * Returns `true` on success, `false` on transient failure (caller should
+ * keep the session; we'll try again later), and throws on auth-invalid (401)
+ * so the caller can choose to logout.
+ *
+ * Safe to call concurrently with the interceptor: we reuse the `isRefreshing`
+ * flag and queue so only one refresh is in flight at a time.
+ */
+export const refreshAccessToken = async (): Promise<boolean> => {
+  const { refreshToken, setToken } = useAuthStore.getState();
+  if (!refreshToken) return false;
+
+  // If the interceptor is already refreshing, wait for it and inherit the result.
+  if (isRefreshing) {
+    return new Promise<boolean>((resolve) => {
+      pendingRequests.push((newToken) => resolve(!!newToken));
+    });
+  }
+
+  isRefreshing = true;
+  try {
+    const newAccessToken = await attemptRefreshWithRetry(refreshToken);
+    setToken(newAccessToken);
+    flushPendingRequests(newAccessToken);
+    refreshAttempts = 0;
+    logAuth('Proactive token refresh successful');
+    return true;
+  } catch (err: any) {
+    const status = err?.response?.status;
+    if (status === 401) {
+      // Definitive auth failure: surface to caller
+      flushPendingRequests(null);
+      logAuth('Proactive refresh: auth invalid', { status });
+      throw err;
+    }
+    // Transient or unknown error: keep session, caller will retry later
+    flushPendingRequests(null);
+    logAuth('Proactive refresh: transient failure (will retry later)', { status });
+    return false;
+  } finally {
+    isRefreshing = false;
   }
 };
 
@@ -214,7 +263,10 @@ apiClient.interceptors.response.use(
           // 503 = service temporarily unavailable (Redis down, backend issue, etc.)
           // Other 5xx, network errors = transient failures
           const isAuthInvalid = refreshStatus === 401;
-          const isTransient = !refreshStatus || refreshStatus >= 500; // Network error or 5xx
+          // Treat 429 (rate-limited) as transient alongside network/5xx so a
+          // throttled refresh never forces logout - the retry loop will
+          // eventually succeed when the window resets.
+          const isTransient = !refreshStatus || refreshStatus >= 500 || refreshStatus === 429;
 
           if (isAuthInvalid) {
             // Permanent auth failure: logout required
