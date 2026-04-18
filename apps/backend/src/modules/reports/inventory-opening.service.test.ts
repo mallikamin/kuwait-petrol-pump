@@ -38,21 +38,60 @@ const fuelBootstrap = (code: 'HSD' | 'PMG', qty: number) => ({
   fuelType: { code },
 });
 
-const receiptForProduct = (productIdLocal: string, qty: number) => ({
+// Legacy-shape fixture: receipt with NO StockReceiptItem rows. The service
+// falls back to the PO item's cumulative quantity (once per PO) for these.
+const receiptForProduct = (productIdLocal: string, qty: number, opts?: { id?: string; purchaseOrderId?: string }) => ({
+  id: opts?.id || `r-${productIdLocal}-${qty}`,
+  purchaseOrderId: opts?.purchaseOrderId || `po-${productIdLocal}`,
+  items: [],
   purchaseOrder: {
-    items: [{ quantityReceived: qty as any, product: { id: productIdLocal }, fuelType: null }],
+    items: [{ id: `poi-${productIdLocal}`, quantityReceived: qty as any, product: { id: productIdLocal }, fuelType: null }],
   },
 });
 
-const poForProduct = (productIdLocal: string, qty: number) => ({
+// Authoritative-shape fixture: receipt carrying real StockReceiptItem rows.
+// The service must prefer these per-receipt quantities over the PO cumulative.
+const receiptWithItems = (
+  productIdLocal: string,
+  poQuantityReceived: number,
+  sriQty: number,
+  opts?: { id?: string; purchaseOrderId?: string; poItemId?: string },
+) => ({
+  id: opts?.id || `r-${productIdLocal}-${sriQty}`,
+  purchaseOrderId: opts?.purchaseOrderId || `po-${productIdLocal}`,
+  items: [{ poItemId: opts?.poItemId || `poi-${productIdLocal}`, quantityReceived: sriQty as any }],
+  purchaseOrder: {
+    items: [{ id: opts?.poItemId || `poi-${productIdLocal}`, quantityReceived: poQuantityReceived as any, product: { id: productIdLocal }, fuelType: null }],
+  },
+});
+
+const fuelReceiptWithItems = (
+  code: 'HSD' | 'PMG',
+  poQuantityReceived: number,
+  sriQty: number,
+  opts?: { id?: string; purchaseOrderId?: string; poItemId?: string },
+) => ({
+  id: opts?.id || `r-${code}-${sriQty}`,
+  purchaseOrderId: opts?.purchaseOrderId || `po-${code}`,
+  items: [{ poItemId: opts?.poItemId || `poi-${code}`, quantityReceived: sriQty as any }],
+  purchaseOrder: {
+    items: [{ id: opts?.poItemId || `poi-${code}`, quantityReceived: poQuantityReceived as any, product: null, fuelType: { code } }],
+  },
+});
+
+const poForProduct = (productIdLocal: string, qty: number, opts?: { id?: string }) => ({
+  id: opts?.id || `po-${productIdLocal}`,
   status: 'received',
   stockReceipts: [],
-  items: [{ quantityReceived: qty as any, product: { id: productIdLocal }, fuelType: null }],
+  items: [{ id: `poi-${productIdLocal}`, quantityReceived: qty as any, product: { id: productIdLocal }, fuelType: null }],
 });
 
 const fuelReceipt = (code: 'HSD' | 'PMG', qty: number) => ({
+  id: `r-${code}-${qty}`,
+  purchaseOrderId: `po-${code}`,
+  items: [],
   purchaseOrder: {
-    items: [{ quantityReceived: qty as any, product: null, fuelType: { code } }],
+    items: [{ id: `poi-${code}`, quantityReceived: qty as any, product: null, fuelType: { code } }],
   },
 });
 
@@ -248,5 +287,134 @@ describe('computeInventoryOpeningClosing - accountant cycle', () => {
     });
     // Must be 10 (from receipt only) - NOT 20 (would double count PO).
     expect(map.get(`product:${productId}`)!.purchasesQtyInPeriod).toBe(10);
+  });
+
+  // Scenario 1: Dec-31 pre-window purchase + Jan-2 in-period purchase, range
+  // Jan 1-Jan 4. Opening must include ONLY the Dec-31 receipt; in-period
+  // purchases must include ONLY Jan-2. The regression this guards against is
+  // a Dec-31 receipt being mis-attributed to the in-period bucket (or being
+  // multiplied when the PO has >1 receipt).
+  it('Scenario 1: Dec-31 pre-window receipt feeds opening, Jan-2 feeds in-period', async () => {
+    (prisma.inventoryBootstrap.findMany as jest.Mock).mockResolvedValue([
+      bootstrap(0, new Date('2026-01-01T00:00:00Z')),
+    ]);
+    (prisma.stockReceipt.findMany as jest.Mock).mockImplementation(async ({ where }: any) => {
+      const hasLt = 'lt' in (where?.receiptDate ?? {});
+      return hasLt
+        ? [receiptWithItems(productId, 10000, 10000, { id: 'r-dec31', purchaseOrderId: 'po-dec31', poItemId: 'poi-dec31' })]
+        : [receiptWithItems(productId, 5000, 5000, { id: 'r-jan2', purchaseOrderId: 'po-jan2', poItemId: 'poi-jan2' })];
+    });
+    const map = await computeInventoryOpeningClosing({
+      branchId,
+      startDate: '2026-01-01',
+      endDate: '2026-01-04',
+    });
+    const row = map.get(`product:${productId}`)!;
+    expect(row.openingQty).toBe(10000);
+    expect(row.purchasesQtyInPeriod).toBe(5000);
+    expect(row.closingQty).toBe(15000);
+  });
+
+  // Scenario 2: Opening-Stock editor saves a bootstrap on Jan-1; the opening
+  // cycle must pick it up and apply it at movement opening — not zero-out.
+  it('Scenario 2: bootstrap saved on Jan-1 is the opening for a Jan-1..Jan-4 range', async () => {
+    (prisma.inventoryBootstrap.findMany as jest.Mock).mockResolvedValue([
+      bootstrap(7777, new Date('2026-01-01T00:00:00Z')),
+    ]);
+    const map = await computeInventoryOpeningClosing({
+      branchId,
+      startDate: '2026-01-01',
+      endDate: '2026-01-04',
+    });
+    expect(map.get(`product:${productId}`)!.openingQty).toBe(7777);
+  });
+
+  // Scenario 3: Continuity — opening(next range) must equal closing(prev range).
+  it('Scenario 3: opening(Jan 5-10) equals closing(Jan 1-4) for same item', async () => {
+    (prisma.inventoryBootstrap.findMany as jest.Mock).mockResolvedValue([bootstrap(100)]);
+    (prisma.stockReceipt.findMany as jest.Mock).mockImplementation(async ({ where }: any) => {
+      const gte = (where?.receiptDate?.gte as Date | undefined);
+      const lt = (where?.receiptDate?.lt as Date | undefined);
+      const lte = (where?.receiptDate?.lte as Date | undefined);
+      // Single Jan-2 receipt of 50 units. It belongs to Jan 1-4 in-period,
+      // and to Jan 5-10's pre-window (i.e., Jan 5-10 opening should include it).
+      const jan2 = new Date('2026-01-02T05:00:00.000Z');
+      const withinGte = !gte || jan2 >= gte;
+      const withinLt = lt ? jan2 < lt : true;
+      const withinLte = lte ? jan2 <= lte : true;
+      if (withinGte && withinLt && withinLte) {
+        return [receiptWithItems(productId, 50, 50, { id: 'r-jan2', purchaseOrderId: 'po-jan2', poItemId: 'poi-jan2' })];
+      }
+      return [];
+    });
+    (prisma.sale.findMany as jest.Mock).mockImplementation(async ({ where }: any) => {
+      const gte = (where?.saleDate?.gte as Date | undefined);
+      const lt = (where?.saleDate?.lt as Date | undefined);
+      const lte = (where?.saleDate?.lte as Date | undefined);
+      // Jan-3 sale of 20 units.
+      const jan3 = new Date('2026-01-03T05:00:00.000Z');
+      const withinGte = !gte || jan3 >= gte;
+      const withinLt = lt ? jan3 < lt : true;
+      const withinLte = lte ? jan3 <= lte : true;
+      if (withinGte && withinLt && withinLte) return [saleForProduct(productId, 20)];
+      return [];
+    });
+
+    const jan14 = await computeInventoryOpeningClosing({
+      branchId, startDate: '2026-01-01', endDate: '2026-01-04',
+    });
+    const jan510 = await computeInventoryOpeningClosing({
+      branchId, startDate: '2026-01-05', endDate: '2026-01-10',
+    });
+    const prev = jan14.get(`product:${productId}`)!;
+    const next = jan510.get(`product:${productId}`)!;
+    expect(next.openingQty).toBe(prev.closingQty);
+    // And the concrete numbers: 100 + 50 - 20 = 130
+    expect(prev.closingQty).toBe(130);
+  });
+
+  // Scenario 4: A PO has 2 StockReceipts on the same item (split delivery).
+  // Bug was: PO item quantityReceived (cumulative = 10000) was added once per
+  // receipt ⇒ 20000. Fix: use StockReceiptItem.quantityReceived (5000 each).
+  it('Scenario 4: multi-receipt PO is not double-counted', async () => {
+    (prisma.inventoryBootstrap.findMany as jest.Mock).mockResolvedValue([bootstrap(0)]);
+    (prisma.stockReceipt.findMany as jest.Mock).mockImplementation(async ({ where }: any) => {
+      const hasLt = 'lt' in (where?.receiptDate ?? {});
+      if (hasLt) return [];
+      // Same PO, same item, two receipts — each delivered 5000 of the
+      // cumulative 10000 quantityReceived recorded on PurchaseOrderItem.
+      return [
+        receiptWithItems(productId, 10000, 5000, { id: 'r1', purchaseOrderId: 'po-multi', poItemId: 'poi-multi' }),
+        receiptWithItems(productId, 10000, 5000, { id: 'r2', purchaseOrderId: 'po-multi', poItemId: 'poi-multi' }),
+      ];
+    });
+    const map = await computeInventoryOpeningClosing({
+      branchId,
+      startDate: '2026-01-01',
+      endDate: '2026-01-31',
+    });
+    // Must be 10000 — NOT 20000 (pre-fix bug) and NOT 15000.
+    expect(map.get(`product:${productId}`)!.purchasesQtyInPeriod).toBe(10000);
+  });
+
+  // Scenario 4b (fuel): the same bug guarded for HSD so the real-world
+  // "Jan 1-4 showed 20k when only 10k was bought" reproducer has an explicit
+  // regression test on the fuel path too.
+  it('Scenario 4b (fuel): multi-receipt HSD PO is not double-counted', async () => {
+    (prisma.inventoryBootstrap.findMany as jest.Mock).mockResolvedValue([fuelBootstrap('HSD', 0)]);
+    (prisma.stockReceipt.findMany as jest.Mock).mockImplementation(async ({ where }: any) => {
+      const hasLt = 'lt' in (where?.receiptDate ?? {});
+      if (hasLt) return [];
+      return [
+        fuelReceiptWithItems('HSD', 10000, 5000, { id: 'rH1', purchaseOrderId: 'po-hsd-multi', poItemId: 'poi-hsd' }),
+        fuelReceiptWithItems('HSD', 10000, 5000, { id: 'rH2', purchaseOrderId: 'po-hsd-multi', poItemId: 'poi-hsd' }),
+      ];
+    });
+    const map = await computeInventoryOpeningClosing({
+      branchId,
+      startDate: '2026-01-01',
+      endDate: '2026-01-04',
+    });
+    expect(map.get('fuel:HSD')!.purchasesQtyInPeriod).toBe(10000);
   });
 });

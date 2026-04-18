@@ -115,12 +115,22 @@ export async function computeInventoryOpeningClosing(params: {
   // 2. Purchases since bootstrap (both stock-receipt and received-PO paths
   //    are already the report's canonical purchase sources - mirror them
   //    here to stay consistent with what the report displays in-period).
+  //
+  //    IMPORTANT: PurchaseOrderItem.quantityReceived is the PO-level cumulative
+  //    total across *all* receipts. Summing that once per StockReceipt would
+  //    multiply the quantity by the number of receipts on the same PO (the
+  //    2026-04 bug: 2 receipts on a 10k PO → 20k counted). We therefore pull
+  //    in StockReceiptItem rows (per-receipt quantity, joined to PO item via
+  //    poItemId) and attribute by receipt. A legacy receipt with no items
+  //    falls back to the PO item's cumulative quantity, but only the first
+  //    time we see each PO — preventing the N× duplication.
   const preWindowPurchases = await prisma.stockReceipt.findMany({
     where: {
       purchaseOrder: { branchId },
       receiptDate: { gte: earliestBootstrap, lt: periodStart },
     },
     include: {
+      items: true,
       purchaseOrder: {
         include: {
           items: {
@@ -139,6 +149,7 @@ export async function computeInventoryOpeningClosing(params: {
       receiptDate: { gte: periodStart, lte: periodEnd },
     },
     include: {
+      items: true,
       purchaseOrder: {
         include: {
           items: {
@@ -198,23 +209,51 @@ export async function computeInventoryOpeningClosing(params: {
     pos: typeof preWindowPOs,
     target: Map<string, number>,
   ) => {
+    // Track POs we've already accounted for via the receipt path so the
+    // PO-only fallback can't double-add the same quantity.
+    const consumedPoIds = new Set<string>();
     receipts.forEach((r) => {
+      consumedPoIds.add(r.purchaseOrderId);
+      // Build poItemId → (product/fuel) lookup once per receipt.
+      const poItemInfo = new Map<string, { key: string | null }>();
       r.purchaseOrder.items.forEach((item) => {
-        const qty = Number(item.quantityReceived);
-        if (qty <= 0) return;
         const k = item.product?.id
           ? keyOf({ kind: 'product', key: item.product.id })
           : item.fuelType?.code
           ? keyOf({ kind: 'fuel', key: item.fuelType.code })
           : null;
-        if (!k) return;
-        target.set(k, (target.get(k) || 0) + qty);
+        poItemInfo.set(item.id, { key: k });
       });
+      if (r.items && r.items.length > 0) {
+        // Authoritative path: per-receipt quantity on StockReceiptItem.
+        r.items.forEach((sri) => {
+          const qty = Number(sri.quantityReceived);
+          if (qty <= 0) return;
+          const info = poItemInfo.get(sri.poItemId);
+          if (!info?.key) return;
+          target.set(info.key, (target.get(info.key) || 0) + qty);
+        });
+      } else {
+        // Legacy receipts without StockReceiptItem rows: attribute the PO
+        // item's cumulative quantity, but only for the first receipt we see
+        // on this PO. Subsequent receipts on the same PO would repeat the
+        // same cumulative total, which is the bug we're fixing.
+        const firstReceiptForPo =
+          receipts.find((x) => x.purchaseOrderId === r.purchaseOrderId)?.id === r.id;
+        if (!firstReceiptForPo) return;
+        r.purchaseOrder.items.forEach((item) => {
+          const qty = Number(item.quantityReceived);
+          if (qty <= 0) return;
+          const k = poItemInfo.get(item.id)?.key;
+          if (!k) return;
+          target.set(k, (target.get(k) || 0) + qty);
+        });
+      }
     });
-    // Include PO-only purchases (no stock receipt yet) to match the
-    // report's in-period purchase counting behavior.
+    // PO-only purchases (no stock receipt yet) — and any PO already consumed
+    // via the receipt path is skipped here to avoid cross-source duplication.
     pos
-      .filter((po) => po.stockReceipts.length === 0)
+      .filter((po) => po.stockReceipts.length === 0 && !consumedPoIds.has(po.id))
       .forEach((po) => {
         po.items.forEach((item) => {
           const qty = Number(item.quantityReceived);

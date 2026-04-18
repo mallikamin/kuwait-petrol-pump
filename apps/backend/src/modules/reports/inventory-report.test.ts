@@ -10,6 +10,12 @@ jest.mock('../../config/database', () => ({
     stockReceipt: { findMany: jest.fn() },
     purchaseOrder: { findMany: jest.fn() },
     sale: { findMany: jest.fn() },
+    // Opening-stock cycle dependencies. Tests that only care about the
+    // purchase/sale aggregation can leave these as the default empty-array
+    // mocks — computeInventoryOpeningClosing short-circuits on empty
+    // bootstraps without touching the gain/loss table.
+    inventoryBootstrap: { findMany: jest.fn() },
+    monthlyInventoryGainLoss: { findMany: jest.fn() },
   },
 }));
 
@@ -356,6 +362,19 @@ describe('Inventory Report - ISO date input regression', () => {
   beforeEach(() => {
     reportsService = new ReportsService();
     jest.clearAllMocks();
+    // Safe default mocks for opening-cycle follow-up calls (stockReceipt,
+    // purchaseOrder, sale are queried twice more inside
+    // computeInventoryOpeningClosing after the main-flow consumes their
+    // queued `mockResolvedValueOnce` fixtures). Defaults stay empty so no
+    // extra activity leaks into opening. Gain/loss + bootstrap defaults are
+    // empty; tests that assert `diagnostics.errors === []` override bootstrap
+    // with a fixture-matching row so the coverage-diagnostics branch stays
+    // quiet.
+    (prisma.stockReceipt.findMany as any).mockResolvedValue([]);
+    (prisma.purchaseOrder.findMany as any).mockResolvedValue([]);
+    (prisma.sale.findMany as any).mockResolvedValue([]);
+    (prisma.inventoryBootstrap.findMany as any).mockResolvedValue([]);
+    (prisma.monthlyInventoryGainLoss.findMany as any).mockResolvedValue([]);
   });
 
   const seedHappyPath = () => {
@@ -384,6 +403,14 @@ describe('Inventory Report - ISO date input regression', () => {
       },
     ]);
     (prisma.sale.findMany as any).mockResolvedValueOnce([]);
+    // Bootstraps for HSD + PMG so the diagnostic coverage branch stays quiet.
+    // productMovement always builds both fuel rows (HSD + PMG) regardless of
+    // which fuel appears in the fixture, so ocMap must cover both to avoid
+    // `inventory_bootstrap_partial` being pushed for the unused one.
+    (prisma.inventoryBootstrap.findMany as any).mockResolvedValueOnce([
+      { id: 'b-hsd', branchId: testBranchId, productId: null, fuelTypeId: 'ft-HSD', asOfDate: new Date('2026-01-01T00:00:00Z'), quantity: 0 as any, source: 'test', product: null, fuelType: { code: 'HSD' } },
+      { id: 'b-pmg', branchId: testBranchId, productId: null, fuelTypeId: 'ft-PMG', asOfDate: new Date('2026-01-01T00:00:00Z'), quantity: 0 as any, source: 'test', product: null, fuelType: { code: 'PMG' } },
+    ]);
   };
 
   it('accepts ISO-Z startDate/endDate end-to-end (no silent zeros)', async () => {
@@ -438,6 +465,14 @@ describe('Inventory Report - Product-Wise Movement', () => {
     // own fixture and we want every getInventoryReport call to be served by
     // exactly the values queued in the same test.
     jest.resetAllMocks();
+    // Safe defaults for opening-cycle follow-up calls — see ISO-regression
+    // beforeEach for rationale. resetAllMocks clears implementations, so we
+    // must re-seed here.
+    (prisma.stockReceipt.findMany as any).mockResolvedValue([]);
+    (prisma.purchaseOrder.findMany as any).mockResolvedValue([]);
+    (prisma.sale.findMany as any).mockResolvedValue([]);
+    (prisma.inventoryBootstrap.findMany as any).mockResolvedValue([]);
+    (prisma.monthlyInventoryGainLoss.findMany as any).mockResolvedValue([]);
   });
 
   // Two non-fuel products + HSD purchase + HSD/PMG sales lets us assert every
@@ -506,6 +541,14 @@ describe('Inventory Report - Product-Wise Movement', () => {
           product: { name: 'Filter B' },
         }],
       },
+    ]);
+    // Bootstrap rows covering every product/fuel in the fixture so the
+    // opening-cycle's coverage diagnostic stays quiet (assumedCount=0).
+    (prisma.inventoryBootstrap.findMany as any).mockResolvedValueOnce([
+      { id: 'b-hsd', branchId: testBranchId, productId: null, fuelTypeId: 'ft-HSD', asOfDate: new Date('2026-01-01T00:00:00Z'), quantity: 0 as any, source: 'test', product: null, fuelType: { code: 'HSD' } },
+      { id: 'b-pmg', branchId: testBranchId, productId: null, fuelTypeId: 'ft-PMG', asOfDate: new Date('2026-01-01T00:00:00Z'), quantity: 0 as any, source: 'test', product: null, fuelType: { code: 'PMG' } },
+      { id: 'b-A', branchId: testBranchId, productId: 'prod-A', fuelTypeId: null, asOfDate: new Date('2026-01-01T00:00:00Z'), quantity: 0 as any, source: 'test', product: { id: 'prod-A' }, fuelType: null },
+      { id: 'b-B', branchId: testBranchId, productId: 'prod-B', fuelTypeId: null, asOfDate: new Date('2026-01-01T00:00:00Z'), quantity: 0 as any, source: 'test', product: { id: 'prod-B' }, fuelType: null },
     ]);
   };
 
@@ -622,6 +665,13 @@ describe('Inventory Report - Product-Wise Movement', () => {
     (prisma.stockReceipt.findMany as any).mockResolvedValueOnce([]);
     (prisma.purchaseOrder.findMany as any).mockResolvedValueOnce([]);
     (prisma.sale.findMany as any).mockResolvedValueOnce([]);
+    // Seed HSD + PMG bootstraps — productMovement builds both fuel rows
+    // unconditionally (before the movement-only filter), so ocMap must cover
+    // them to avoid `inventory_bootstrap_missing` being pushed.
+    (prisma.inventoryBootstrap.findMany as any).mockResolvedValueOnce([
+      { id: 'b-hsd', branchId: testBranchId, productId: null, fuelTypeId: 'ft-HSD', asOfDate: new Date('2026-01-01T00:00:00Z'), quantity: 0 as any, source: 'test', product: null, fuelType: { code: 'HSD' } },
+      { id: 'b-pmg', branchId: testBranchId, productId: null, fuelTypeId: 'ft-PMG', asOfDate: new Date('2026-01-01T00:00:00Z'), quantity: 0 as any, source: 'test', product: null, fuelType: { code: 'PMG' } },
+    ]);
     const out = await reportsService.getInventoryReport(
       testBranchId, testOrgId, undefined, '2026-04-01', '2026-04-30',
     );
@@ -639,6 +689,152 @@ describe('Inventory Report - Product-Wise Movement', () => {
     expect(out.productMovement.rows).toHaveLength(1);
     expect(out.productMovement.rows[0].productType).toBe('HSD');
     expect(out.diagnostics.errors).toEqual([]);
+  });
+});
+
+describe('Inventory Report - StockReceipt per-receipt quantity (2026-04 regression)', () => {
+  let reportsService: ReportsService;
+  const testBranchId = 'branch-sri';
+  const testOrgId = 'org-sri';
+  const testBranch = { id: testBranchId, name: 'Test Branch', organizationId: testOrgId };
+
+  beforeEach(() => {
+    reportsService = new ReportsService();
+    jest.resetAllMocks();
+  });
+
+  // Regression: Pre-fix, when a PO had multiple StockReceipts, the transform
+  // iterated `stockReceipts.flatMap(r => r.purchaseOrder.items.map(...))` and
+  // summed the PO item's cumulative `quantityReceived` once per receipt.
+  // A 2-receipt, 10000L PO showed up as 20000L in purchases. The fix uses
+  // StockReceiptItem.quantityReceived (per-receipt), with costPerUnit × qty
+  // for per-receipt totalCost.
+  it('splits a multi-receipt PO via StockReceiptItem.quantityReceived (no doubling)', async () => {
+    (prisma.branch.findFirst as any).mockResolvedValueOnce(testBranch);
+    (prisma.stockLevel.findMany as any).mockResolvedValueOnce([]);
+    (prisma.fuelType.findMany as any).mockResolvedValueOnce([]);
+    (prisma.stockReceipt.findMany as any).mockResolvedValueOnce([
+      {
+        id: 'sr1',
+        purchaseOrderId: 'po-multi',
+        receiptNumber: 'R-1',
+        receiptDate: new Date('2026-04-02'),
+        receivedByUser: { fullName: 'A', username: 'a' },
+        items: [{ poItemId: 'poi-hsd', quantityReceived: { toString: () => '5000' } }],
+        purchaseOrder: {
+          poNumber: 'PO-MULTI',
+          supplier: { name: 'S' },
+          items: [{
+            id: 'poi-hsd',
+            product: null,
+            fuelType: { code: 'HSD', name: 'High Speed Diesel' },
+            quantityReceived: { toString: () => '10000' },
+            costPerUnit: { toString: () => '300' },
+            totalCost: { toString: () => '3000000' },
+          }],
+        },
+      },
+      {
+        id: 'sr2',
+        purchaseOrderId: 'po-multi',
+        receiptNumber: 'R-2',
+        receiptDate: new Date('2026-04-03'),
+        receivedByUser: { fullName: 'A', username: 'a' },
+        items: [{ poItemId: 'poi-hsd', quantityReceived: { toString: () => '5000' } }],
+        purchaseOrder: {
+          poNumber: 'PO-MULTI',
+          supplier: { name: 'S' },
+          items: [{
+            id: 'poi-hsd',
+            product: null,
+            fuelType: { code: 'HSD', name: 'High Speed Diesel' },
+            quantityReceived: { toString: () => '10000' },
+            costPerUnit: { toString: () => '300' },
+            totalCost: { toString: () => '3000000' },
+          }],
+        },
+      },
+    ]);
+    (prisma.purchaseOrder.findMany as any).mockResolvedValueOnce([]);
+    (prisma.sale.findMany as any).mockResolvedValueOnce([]);
+
+    const out = await reportsService.getInventoryReport(
+      testBranchId, testOrgId, undefined, '2026-04-01', '2026-04-30',
+    );
+
+    // Two display rows (one per receipt), each carrying only its own 5000L.
+    expect(out.purchases).toHaveLength(2);
+    const qtyTotal = out.purchases.reduce((s: number, p: any) => s + p.quantityReceived, 0);
+    const costTotal = out.purchases.reduce((s: number, p: any) => s + p.totalCost, 0);
+    expect(qtyTotal).toBe(10000); // NOT 20000 (pre-fix bug)
+    expect(costTotal).toBe(3000000); // NOT 6000000
+
+    // And the product-movement aggregate reflects the correct in-period total.
+    const hsd = out.productMovement.rows.find((r: any) => r.productType === 'HSD');
+    expect(hsd).toBeDefined();
+    expect(hsd.purchasedQty).toBe(10000);
+    expect(hsd.purchasedValue).toBe(3000000);
+  });
+
+  // Legacy guard: a StockReceipt with no StockReceiptItem rows must fall back
+  // to the PO item's cumulative, emitted once per PO (not once per receipt).
+  it('legacy receipts without items fall back to PO cumulative, once per PO', async () => {
+    (prisma.branch.findFirst as any).mockResolvedValueOnce(testBranch);
+    (prisma.stockLevel.findMany as any).mockResolvedValueOnce([]);
+    (prisma.fuelType.findMany as any).mockResolvedValueOnce([]);
+    (prisma.stockReceipt.findMany as any).mockResolvedValueOnce([
+      {
+        id: 'sr1',
+        purchaseOrderId: 'po-legacy',
+        receiptNumber: 'R-1',
+        receiptDate: new Date('2026-04-02'),
+        receivedByUser: { fullName: 'A', username: 'a' },
+        items: [],
+        purchaseOrder: {
+          poNumber: 'PO-LEGACY',
+          supplier: { name: 'S' },
+          items: [{
+            id: 'poi-x',
+            product: { id: 'prod-X', name: 'Widget', sku: 'X' },
+            fuelType: null,
+            quantityReceived: { toString: () => '40' },
+            costPerUnit: { toString: () => '10' },
+            totalCost: { toString: () => '400' },
+          }],
+        },
+      },
+      {
+        id: 'sr2',
+        purchaseOrderId: 'po-legacy',
+        receiptNumber: 'R-2',
+        receiptDate: new Date('2026-04-03'),
+        receivedByUser: { fullName: 'A', username: 'a' },
+        items: [],
+        purchaseOrder: {
+          poNumber: 'PO-LEGACY',
+          supplier: { name: 'S' },
+          items: [{
+            id: 'poi-x',
+            product: { id: 'prod-X', name: 'Widget', sku: 'X' },
+            fuelType: null,
+            quantityReceived: { toString: () => '40' },
+            costPerUnit: { toString: () => '10' },
+            totalCost: { toString: () => '400' },
+          }],
+        },
+      },
+    ]);
+    (prisma.purchaseOrder.findMany as any).mockResolvedValueOnce([]);
+    (prisma.sale.findMany as any).mockResolvedValueOnce([]);
+
+    const out = await reportsService.getInventoryReport(
+      testBranchId, testOrgId, undefined, '2026-04-01', '2026-04-30',
+    );
+
+    // Only the first legacy receipt on this PO contributes; the second is
+    // skipped to prevent the N× multiplication.
+    expect(out.purchases).toHaveLength(1);
+    expect(out.purchases[0].quantityReceived).toBe(40);
   });
 });
 

@@ -829,6 +829,7 @@ export class ReportsService {
       const stockReceipts = await prisma.stockReceipt.findMany({
         where: purchaseWhere,
         include: {
+          items: true,
           purchaseOrder: {
             include: {
               supplier: true,
@@ -855,26 +856,66 @@ export class ReportsService {
 
       // Transform stock receipts for display. Preserve fuelType.code so fuel-movement
       // aggregation can key on the authoritative fuel code rather than matching on name.
-      const stockReceiptPurchases = stockReceipts.flatMap(receipt =>
-        receipt.purchaseOrder.items.map(item => ({
-          poNumber: receipt.purchaseOrder.poNumber,
-          receiptNumber: receipt.receiptNumber,
-          id: item.id,
-          // productId carried so productMovement can join non-fuel purchases ↔ sales by UUID.
-          productId: item.product?.id || null,
-          name: item.product?.name || item.fuelType?.name || 'Unknown',
-          sku: item.product?.sku || '',
-          fuelCode: item.fuelType?.code || null,
-          supplierName: receipt.purchaseOrder.supplier?.name,
-          quantityReceived: parseFloat(item.quantityReceived.toString()),
-          costPerUnit: parseFloat(item.costPerUnit.toString()),
-          totalCost: parseFloat(item.totalCost.toString()),
-          receiptDate: receipt.receiptDate,
-          status: 'received_with_receipt',
-          receivedBy: receipt.receivedByUser?.fullName || 'Unknown',
-          receivedByUsername: receipt.receivedByUser?.username,
-        }))
-      );
+      //
+      // PurchaseOrderItem.quantityReceived/totalCost are PO-level cumulatives
+      // (sum of all receipts for the item). Using them once per StockReceipt
+      // multiplies by the receipt count (2026-04 bug). The authoritative
+      // per-receipt quantity lives on StockReceiptItem; join back to the PO
+      // item via poItemId for product/fuel/cost metadata, then compute
+      // totalCost from costPerUnit × per-receipt quantity. Legacy receipts
+      // without items fall back to the PO item once per PO so nothing is lost
+      // but nothing is duplicated either.
+      const firstReceiptIdByPo = new Map<string, string>();
+      stockReceipts.forEach(r => {
+        if (!firstReceiptIdByPo.has(r.purchaseOrderId)) {
+          firstReceiptIdByPo.set(r.purchaseOrderId, r.id);
+        }
+      });
+      const stockReceiptPurchases = stockReceipts.flatMap(receipt => {
+        const poItemById = new Map(
+          receipt.purchaseOrder.items.map(item => [item.id, item] as const),
+        );
+        const emit = (
+          item: typeof receipt.purchaseOrder.items[number],
+          qty: number,
+        ) => {
+          const costPerUnit = parseFloat(item.costPerUnit.toString());
+          return {
+            poNumber: receipt.purchaseOrder.poNumber,
+            receiptNumber: receipt.receiptNumber,
+            id: item.id,
+            productId: item.product?.id || null,
+            name: item.product?.name || item.fuelType?.name || 'Unknown',
+            sku: item.product?.sku || '',
+            fuelCode: item.fuelType?.code || null,
+            supplierName: receipt.purchaseOrder.supplier?.name,
+            quantityReceived: qty,
+            costPerUnit,
+            totalCost: costPerUnit * qty,
+            receiptDate: receipt.receiptDate,
+            status: 'received_with_receipt' as const,
+            receivedBy: receipt.receivedByUser?.fullName || 'Unknown',
+            receivedByUsername: receipt.receivedByUser?.username,
+          };
+        };
+        if (receipt.items && receipt.items.length > 0) {
+          return receipt.items
+            .map(sri => {
+              const poItem = poItemById.get(sri.poItemId);
+              if (!poItem) return null;
+              const qty = parseFloat(sri.quantityReceived.toString());
+              if (!Number.isFinite(qty) || qty <= 0) return null;
+              return emit(poItem, qty);
+            })
+            .filter((r): r is NonNullable<typeof r> => r !== null);
+        }
+        // Legacy receipts with no per-item rows: attribute the PO item's
+        // cumulative quantity once per PO (only for the first receipt).
+        if (firstReceiptIdByPo.get(receipt.purchaseOrderId) !== receipt.id) return [];
+        return receipt.purchaseOrder.items.map(item =>
+          emit(item, parseFloat(item.quantityReceived.toString())),
+        );
+      });
 
       // Query 2: Get PurchaseOrders in receiving states that may not have stock receipts yet.
       // Include 'received' AND 'partial_received' — both hold received stock (partial_received

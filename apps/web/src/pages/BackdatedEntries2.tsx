@@ -81,6 +81,9 @@ export function BackdatedEntries2() {
   const hydratingRef = useRef(false);
   const initializedRef = useRef(false);
   const setLoadedKey = (k: string) => sessionStorage.setItem('backdated2_loaded_key', k);
+  // Target row id for auto-focus after a new row is added via "Add Group" /
+  // "+ Add row" — consumed once by the effect below.
+  const pendingFocusRef = useRef<string | null>(null);
 
   // ── UI state ───────────────────────────────────────────────────────────────
   const [activeCustomerId, setActiveCustomerId] = useState<string | null>(null);
@@ -242,6 +245,19 @@ export function BackdatedEntries2() {
   const hsdPct = hsd > 0 ? Math.round((hsdPosted / hsd) * 100) : 0;
   const pmgPct = pmg > 0 ? Math.round((pmgPosted / pmg) * 100) : 0;
 
+  // Per-fuel price for the selected business date — drives transaction unit price
+  // (non-editable) and the PKR column in the Fuel Reconciliation panel.
+  const fuelPriceByCode = useMemo(() => {
+    const m: Record<string, number> = {};
+    (fuelPricesData || []).forEach((f: any) => {
+      const code = f?.fuelType?.code;
+      if (code) m[code] = toNumber(f.pricePerLiter);
+    });
+    return m;
+  }, [fuelPricesData]);
+  const hsdPrice = fuelPriceByCode['HSD'] || 0;
+  const pmgPrice = fuelPriceByCode['PMG'] || 0;
+
   // Payment breakdown from transactions
   const paymentBreakdown = useMemo(() => {
     const bd = { cash: 0, credit_card: 0, bank_card: 0, pso_card: 0, credit_customer: 0 };
@@ -287,6 +303,29 @@ export function BackdatedEntries2() {
     if (hydratingRef.current) { hydratingRef.current = false; return; }
     setIsDirty(true);
   }, [transactions]);
+
+  // Price sync: when fuelPricesData / productsData load (or businessDate changes),
+  // lock each row's unitPrice + lineTotal to the master source of truth. If
+  // no source value exists (e.g. product not in master list, price not set
+  // for date), force "0" — never fall back to a previously-stored price.
+  // This is a display+payload correction, not a user edit, so we suppress the
+  // dirty flag via hydratingRef.
+  useEffect(() => {
+    if (transactions.length === 0) return;
+    if (!fuelPricesData && !productsData) return;
+    let changed = false;
+    const next = transactions.map(t => {
+      const src = derivePriceFor(t.fuelCode, t.productName) || '0';
+      if (toNumber(t.unitPrice) === toNumber(src)) return t;
+      changed = true;
+      const newLineTotal = (toNumber(t.quantity) * toNumber(src)).toFixed(2);
+      return { ...t, unitPrice: src, lineTotal: newLineTotal };
+    });
+    if (changed) {
+      hydratingRef.current = true;
+      setTransactions(next);
+    }
+  }, [fuelPricesData, productsData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-save (2 min)
   useEffect(() => {
@@ -439,15 +478,43 @@ export function BackdatedEntries2() {
 
   // ── Handlers ───────────────────────────────────────────────────────────────
   const addTransactionToCustomer = (customerId: string, customerName: string) => {
+    const newId = crypto.randomUUID();
+    pendingFocusRef.current = newId;
     setTransactions(prev => [...prev, {
-      id: crypto.randomUUID(), customerId: customerId === '__walkin__' ? '' : customerId,
+      id: newId, customerId: customerId === '__walkin__' ? '' : customerId,
       customerName: customerId === '__walkin__' ? '' : customerName,
       fuelCode: '' as const, productName: '', quantity: '', unitPrice: '', lineTotal: '0',
       paymentMethod: customerId === '__walkin__' ? 'cash' as const : 'credit_customer' as const,
       _localStatus: 'draft' as const,
     }]);
     setActiveCustomerId(customerId);
+    // Ensure the target group is expanded so the new row (and its fuel selector)
+    // is actually in the DOM when we try to focus it.
+    setCollapsedGroups(prev => {
+      if (!prev.has(customerId)) return prev;
+      const next = new Set(prev);
+      next.delete(customerId);
+      return next;
+    });
   };
+
+  // After a new row is added, focus its fuel selector so the user can pick a
+  // fuel type immediately without mouse/tab navigation.
+  useEffect(() => {
+    const targetId = pendingFocusRef.current;
+    if (!targetId) return;
+    const t = setTimeout(() => {
+      const el = document.querySelector(
+        `[data-fuel-selector-row="${targetId}"]`,
+      ) as HTMLElement | null;
+      if (el) {
+        el.focus();
+        el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+      pendingFocusRef.current = null;
+    }, 50);
+    return () => clearTimeout(t);
+  }, [transactions]);
 
   const duplicateLastInGroup = (groupIndices: number[]) => {
     if (groupIndices.length === 0) return;
@@ -469,7 +536,27 @@ export function BackdatedEntries2() {
     }
   };
 
+  // Price is always derived — never user-editable. Fuel rows take price from
+  // fuelPricesData by code; non-fuel rows take unitPrice from productsData by
+  // productName. Returns '' when no source value is available so downstream
+  // math falls through to 0.
+  const derivePriceFor = (fuelCode: string, productName?: string): string => {
+    if (fuelCode === 'HSD' || fuelCode === 'PMG') {
+      const fp = (fuelPricesData || []).find((f: any) => f.fuelType?.code === fuelCode);
+      return fp?.pricePerLiter != null ? fp.pricePerLiter.toString() : '';
+    }
+    if (fuelCode === 'OTHER' && productName) {
+      const prod = nonFuelProductOptions.find(p => p.name === productName);
+      return prod?.unitPrice != null ? prod.unitPrice.toString() : '';
+    }
+    return '';
+  };
+
   const updateTransaction = (index: number, field: keyof Transaction, value: any) => {
+    // Hard guard: price is master-driven only. A direct write to unitPrice
+    // (even accidental) is a no-op — the effect/normalization and the
+    // fuelCode/productName branches below are the only legitimate writers.
+    if (field === 'unitPrice') return;
     setTransactions(prev => {
       const updated = [...prev];
       updated[index] = { ...updated[index], [field]: value };
@@ -478,15 +565,22 @@ export function BackdatedEntries2() {
         const map = (dailySummaryData?.nozzleStatuses || []).reduce((m: any, ns: any) => { m[ns.nozzleId] = ns.fuelType; return m; }, {});
         if (map[updated[index].nozzleId] && map[updated[index].nozzleId] !== value) updated[index].nozzleId = '';
       }
-      // Auto-fill product + price
+      // Auto-fill product name + unit price when fuelCode changes. When the
+      // master price isn't resolvable (data not loaded, missing product),
+      // force "0" so no stale price lingers and lineTotal collapses to 0 —
+      // instead of silently pricing off a previously-hydrated value.
       if (field === 'fuelCode') {
-        const fp = (fuelPricesData || []).find((f: any) => f.fuelType?.code === value);
-        if (value === 'HSD') { updated[index].productName = 'High Speed Diesel'; updated[index].unitPrice = fp?.pricePerLiter?.toString() || '340'; }
-        else if (value === 'PMG') { updated[index].productName = 'Premium Motor Gasoline'; updated[index].unitPrice = fp?.pricePerLiter?.toString() || '458'; }
-        else if (value === 'OTHER') { updated[index].productName = ''; updated[index].unitPrice = fp?.pricePerLiter?.toString() || '0.00'; }
+        if (value === 'HSD') updated[index].productName = 'High Speed Diesel';
+        else if (value === 'PMG') updated[index].productName = 'Premium Motor Gasoline';
+        else if (value === 'OTHER') updated[index].productName = '';
+        updated[index].unitPrice = derivePriceFor(value, updated[index].productName) || '0';
       }
-      // Auto-calc line total
-      if (field === 'quantity' || field === 'unitPrice' || field === 'fuelCode') {
+      // Non-fuel product pick drives its own price.
+      if (field === 'productName' && updated[index].fuelCode === 'OTHER') {
+        updated[index].unitPrice = derivePriceFor('OTHER', value) || '0';
+      }
+      // Auto-calc line total (quantity × current master-driven unitPrice).
+      if (field === 'quantity' || field === 'fuelCode' || field === 'productName') {
         updated[index].lineTotal = (toNumber(updated[index].quantity) * toNumber(updated[index].unitPrice)).toFixed(2);
       }
       // Auto-fill customer name
@@ -944,7 +1038,10 @@ export function BackdatedEntries2() {
                                 )}>
                                 <td className="px-2 py-1">
                                   <Select value={txn.fuelCode} onValueChange={v => updateTransaction(idx, 'fuelCode', v)}>
-                                    <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
+                                    <SelectTrigger
+                                      data-fuel-selector-row={txn.id}
+                                      className="h-8 text-xs"
+                                    ><SelectValue placeholder="—" /></SelectTrigger>
                                     <SelectContent>
                                       <SelectItem value="HSD">HSD</SelectItem>
                                       <SelectItem value="PMG">PMG</SelectItem>
@@ -952,11 +1049,7 @@ export function BackdatedEntries2() {
                                     </SelectContent>
                                   </Select>
                                   {txn.fuelCode === 'OTHER' && (
-                                    <Select value={txn.productName} onValueChange={v => {
-                                      const prod = nonFuelProductOptions.find(p => p.name === v);
-                                      updateTransaction(idx, 'productName', v);
-                                      if (prod?.unitPrice) updateTransaction(idx, 'unitPrice', prod.unitPrice.toString());
-                                    }}>
+                                    <Select value={txn.productName} onValueChange={v => updateTransaction(idx, 'productName', v)}>
                                       <SelectTrigger className="h-8 text-xs mt-0.5 min-w-[200px]"><SelectValue placeholder="Select product" /></SelectTrigger>
                                       <SelectContent className="max-w-[300px]">
                                         {nonFuelProductOptions.map(p => (
@@ -983,8 +1076,16 @@ export function BackdatedEntries2() {
                                     className="h-8 text-xs text-right font-mono" placeholder="0" />
                                 </td>
                                 <td className="px-2 py-1">
-                                  <Input type="number" value={txn.unitPrice} onChange={e => updateTransaction(idx, 'unitPrice', e.target.value)}
-                                    className="h-8 text-xs text-right font-mono" placeholder="0" />
+                                  <Input
+                                    type="number"
+                                    value={derivePriceFor(txn.fuelCode, txn.productName) || '0'}
+                                    readOnly
+                                    tabIndex={-1}
+                                    aria-readonly="true"
+                                    title="Price is set by Fuel Prices / Product master and cannot be edited here"
+                                    className="h-8 text-xs text-right font-mono bg-muted/40 cursor-not-allowed"
+                                    placeholder="0"
+                                  />
                                 </td>
                                 <td className="px-2 py-1 text-right">
                                   <span className="font-mono font-bold text-sm">{fmtPKR(toNumber(txn.lineTotal))}</span>
@@ -1059,9 +1160,21 @@ export function BackdatedEntries2() {
                     style={{ width: `${Math.min(hsdPct, 100)}%` }} />
                 </div>
                 <div className="grid grid-cols-3 text-[10px] text-slate-400 pt-0.5">
-                  <div>Meter<br /><span className="font-mono text-slate-700 font-semibold">{fmtL(hsd)}</span></div>
-                  <div className="text-center">Posted<br /><span className="font-mono text-blue-600 font-semibold">{fmtL(hsdPosted)}</span></div>
-                  <div className="text-right">Remain<br /><span className="font-mono text-orange-600 font-bold text-sm">{fmtL(hsdRemain)}</span></div>
+                  <div>
+                    Meter<br />
+                    <span className="font-mono text-slate-700 font-semibold">{fmtL(hsd)}</span>
+                    <span className="block font-mono text-slate-500 text-[10px]">{fmtPKR(hsd * hsdPrice)} PKR</span>
+                  </div>
+                  <div className="text-center">
+                    Posted<br />
+                    <span className="font-mono text-blue-600 font-semibold">{fmtL(hsdPosted)}</span>
+                    <span className="block font-mono text-blue-500 text-[10px]">{fmtPKR(hsdPosted * hsdPrice)} PKR</span>
+                  </div>
+                  <div className="text-right">
+                    Remain<br />
+                    <span className="font-mono text-orange-600 font-bold text-sm">{fmtL(hsdRemain)}</span>
+                    <span className="block font-mono text-orange-500 text-[10px]">{fmtPKR(hsdRemain * hsdPrice)} PKR</span>
+                  </div>
                 </div>
               </div>
               {/* PMG */}
@@ -1075,9 +1188,21 @@ export function BackdatedEntries2() {
                     style={{ width: `${Math.min(pmgPct, 100)}%` }} />
                 </div>
                 <div className="grid grid-cols-3 text-[10px] text-slate-400 pt-0.5">
-                  <div>Meter<br /><span className="font-mono text-slate-700 font-semibold">{fmtL(pmg)}</span></div>
-                  <div className="text-center">Posted<br /><span className="font-mono text-green-600 font-semibold">{fmtL(pmgPosted)}</span></div>
-                  <div className="text-right">Remain<br /><span className="font-mono text-orange-600 font-bold text-sm">{fmtL(pmgRemain)}</span></div>
+                  <div>
+                    Meter<br />
+                    <span className="font-mono text-slate-700 font-semibold">{fmtL(pmg)}</span>
+                    <span className="block font-mono text-slate-500 text-[10px]">{fmtPKR(pmg * pmgPrice)} PKR</span>
+                  </div>
+                  <div className="text-center">
+                    Posted<br />
+                    <span className="font-mono text-green-600 font-semibold">{fmtL(pmgPosted)}</span>
+                    <span className="block font-mono text-green-500 text-[10px]">{fmtPKR(pmgPosted * pmgPrice)} PKR</span>
+                  </div>
+                  <div className="text-right">
+                    Remain<br />
+                    <span className="font-mono text-orange-600 font-bold text-sm">{fmtL(pmgRemain)}</span>
+                    <span className="block font-mono text-orange-500 text-[10px]">{fmtPKR(pmgRemain * pmgPrice)} PKR</span>
+                  </div>
                 </div>
               </div>
             </div>

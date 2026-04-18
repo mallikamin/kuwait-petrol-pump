@@ -536,8 +536,8 @@ export function Reports() {
       ['Product Variant', 'Payment Type', 'Count', 'Amount'],
       ...variantPayments.map((vp: any) => [vp.variant, vp.paymentMethod, vp.count, Number(vp.amount)]),
       ['', '', '', ''],
-      ['Shift', 'Cashier', 'Sales', 'Amount'],
-      ...shifts.map((s: any) => [s.shiftNumber || s.name || '-', s.cashier?.fullName || s.cashier || '-', s.count || 0, Number(s.totalAmount || s.amount || 0)]),
+      ['Shift', 'Total Sales Count', 'Amount'],
+      ...shifts.map((s: any) => [s.shiftNumber || s.name || '-', s.salesCount || s.count || 0, Number(s.totalAmount || s.amount || 0)]),
       ['', '', '', ''],
       ['Shift', 'Fuel Type', 'Liters', 'Count', 'Amount'],
       ...shiftFuels.map((sf: any) => [sf.shiftName || '-', sf.fuelType || '-', Number(sf.liters || 0).toFixed(2), sf.count || 0, Number(sf.amount || 0)]),
@@ -583,8 +583,8 @@ export function Reports() {
       </table>
       <h2>Shift Breakdown</h2>
       <table>
-        <tr><th>Shift</th><th>Cashier</th><th class="right">Sales</th><th class="right">Amount</th></tr>
-        ${shifts.map((s: any) => `<tr><td>${s.shiftNumber || s.name || '-'}</td><td>${s.cashier?.fullName || s.cashier || '-'}</td><td class="right">${s.count || 0}</td><td class="right">${formatCurrency(Number(s.totalAmount || s.amount || 0))}</td></tr>`).join('')}
+        <tr><th>Shift</th><th class="right">Total Sales Count</th><th class="right">Amount</th></tr>
+        ${shifts.map((s: any) => `<tr><td>${s.shiftNumber || s.name || '-'}</td><td class="right">${s.salesCount || s.count || 0}</td><td class="right">${formatCurrency(Number(s.totalAmount || s.amount || 0))}</td></tr>`).join('')}
       </table>
       <h2>Shift-wise Fuel Type Breakdown</h2>
       <table>
@@ -1496,8 +1496,7 @@ export function Reports() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Shift</TableHead>
-                      <TableHead>Cashier</TableHead>
-                      <TableHead className="text-right">Sales</TableHead>
+                      <TableHead className="text-right">Total Sales Count</TableHead>
                       <TableHead className="text-right">Amount</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1505,7 +1504,6 @@ export function Reports() {
                     {dailySales.shiftBreakdown.map((s: any, i: number) => (
                       <TableRow key={i}>
                         <TableCell>{s.shiftNumber || s.name || '-'}</TableCell>
-                        <TableCell>{s.cashier?.fullName || s.cashier || '-'}</TableCell>
                         <TableCell className="text-right">{s.salesCount || s.count || 0}</TableCell>
                         <TableCell className="text-right font-medium">{formatCurrency(Number(s.totalAmount || s.amount || 0))}</TableCell>
                       </TableRow>
