@@ -201,6 +201,7 @@ model User {
   updatedReceipts                 CustomerReceipt[]       @relation("ReceiptUpdatedBy")
   deletedReceipts                 CustomerReceipt[]       @relation("ReceiptDeletedBy")
   monthlyInventoryGainLoss        MonthlyInventoryGainLoss[]
+  updatedInventoryBootstraps      InventoryBootstrap[]
 
   @@unique([organizationId, username], name: "unique_org_username") // Multi-tenant safety
   @@index([organizationId], name: "idx_users_org")
@@ -1378,14 +1379,16 @@ model InventoryBootstrap {
   fuelTypeId String?  @map("fuel_type_id") @db.Uuid
   asOfDate   DateTime @map("as_of_date") @db.Date
   quantity   Decimal  @db.Decimal(14, 3)
-  source     String   @db.VarChar(64) // e.g. 'bootstrap_2026-01-01'
+  source     String   @db.VarChar(64) // e.g. 'bootstrap_2026-01-01', 'user_entered'
   notes      String?  @db.Text
+  updatedBy  String?  @map("updated_by") @db.Uuid
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  branch   Branch    @relation(fields: [branchId], references: [id])
-  product  Product?  @relation(fields: [productId], references: [id])
-  fuelType FuelType? @relation(fields: [fuelTypeId], references: [id])
+  branch      Branch    @relation(fields: [branchId], references: [id])
+  product     Product?  @relation(fields: [productId], references: [id])
+  fuelType    FuelType? @relation(fields: [fuelTypeId], references: [id])
+  updatedByUser User?   @relation(fields: [updatedBy], references: [id])
 
   @@index([branchId, asOfDate], name: "idx_inv_bootstrap_branch_date")
   @@index([productId], name: "idx_inv_bootstrap_product")

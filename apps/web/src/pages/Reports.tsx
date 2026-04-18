@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
-import { FileText, Download, Printer, Loader2, Calendar } from 'lucide-react';
+import { FileText, Download, Printer, Loader2, Calendar, Settings } from 'lucide-react';
 import { toast } from 'sonner';
 import { reportsApi, apiClient, productsApi } from '@/api';
 import { useAuthStore } from '@/store/auth';
@@ -29,6 +29,7 @@ import { formatCurrency } from '@/utils/format';
 import { ProductSelector, ALL_PRODUCTS_VALUE } from '@/components/ui/product-selector';
 import { buildProductMovementCSV, type ProductMovementRow } from './Reports.inventory.utils';
 import { MonthlyInventoryGainLoss } from '@/components/MonthlyInventoryGainLoss';
+import { InventoryBootstrapEditor } from '@/components/InventoryBootstrapEditor';
 import {
   buildCsvMetaBlock,
   buildPrintHeaderHtml,
@@ -190,6 +191,7 @@ export function Reports() {
   // Stay null/'all' when the user only wants the legacy view.
   const [inventoryCategory, setInventoryCategory] = useState<'all' | 'total_fuel' | 'HSD' | 'PMG' | 'non_fuel'>('all');
   const [inventoryProductId, setInventoryProductId] = useState<string>(ALL_PRODUCTS_VALUE);
+  const [bootstrapEditorOpen, setBootstrapEditorOpen] = useState(false);
 
   // Daily Sales (supports no-filter, single date, and date range)
   const { data: dailySales, isLoading: loadingDaily, isError: errorDaily } = useQuery({
@@ -1838,6 +1840,9 @@ export function Reports() {
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold">Inventory Report</h2>
             <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => setBootstrapEditorOpen(true)}>
+                <Settings className="mr-2 h-4 w-4" /> Edit Opening Stock
+              </Button>
               {inventory.productMovement?.rows?.length > 0 && (
                 <Button variant="outline" size="sm" onClick={() => exportProductMovementCSV()}>
                   <Download className="mr-2 h-4 w-4" /> Movement CSV
@@ -1851,6 +1856,12 @@ export function Reports() {
               </Button>
             </div>
           </div>
+          <InventoryBootstrapEditor
+            open={bootstrapEditorOpen}
+            onOpenChange={setBootstrapEditorOpen}
+            branchId={branchId}
+            branchName={inventory?.branch?.name}
+          />
 
           {/* Product-Wise Movement (date-range only). Additive — existing sections below stay. */}
           {inventory.productMovement && (

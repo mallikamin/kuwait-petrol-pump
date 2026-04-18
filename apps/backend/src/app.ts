@@ -29,6 +29,7 @@ import backdatedEntriesRoutes from './modules/backdated-entries/backdated-entrie
 import backdatedMeterReadingsRoutes from './modules/backdated-entries/backdated-meter-readings.routes';
 import creditRoutes from './modules/credit/credit.routes';
 import monthlyGainLossRoutes from './modules/inventory/monthly-gain-loss.routes';
+import inventoryBootstrapRoutes from './modules/inventory/bootstrap.routes';
 
 // Validate QB config on startup (P0: fail fast if missing)
 validateQuickBooksConfig();
@@ -110,6 +111,7 @@ export function createApp() {
   app.use('/api/backdated-meter-readings', backdatedMeterReadingsRoutes); // Meter readings view for backdated workflow (reads from meter_readings table)
   app.use('/api/credit', creditRoutes); // Credit customer receipts & ledger
   app.use('/api/inventory/monthly-gain-loss', monthlyGainLossRoutes); // Monthly inventory gain/loss entries
+  app.use('/api/inventory/bootstrap', inventoryBootstrapRoutes); // Opening-stock bootstrap editor
 
   app.use('/api/users', usersRoutes);
 
