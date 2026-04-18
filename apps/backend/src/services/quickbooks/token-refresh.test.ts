@@ -3,26 +3,24 @@
  * Tests for proactive refresh, single-flight lock, and error classification
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { getValidAccessToken } from './token-refresh';
 import { QBTokenExpiredError, QBTransientError } from './errors';
 import { redis } from '../../config/redis';
 import OAuthClient from 'intuit-oauth';
 
-// Mock dependencies
-vi.mock('../../config/redis', () => ({
+jest.mock('../../config/redis', () => ({
   redis: {
-    set: vi.fn(),
-    del: vi.fn(),
+    set: jest.fn(),
+    del: jest.fn(),
   },
 }));
 
-vi.mock('intuit-oauth');
+jest.mock('intuit-oauth');
 
-vi.mock('./encryption', () => ({
-  encryptToken: vi.fn((token) => `encrypted_${token}`),
-  decryptToken: vi.fn((token) => token.replace('encrypted_', '')),
+jest.mock('./encryption', () => ({
+  encryptToken: jest.fn((token) => `encrypted_${token}`),
+  decryptToken: jest.fn((token) => token.replace('encrypted_', '')),
 }));
 
 describe('Token Refresh - Critical Path Tests', () => {
@@ -30,28 +28,28 @@ describe('Token Refresh - Critical Path Tests', () => {
   let mockOAuthClient: any;
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    jest.clearAllMocks();
 
     // Mock Prisma
     mockPrisma = {
       qBConnection: {
-        findFirst: vi.fn(),
-        update: vi.fn(),
+        findFirst: jest.fn(),
+        update: jest.fn(),
       },
     };
 
     // Mock OAuth Client
     mockOAuthClient = {
-      setToken: vi.fn(),
-      refresh: vi.fn(),
-      getToken: vi.fn(),
+      setToken: jest.fn(),
+      refresh: jest.fn(),
+      getToken: jest.fn(),
     };
 
     (OAuthClient as any).mockImplementation(() => mockOAuthClient);
   });
 
   afterEach(() => {
-    vi.restoreAllMocks();
+    jest.restoreAllMocks();
   });
 
   describe('Proactive Refresh (10min buffer)', () => {
@@ -264,6 +262,149 @@ describe('Token Refresh - Critical Path Tests', () => {
 
       // Verify connection was NOT deactivated
       expect(mockPrisma.qBConnection.update).not.toHaveBeenCalled();
+    });
+
+    it('should NOT deactivate on bare 400 without invalid_grant body', async () => {
+      const organizationId = 'org-123';
+      const now = new Date();
+      const expiresIn5Min = new Date(now.getTime() + 5 * 60 * 1000);
+
+      mockPrisma.qBConnection.findFirst.mockResolvedValue({
+        id: 'conn-1',
+        organizationId,
+        realmId: 'realm-123',
+        accessTokenEncrypted: 'encrypted_old_access',
+        refreshTokenEncrypted: 'encrypted_refresh',
+        accessTokenExpiresAt: expiresIn5Min,
+        isActive: true,
+      });
+
+      (redis.set as any).mockResolvedValue('OK');
+      (redis.del as any).mockResolvedValue(1);
+
+      // 400 without Intuit's invalid_grant code — previously this wrongly killed the connection
+      mockOAuthClient.refresh.mockRejectedValue({
+        authResponse: { body: { error: 'invalid_request' }, status: 400 },
+        message: 'Bad Request',
+      });
+
+      await expect(getValidAccessToken(organizationId, mockPrisma)).rejects.toThrow(QBTransientError);
+      expect(mockPrisma.qBConnection.update).not.toHaveBeenCalled();
+    });
+
+    it('should NOT deactivate on bare 401 without invalid_grant body', async () => {
+      const organizationId = 'org-123';
+      const now = new Date();
+      const expiresIn5Min = new Date(now.getTime() + 5 * 60 * 1000);
+
+      mockPrisma.qBConnection.findFirst.mockResolvedValue({
+        id: 'conn-1',
+        organizationId,
+        realmId: 'realm-123',
+        accessTokenEncrypted: 'encrypted_old_access',
+        refreshTokenEncrypted: 'encrypted_refresh',
+        accessTokenExpiresAt: expiresIn5Min,
+        isActive: true,
+      });
+
+      (redis.set as any).mockResolvedValue('OK');
+      (redis.del as any).mockResolvedValue(1);
+
+      // 401 without invalid_grant — previously this wrongly killed the connection
+      mockOAuthClient.refresh.mockRejectedValue({
+        authResponse: { status: 401 },
+        message: 'Unauthorized',
+      });
+
+      await expect(getValidAccessToken(organizationId, mockPrisma)).rejects.toThrow(QBTransientError);
+      expect(mockPrisma.qBConnection.update).not.toHaveBeenCalled();
+    });
+
+    it('should NOT deactivate when error message contains "invalid" but code is not invalid_grant', async () => {
+      const organizationId = 'org-123';
+      const now = new Date();
+      const expiresIn5Min = new Date(now.getTime() + 5 * 60 * 1000);
+
+      mockPrisma.qBConnection.findFirst.mockResolvedValue({
+        id: 'conn-1',
+        organizationId,
+        realmId: 'realm-123',
+        accessTokenEncrypted: 'encrypted_old_access',
+        refreshTokenEncrypted: 'encrypted_refresh',
+        accessTokenExpiresAt: expiresIn5Min,
+        isActive: true,
+      });
+
+      (redis.set as any).mockResolvedValue('OK');
+      (redis.del as any).mockResolvedValue(1);
+
+      // Error phrasing that previously tripped the broad string match
+      mockOAuthClient.refresh.mockRejectedValue({
+        message: 'invalid JSON response from upstream',
+      });
+
+      await expect(getValidAccessToken(organizationId, mockPrisma)).rejects.toThrow(QBTransientError);
+      expect(mockPrisma.qBConnection.update).not.toHaveBeenCalled();
+    });
+
+    it('should NOT deactivate when error message contains "expired" but code is not invalid_grant', async () => {
+      const organizationId = 'org-123';
+      const now = new Date();
+      const expiresIn5Min = new Date(now.getTime() + 5 * 60 * 1000);
+
+      mockPrisma.qBConnection.findFirst.mockResolvedValue({
+        id: 'conn-1',
+        organizationId,
+        realmId: 'realm-123',
+        accessTokenEncrypted: 'encrypted_old_access',
+        refreshTokenEncrypted: 'encrypted_refresh',
+        accessTokenExpiresAt: expiresIn5Min,
+        isActive: true,
+      });
+
+      (redis.set as any).mockResolvedValue('OK');
+      (redis.del as any).mockResolvedValue(1);
+
+      // Generic "expired" phrasing — e.g. socket, cert, cache — not the refresh token
+      mockOAuthClient.refresh.mockRejectedValue({
+        message: 'request expired before response was received',
+      });
+
+      await expect(getValidAccessToken(organizationId, mockPrisma)).rejects.toThrow(QBTransientError);
+      expect(mockPrisma.qBConnection.update).not.toHaveBeenCalled();
+    });
+
+    it('should deactivate on 401 when Intuit returns invalid_grant body', async () => {
+      const organizationId = 'org-123';
+      const now = new Date();
+      const expiresIn5Min = new Date(now.getTime() + 5 * 60 * 1000);
+
+      mockPrisma.qBConnection.findFirst.mockResolvedValue({
+        id: 'conn-1',
+        organizationId,
+        realmId: 'realm-123',
+        accessTokenEncrypted: 'encrypted_old_access',
+        refreshTokenEncrypted: 'encrypted_invalid_refresh',
+        accessTokenExpiresAt: expiresIn5Min,
+        isActive: true,
+      });
+
+      (redis.set as any).mockResolvedValue('OK');
+      (redis.del as any).mockResolvedValue(1);
+
+      // Rare but valid shape: 401 + explicit invalid_grant → real token death
+      mockOAuthClient.refresh.mockRejectedValue({
+        authResponse: { body: { error: 'invalid_grant' }, status: 401 },
+        message: 'Unauthorized',
+      });
+
+      mockPrisma.qBConnection.update.mockResolvedValue({});
+
+      await expect(getValidAccessToken(organizationId, mockPrisma)).rejects.toThrow(QBTokenExpiredError);
+      expect(mockPrisma.qBConnection.update).toHaveBeenCalledWith({
+        where: { id: 'conn-1' },
+        data: { isActive: false },
+      });
     });
 
     it('should always persist BOTH access and refresh tokens on successful refresh', async () => {

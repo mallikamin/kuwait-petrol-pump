@@ -179,14 +179,11 @@ export async function getValidAccessToken(
       })
     );
 
-    // Classification: invalid_grant or 400/401 = expired refresh token (requires reconnect)
-    if (
-      errorCode === 'invalid_grant' ||
-      errorStatus === 400 ||
-      errorStatus === 401 ||
-      error.message?.includes('invalid') ||
-      error.message?.includes('expired')
-    ) {
+    // Deactivate ONLY on Intuit's explicit "refresh token dead" signal.
+    // A bare 400/401 or error messages containing "invalid"/"expired" are
+    // frequently transient (clock skew, momentary upstream blip, generic
+    // network phrasing) and previously caused unnecessary reconnects.
+    if (errorCode === 'invalid_grant') {
       await db.qBConnection.update({
         where: { id: connection.id },
         data: { isActive: false },
@@ -194,20 +191,9 @@ export async function getValidAccessToken(
       throw new QBTokenExpiredError('QuickBooks refresh token expired. Please reconnect.');
     }
 
-    // Classification: network/transient errors (do NOT deactivate)
-    if (
-      errorStatus === 500 ||
-      errorStatus === 502 ||
-      errorStatus === 503 ||
-      errorStatus === 504 ||
-      error.code === 'ECONNREFUSED' ||
-      error.code === 'ETIMEDOUT' ||
-      error.code === 'ENOTFOUND'
-    ) {
-      throw new QBTransientError('QuickBooks API temporarily unavailable. Please retry.', error);
-    }
-
-    // Unknown error - treat as transient to avoid disconnecting unnecessarily
+    // Everything else is transient: keepalive + next caller will retry.
+    // This covers 400/401 without invalid_grant, 5xx, network codes, and
+    // unknown shapes — none of them justify forcing a user-visible reconnect.
     throw new QBTransientError(`QB token refresh failed: ${error.message || 'Unknown error'}`, error);
   } finally {
     // Always release lock
