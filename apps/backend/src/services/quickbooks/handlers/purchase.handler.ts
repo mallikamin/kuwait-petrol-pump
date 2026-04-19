@@ -22,7 +22,7 @@ import { CompanyLock } from '../company-lock';
 import { EntityMappingService } from '../entity-mapping.service';
 import { classifyError, logClassifiedError, OpLog } from '../error-classifier';
 import { prisma } from '../../../config/database';
-import { getQuickBooksApiUrl } from '../qb-shared';
+import { getQuickBooksApiUrl, resolveItemLocalId } from '../qb-shared';
 
 export interface PurchasePayload {
   purchaseOrderId: string;
@@ -244,15 +244,18 @@ async function buildBillPayload(organizationId: string, payload: PurchasePayload
   }
 
   // Lines — ItemBasedExpenseLineDetail referencing the mapped Inventory Item
-  // so QB posts to Inventory Asset + A/P (workbook S9/S10).
+  // so QB posts to Inventory Asset + A/P (workbook S9/S10). Non-fuel products
+  // collapse to the 'non-fuel-item' alias (QB item 82); fuel-type UUIDs keep
+  // their per-type mappings — same alias discipline as the sale handler.
   const lines: any[] = [];
   for (const item of payload.lineItems) {
-    const itemLocalId = item.itemType === 'fuel' ? item.fuelTypeId! : item.productId!;
-    const itemQbId = await EntityMappingService.getQbId(organizationId, 'item', itemLocalId);
+    const rawLocalId = item.itemType === 'fuel' ? item.fuelTypeId! : item.productId!;
+    const mappingLocalId = await resolveItemLocalId(prisma, rawLocalId);
+    const itemQbId = await EntityMappingService.getQbId(organizationId, 'item', mappingLocalId);
     if (!itemQbId) {
       throw new Error(
-        `Item mapping not found for purchase line: localId=${itemLocalId} (${item.fuelTypeName || item.productName || '?'}). ` +
-        `Create mapping (entityType: item, localId: ${itemLocalId}) pointing at the QB Inventory item.`
+        `Item mapping not found for purchase line: localId=${mappingLocalId} (${item.fuelTypeName || item.productName || '?'}). ` +
+        `Create mapping (entityType: item, localId: ${mappingLocalId}) pointing at the QB Inventory item.`
       );
     }
     lines.push({

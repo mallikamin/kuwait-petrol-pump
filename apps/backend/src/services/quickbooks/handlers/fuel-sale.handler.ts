@@ -35,6 +35,7 @@ import {
   isCardSale,
   invoiceCustomerLocalId,
   paymentMethodLocalId,
+  resolveItemLocalId,
   PaymentMethod,
 } from '../qb-shared';
 
@@ -238,37 +239,14 @@ function validatePayload(payload: FuelSalePayload): void {
  * SalesReceipt and Invoice — the per-line shape is identical in both entities
  * (this is what gives us the automatic COGS + inventory reduction in QB).
  */
-/**
- * Normalize a line-item localId before QB mapping lookup.
- *
- * Fuel items (HSD/PMG) have explicit 1:1 mappings — their FuelType UUID is
- * used directly as the mapping localId (→ QB items 105/106 per workbook).
- *
- * Non-fuel products, per accountant decision (2026-04-19), all collapse to a
- * single QB "Sales of Product Income" item (qb_id=82). Seeding 87 separate
- * mappings would violate the `(org, entity_type, qb_id)` uniqueness invariant
- * on qb_entity_mappings (required for reverse lookups). We instead seed ONE
- * alias row (localId='non-fuel-item', qb_id='82') and route any product UUID
- * through it here — same pattern as paymentMethodLocalId collapsing card
- * variants to 'credit_card'. See qb-shared.ts for that precedent.
- *
- * A UUID is classified as a product (→ alias) if it resolves to a row in the
- * `products` table. Fuel-type UUIDs (in `fuel_types`) fall through unchanged.
- * Static item localIds like 'tax' also pass through untouched.
- */
-async function resolveItemLocalId(rawLocalId: string): Promise<string> {
-  const product = await prisma.product.findFirst({
-    where: { id: rawLocalId },
-    select: { id: true },
-  });
-  return product ? 'non-fuel-item' : rawLocalId;
-}
-
 async function buildLines(organizationId: string, payload: FuelSalePayload): Promise<any[]> {
   const lines: any[] = [];
 
   for (const item of payload.lineItems) {
-    const mappingLocalId = await resolveItemLocalId(item.fuelTypeId);
+    // Non-fuel product UUIDs collapse to 'non-fuel-item' alias (→ QB item 82);
+    // fuel-type UUIDs and static localIds pass through. Shared with purchase
+    // handler via qb-shared#resolveItemLocalId.
+    const mappingLocalId = await resolveItemLocalId(prisma, item.fuelTypeId);
     const itemQbId = await EntityMappingService.getQbId(organizationId, 'item', mappingLocalId);
     if (!itemQbId) {
       throw new Error(

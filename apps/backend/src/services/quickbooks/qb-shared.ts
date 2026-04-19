@@ -142,3 +142,28 @@ export function invoiceCustomerLocalId(
   if (method === 'pso_card') return 'pso-card-receivable';
   throw new Error(`invoiceCustomerLocalId called with non-AR method: ${method}`);
 }
+
+/**
+ * Resolve an item-mapping localId for a Bill/Sale line.
+ *
+ * All 87 non-fuel products collapse to a single QB "Sales of Product Income"
+ * item (qb_id=82) seeded as the 'non-fuel-item' alias mapping. Fuel-type UUIDs
+ * (from `fuel_types`) retain their per-type mappings (HSD / PMG). Static
+ * localIds like 'tax' pass through unchanged.
+ *
+ * Shared between fuel-sale handler (S1..S7) and purchase handler (S10) so
+ * both paths apply the same alias discipline without duplication.
+ *
+ * Requires a prisma client passed in to avoid a circular import with the
+ * database config module.
+ */
+export async function resolveItemLocalId(
+  prismaClient: { product: { findFirst: (args: any) => Promise<{ id: string } | null> } },
+  rawLocalId: string,
+): Promise<string> {
+  const product = await prismaClient.product.findFirst({
+    where: { id: rawLocalId },
+    select: { id: true },
+  });
+  return product ? 'non-fuel-item' : rawLocalId;
+}
