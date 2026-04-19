@@ -111,6 +111,13 @@ export interface LedgerResponse {
     totalAmount: number;
     transactionCount: number;
   }>;
+  productBreakdown: Array<{
+    productType: string; // 'HSD' | 'PMG' | 'Non-Fuel'
+    unit: 'L' | 'units';
+    totalQuantity: number;
+    totalAmount: number;
+    transactionCount: number;
+  }>;
   pagination: {
     total: number;
     limit: number;
@@ -1259,6 +1266,86 @@ export class CreditService {
       ORDER BY SUM(line_total) DESC
     `;
 
+    // Product-wise breakdown for reporting period (HSD / PMG / Non-Fuel)
+    // Honors same customer + date range + vehicle filters as ledger entries.
+    // Unit convention: fuel in Liters, non-fuel in units.
+    const productBreakdownRaw = await prisma.$queryRaw<
+      Array<{
+        product_type: string;
+        unit: string;
+        total_quantity: string;
+        total_amount: string;
+        transaction_count: string;
+      }>
+    >`
+      SELECT
+        product_type,
+        unit,
+        SUM(quantity)::text AS total_quantity,
+        SUM(amount)::text AS total_amount,
+        COUNT(*)::text AS transaction_count
+      FROM (
+        SELECT
+          CASE
+            WHEN UPPER(bt.product_name) LIKE '%HSD%' OR UPPER(bt.product_name) LIKE '%DIESEL%' THEN 'HSD'
+            WHEN UPPER(bt.product_name) LIKE '%PMG%' OR UPPER(bt.product_name) LIKE '%PETROL%' OR UPPER(bt.product_name) LIKE '%GASOLINE%' THEN 'PMG'
+            ELSE 'Non-Fuel'
+          END AS product_type,
+          CASE
+            WHEN UPPER(bt.product_name) LIKE '%HSD%' OR UPPER(bt.product_name) LIKE '%DIESEL%'
+              OR UPPER(bt.product_name) LIKE '%PMG%' OR UPPER(bt.product_name) LIKE '%PETROL%' OR UPPER(bt.product_name) LIKE '%GASOLINE%'
+            THEN 'L'
+            ELSE 'units'
+          END AS unit,
+          bt.quantity AS quantity,
+          bt.line_total AS amount
+        FROM backdated_transactions bt
+        WHERE bt.customer_id = ${customerId}::uuid
+          AND bt.deleted_at IS NULL
+          ${filters?.startDate ? Prisma.sql`AND bt.transaction_datetime >= ${filters.startDate}` : Prisma.empty}
+          ${filters?.endDate ? Prisma.sql`AND bt.transaction_datetime <= ${filters.endDate}` : Prisma.empty}
+          ${filters?.vehicleNumber ? Prisma.sql`AND bt.vehicle_number = ${filters.vehicleNumber}` : Prisma.empty}
+
+        UNION ALL
+
+        SELECT
+          CASE
+            WHEN UPPER(ft.code) = 'HSD' OR UPPER(ft.name) LIKE '%DIESEL%' THEN 'HSD'
+            WHEN UPPER(ft.code) = 'PMG' OR UPPER(ft.name) LIKE '%PETROL%' OR UPPER(ft.name) LIKE '%GASOLINE%' THEN 'PMG'
+            ELSE ft.code
+          END AS product_type,
+          'L' AS unit,
+          fs.quantity_liters AS quantity,
+          fs.total_amount AS amount
+        FROM sales s
+        JOIN fuel_sales fs ON fs.sale_id = s.id
+        JOIN fuel_types ft ON fs.fuel_type_id = ft.id
+        WHERE s.customer_id = ${customerId}::uuid
+          AND (s.offline_queue_id IS NULL OR s.offline_queue_id NOT LIKE 'backdated-%')
+          ${filters?.startDate ? Prisma.sql`AND s.sale_date >= ${filters.startDate}` : Prisma.empty}
+          ${filters?.endDate ? Prisma.sql`AND s.sale_date <= ${filters.endDate}` : Prisma.empty}
+          ${filters?.vehicleNumber ? Prisma.sql`AND s.vehicle_number = ${filters.vehicleNumber}` : Prisma.empty}
+
+        UNION ALL
+
+        SELECT
+          'Non-Fuel' AS product_type,
+          'units' AS unit,
+          nfs.quantity::numeric AS quantity,
+          nfs.total_amount AS amount
+        FROM sales s
+        JOIN non_fuel_sales nfs ON nfs.sale_id = s.id
+        WHERE s.customer_id = ${customerId}::uuid
+          AND (s.offline_queue_id IS NULL OR s.offline_queue_id NOT LIKE 'backdated-%')
+          ${filters?.startDate ? Prisma.sql`AND s.sale_date >= ${filters.startDate}` : Prisma.empty}
+          ${filters?.endDate ? Prisma.sql`AND s.sale_date <= ${filters.endDate}` : Prisma.empty}
+          ${filters?.vehicleNumber ? Prisma.sql`AND s.vehicle_number = ${filters.vehicleNumber}` : Prisma.empty}
+      ) combined
+      GROUP BY product_type, unit
+      ORDER BY
+        CASE product_type WHEN 'PMG' THEN 1 WHEN 'HSD' THEN 2 WHEN 'Non-Fuel' THEN 3 ELSE 4 END
+    `;
+
     // Get branch limit if branchId provided
     let branchLimit: number | null = null;
     if (filters?.branchId) {
@@ -1285,6 +1372,13 @@ export class CreditService {
         vehicleNumber: v.vehicle_number,
         totalAmount: parseFloat(v.total_amount),
         transactionCount: parseInt(v.transaction_count, 10),
+      })),
+      productBreakdown: productBreakdownRaw.map((p) => ({
+        productType: p.product_type,
+        unit: (p.unit === 'L' ? 'L' : 'units') as 'L' | 'units',
+        totalQuantity: parseFloat(p.total_quantity),
+        totalAmount: parseFloat(p.total_amount),
+        transactionCount: parseInt(p.transaction_count, 10),
       })),
       pagination: {
         total: entries.length,

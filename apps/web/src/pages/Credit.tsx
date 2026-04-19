@@ -78,6 +78,17 @@ const exportLedgerToCSV = (ledgerData: any, customerName: string, startDate?: st
   rows.push(`Closing Balance,${ledgerData.summary.closingBalance}`);
   rows.push('');
 
+  // Product-wise breakdown for reporting period
+  const productBreakdown = ledgerData.productBreakdown || [];
+  if (productBreakdown.length > 0) {
+    rows.push('PRODUCT-WISE BREAKDOWN');
+    rows.push('Product,Total Quantity,Unit,Total Sales');
+    productBreakdown.forEach((p: any) => {
+      rows.push(`${p.productType},${Number(p.totalQuantity).toFixed(p.unit === 'L' ? 3 : 0)},${p.unit === 'L' ? 'Liters' : 'Units'},${Number(p.totalAmount).toFixed(2)}`);
+    });
+    rows.push('');
+  }
+
   // Ledger entries
   rows.push('LEDGER ENTRIES');
   rows.push('Date,Type,Description,Receipt,"Vehicle #","Slip #","Payment Method",Product,Debit,Credit,Balance');
@@ -161,6 +172,37 @@ const exportLedgerToPDF = (ledgerData: any, customerName: string, startDate?: st
           <span class="summary-value" style="font-size: 13px; font-weight: bold;">${ledgerData.summary.closingBalance.toLocaleString('en-PK', { maximumFractionDigits: 2 })}</span>
         </div>
       </div>
+
+      ${(ledgerData.productBreakdown || []).length > 0 ? `
+        <h3>Product-wise Breakdown</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Product</th>
+              <th style="text-align: right;">Total Quantity</th>
+              <th style="text-align: right;">Total Sales (PKR)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${ledgerData.productBreakdown
+              .map((p: any) => `
+                <tr>
+                  <td><strong>${p.productType}</strong></td>
+                  <td class="number">${Number(p.totalQuantity).toLocaleString('en-PK', { minimumFractionDigits: p.unit === 'L' ? 3 : 0, maximumFractionDigits: p.unit === 'L' ? 3 : 0 })} ${p.unit === 'L' ? 'Liters' : 'Units'}</td>
+                  <td class="number">${Number(p.totalAmount).toLocaleString('en-PK', { maximumFractionDigits: 2 })}</td>
+                </tr>
+              `)
+              .join('')}
+            <tr>
+              <td><strong>TOTAL</strong></td>
+              <td class="number">—</td>
+              <td class="number"><strong>${ledgerData.productBreakdown
+                .reduce((s: number, p: any) => s + Number(p.totalAmount || 0), 0)
+                .toLocaleString('en-PK', { maximumFractionDigits: 2 })}</strong></td>
+            </tr>
+          </tbody>
+        </table>
+      ` : ''}
 
       <h3>Ledger Entries</h3>
       <table>

@@ -73,6 +73,13 @@ export interface LedgerResponse {
     totalAmount: number;
     transactionCount: number;
   }>;
+  productBreakdown: Array<{
+    productType: string;
+    unit: 'L' | 'units';
+    totalQuantity: number;
+    totalAmount: number;
+    transactionCount: number;
+  }>;
   pagination: {
     total: number;
     limit: number;
