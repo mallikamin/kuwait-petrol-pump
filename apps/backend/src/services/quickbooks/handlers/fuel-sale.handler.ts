@@ -238,14 +238,41 @@ function validatePayload(payload: FuelSalePayload): void {
  * SalesReceipt and Invoice — the per-line shape is identical in both entities
  * (this is what gives us the automatic COGS + inventory reduction in QB).
  */
+/**
+ * Normalize a line-item localId before QB mapping lookup.
+ *
+ * Fuel items (HSD/PMG) have explicit 1:1 mappings — their FuelType UUID is
+ * used directly as the mapping localId (→ QB items 105/106 per workbook).
+ *
+ * Non-fuel products, per accountant decision (2026-04-19), all collapse to a
+ * single QB "Sales of Product Income" item (qb_id=82). Seeding 87 separate
+ * mappings would violate the `(org, entity_type, qb_id)` uniqueness invariant
+ * on qb_entity_mappings (required for reverse lookups). We instead seed ONE
+ * alias row (localId='non-fuel-item', qb_id='82') and route any product UUID
+ * through it here — same pattern as paymentMethodLocalId collapsing card
+ * variants to 'credit_card'. See qb-shared.ts for that precedent.
+ *
+ * A UUID is classified as a product (→ alias) if it resolves to a row in the
+ * `products` table. Fuel-type UUIDs (in `fuel_types`) fall through unchanged.
+ * Static item localIds like 'tax' also pass through untouched.
+ */
+async function resolveItemLocalId(rawLocalId: string): Promise<string> {
+  const product = await prisma.product.findFirst({
+    where: { id: rawLocalId },
+    select: { id: true },
+  });
+  return product ? 'non-fuel-item' : rawLocalId;
+}
+
 async function buildLines(organizationId: string, payload: FuelSalePayload): Promise<any[]> {
   const lines: any[] = [];
 
   for (const item of payload.lineItems) {
-    const itemQbId = await EntityMappingService.getQbId(organizationId, 'item', item.fuelTypeId);
+    const mappingLocalId = await resolveItemLocalId(item.fuelTypeId);
+    const itemQbId = await EntityMappingService.getQbId(organizationId, 'item', mappingLocalId);
     if (!itemQbId) {
       throw new Error(
-        `Item mapping not found: localId=${item.fuelTypeId} (${item.fuelTypeName}). ` +
+        `Item mapping not found: localId=${mappingLocalId} (${item.fuelTypeName}). ` +
         `Create mapping via /api/quickbooks/mappings (entityType: item) before syncing.`
       );
     }

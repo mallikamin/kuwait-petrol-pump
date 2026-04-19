@@ -24,6 +24,9 @@ jest.mock('../../../config/database', () => ({
     qBConnection: {
       findFirst: jest.fn(),
       update: jest.fn()
+    },
+    product: {
+      findFirst: jest.fn()
     }
   }
 }));
@@ -68,6 +71,10 @@ describe('Fuel Sale Handler', () => {
 
     // Mock audit logger
     (auditLogger.AuditLogger.log as jest.MockedFunction<typeof auditLogger.AuditLogger.log>).mockResolvedValue(undefined);
+
+    // Default: fuel/static localIds don't resolve to a product row (pass-through to direct mapping).
+    // Non-fuel regression tests override this mock per-case to simulate a real product UUID.
+    (prisma.product.findFirst as jest.MockedFunction<any>).mockResolvedValue(null);
 
     // Setup test job
     mockJob = {
@@ -970,6 +977,78 @@ describe('Fuel Sale Handler', () => {
       // Both lookups passed 'credit_card' as the payment_method localId
       expect(pmLookups).not.toContain('bank_card');
       expect(pmLookups).not.toContain('pso_card');
+    });
+
+    it('non-fuel product UUID resolves via "non-fuel-item" alias → QB item 82 (accountant decision 2026-04-19)', async () => {
+      // All 87 non-fuel products collapse to a single QB "Sales of Product
+      // Income" item (qb_id=82). A single alias mapping (localId='non-fuel-item')
+      // is seeded; any product UUID must be routed through it.
+      const productUuid = 'prod-uuid-aaaa-bbbb';
+      const itemLookups: string[] = [];
+
+      (prisma.product.findFirst as jest.MockedFunction<any>).mockResolvedValue({ id: productUuid });
+
+      const result = await runWithMappings('cash', undefined, (type, id) => {
+        if (type === 'item') itemLookups.push(id);
+        if (type === 'customer' && id === 'walk-in') return 'QB-WALKIN';
+        if (type === 'payment_method' && id === 'cash') return 'QB-PM-CASH';
+        if (type === 'item' && id === 'non-fuel-item') return '82';
+        if (type === 'bank_account' && id === 'cash') return 'QB-CASH';
+        return null;
+      }, { SalesReceipt: { Id: 'SR-NF', DocNumber: 'SR-NF' } });
+
+      const body = JSON.parse(((global.fetch as jest.MockedFunction<typeof fetch>).mock.calls[0][1] as any).body);
+      expect(result.success).toBe(true);
+      expect(body.Line[0].SalesItemLineDetail.ItemRef.value).toBe('82');
+
+      // The handler MUST have looked up the alias, not the raw product UUID.
+      expect(itemLookups).toContain('non-fuel-item');
+      expect(itemLookups).not.toContain(productUuid);
+    });
+
+    it('fuel type UUID passes through unchanged → direct qb_id (NOT routed via non-fuel alias)', async () => {
+      // Regression: fuel lookups must NOT be incorrectly routed through the
+      // non-fuel alias. HSD/PMG UUIDs have explicit mappings to qb_ids 105/106
+      // and must resolve directly.
+      const hsdUuid = 'a2222222-2222-2222-2222-222222222222';
+      const itemLookups: string[] = [];
+
+      // Fuel UUID is NOT in the products table (it's in fuel_types).
+      (prisma.product.findFirst as jest.MockedFunction<any>).mockResolvedValue(null);
+      (prisma.qBConnection.findFirst as jest.MockedFunction<any>).mockResolvedValue(mockConnection as any);
+      (encryption.decryptToken as jest.MockedFunction<typeof encryption.decryptToken>).mockReturnValue('t');
+
+      (entityMapping.EntityMappingService.getQbId as jest.MockedFunction<any>).mockImplementation(
+        async (_o: string, type: string, id: string) => {
+          if (type === 'item') itemLookups.push(id);
+          if (type === 'customer' && id === 'walk-in') return 'QB-WALKIN';
+          if (type === 'payment_method' && id === 'cash') return 'QB-PM-CASH';
+          if (type === 'item' && id === hsdUuid) return '105';
+          if (type === 'bank_account' && id === 'cash') return 'QB-CASH';
+          return null;
+        }
+      );
+      (global.fetch as jest.MockedFunction<typeof fetch>).mockResolvedValue({
+        ok: true, status: 200,
+        json: async () => ({ SalesReceipt: { Id: 'SR-F', DocNumber: 'SR-F' } }),
+      } as Response);
+
+      const payload = {
+        ...mockPayload,
+        paymentMethod: 'cash',
+        lineItems: [{
+          fuelTypeId: hsdUuid, fuelTypeName: 'HSD', quantity: 50, unitPrice: 5, amount: 250,
+        }],
+        totalAmount: 250,
+      };
+      await handleFuelSaleCreate(mockJob, payload);
+
+      const body = JSON.parse(((global.fetch as jest.MockedFunction<typeof fetch>).mock.calls[0][1] as any).body);
+      expect(body.Line[0].SalesItemLineDetail.ItemRef.value).toBe('105');
+
+      // Critical: fuel UUID must resolve DIRECTLY, never through the alias.
+      expect(itemLookups).toContain(hsdUuid);
+      expect(itemLookups).not.toContain('non-fuel-item');
     });
   });
 });
