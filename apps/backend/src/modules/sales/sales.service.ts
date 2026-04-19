@@ -70,6 +70,10 @@ export class SalesService {
             entityId: params.saleId,
             priority: 5,
             status: 'pending',
+            // Auto-approve so the processor runs the job without admin action.
+            // sync_mode on qb_connections (DRY_RUN / FULL_SYNC / READ_ONLY)
+            // is the real safety gate that decides whether QB is actually hit.
+            approvalStatus: 'approved',
             idempotencyKey: `qb-sale-${params.saleId}`,
             payload: {
               saleId: params.saleId,

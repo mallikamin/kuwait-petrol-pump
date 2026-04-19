@@ -495,6 +495,8 @@ export class CreditService {
           entityId: params.receiptId,
           priority: 5,
           status: 'pending',
+          // Auto-approve: sync_mode gates actual QB writes.
+          approvalStatus: 'approved',
           idempotencyKey: `qb-receipt-${params.receiptId}-${alloc.sourceType}-${alloc.sourceId}`,
           payload: {
             receiptId: params.receiptId,

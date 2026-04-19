@@ -1753,6 +1753,8 @@ export class DailyBackdatedEntriesService {
             entityId: saleId,
             priority: 5,
             status: 'pending',
+            // Auto-approve: sync_mode gates actual QB writes.
+            approvalStatus: 'approved',
             // Deterministic dedup per sale — re-finalize is a no-op thanks to
             // the (organizationId, idempotencyKey) unique index on QBSyncQueue.
             idempotencyKey: `qb-sale-${saleId}`,

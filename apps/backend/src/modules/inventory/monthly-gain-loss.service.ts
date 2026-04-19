@@ -152,6 +152,8 @@ export class MonthlyGainLossService {
                 entityId: entry.id,
                 priority: 5,
                 status: 'pending',
+                // Auto-approve: sync_mode gates actual QB writes.
+                approvalStatus: 'approved',
                 // Key includes fuel + month so re-entering the same row
                 // (after a delete-then-recreate) is naturally deduped.
                 idempotencyKey: `qb-dipvar-${entry.id}`,
