@@ -37,14 +37,36 @@ const isSuperuser = (role?: string): boolean => {
 /**
  * Export ledger data to CSV
  */
-const exportLedgerToCSV = (ledgerData: any, customerName: string) => {
+const formatReportPeriod = (
+  ledgerData: any,
+  startDate?: string,
+  endDate?: string
+): string => {
+  const fmt = (d: string | Date) => format(new Date(d), 'MMM dd, yyyy');
+  if (startDate && endDate) return `${fmt(startDate)} to ${fmt(endDate)}`;
+  const entries = ledgerData?.entries || [];
+  if (entries.length > 0) {
+    const dates = entries.map((e: any) => new Date(e.date).getTime());
+    const min = new Date(Math.min(...dates));
+    const max = new Date(Math.max(...dates));
+    const base = `${fmt(min)} to ${fmt(max)}`;
+    return startDate ? `${fmt(startDate)} to ${fmt(max)}` : endDate ? `${fmt(min)} to ${fmt(endDate)}` : `${base} (all transactions)`;
+  }
+  if (startDate) return `From ${fmt(startDate)}`;
+  if (endDate) return `Up to ${fmt(endDate)}`;
+  return 'All transactions';
+};
+
+const exportLedgerToCSV = (ledgerData: any, customerName: string, startDate?: string, endDate?: string) => {
   if (!ledgerData) return;
 
   const rows: string[] = [];
+  const reportPeriod = formatReportPeriod(ledgerData, startDate, endDate);
 
   // Header
   rows.push(`Customer Ledger Export`);
   rows.push(`Customer: ${customerName}`);
+  rows.push(`Report Period: ${reportPeriod}`);
   rows.push(`Exported: ${format(new Date(), 'yyyy-MM-dd HH:mm:ss')}`);
   rows.push('');
 
@@ -83,8 +105,10 @@ const exportLedgerToCSV = (ledgerData: any, customerName: string) => {
 /**
  * Export ledger data to PDF (print-friendly HTML → browser print dialog)
  */
-const exportLedgerToPDF = (ledgerData: any, customerName: string) => {
+const exportLedgerToPDF = (ledgerData: any, customerName: string, startDate?: string, endDate?: string) => {
   if (!ledgerData) return;
+
+  const reportPeriod = formatReportPeriod(ledgerData, startDate, endDate);
 
   const html = `
     <!DOCTYPE html>
@@ -116,7 +140,7 @@ const exportLedgerToPDF = (ledgerData: any, customerName: string) => {
       <div class="meta">
         <strong>Customer:</strong> ${customerName}<br>
         <strong>Date:</strong> ${format(new Date(), 'MMM dd, yyyy HH:mm:ss')}<br>
-        <strong>Report Period:</strong> All transactions
+        <strong>Report Period:</strong> ${reportPeriod}
       </div>
 
       <div class="summary">
@@ -669,7 +693,7 @@ export function Credit() {
               variant="outline"
               onClick={() => {
                 const customerName = customers.find((c) => c.id === ledgerFilters.customerId)?.name || 'customer';
-                exportLedgerToCSV(ledgerData, customerName);
+                exportLedgerToCSV(ledgerData, customerName, ledgerFilters.startDate, ledgerFilters.endDate);
               }}
             >
               <Download className="h-4 w-4 mr-2" />
@@ -680,7 +704,7 @@ export function Credit() {
               variant="outline"
               onClick={() => {
                 const customerName = customers.find((c) => c.id === ledgerFilters.customerId)?.name || 'customer';
-                exportLedgerToPDF(ledgerData, customerName);
+                exportLedgerToPDF(ledgerData, customerName, ledgerFilters.startDate, ledgerFilters.endDate);
               }}
             >
               <FileText className="h-4 w-4 mr-2" />

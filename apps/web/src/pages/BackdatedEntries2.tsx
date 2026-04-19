@@ -839,13 +839,26 @@ export function BackdatedEntries2() {
                     const ReadingCell = ({ reading, readingType }: { reading: any; readingType: 'opening' | 'closing' }) => {
                       const val = reading?.value;
                       const hasAttach = !!(reading?.imageUrl || reading?.attachmentUrl);
+                      const isPropagated = reading?.status === 'propagated_forward' || reading?.status === 'propagated_backward';
+                      const sourceId = reading?.propagatedFrom?.sourceReadingId;
+                      const deletableId = reading?.id || sourceId;
+                      const propSrc = reading?.propagatedFrom;
                       if (val != null) {
                         return (
                           <div className="flex items-center justify-center gap-1 group/cell">
                             <button
-                              className="font-mono text-xs font-semibold px-2.5 py-1 rounded border border-slate-200 bg-white hover:border-blue-400 hover:bg-blue-50 transition-colors cursor-pointer"
+                              className={cn(
+                                'font-mono text-xs font-semibold px-2.5 py-1 rounded border transition-colors cursor-pointer',
+                                isPropagated
+                                  ? 'border-dashed border-slate-300 bg-slate-50 text-slate-600 italic hover:border-blue-400 hover:bg-blue-50'
+                                  : 'border-slate-200 bg-white hover:border-blue-400 hover:bg-blue-50'
+                              )}
                               onClick={() => openMeterDialog(nozzle, readingType, shift, reading?.id ? reading : null)}
-                              title={`Click to edit ${readingType}`}
+                              title={
+                                isPropagated && propSrc
+                                  ? `Auto-filled from ${propSrc.date} ${propSrc.readingType}. Click to enter a specific value.`
+                                  : `Click to edit ${readingType}`
+                              }
                             >
                               {val.toLocaleString()}
                             </button>
@@ -855,11 +868,20 @@ export function BackdatedEntries2() {
                                 <Paperclip className="h-3.5 w-3.5" />
                               </button>
                             )}
-                            {reading?.id && (
+                            {deletableId && (
                               <button
                                 className="p-1 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all"
-                                title={`Delete ${readingType}`}
-                                onClick={() => { if (confirm(`Delete this ${readingType} reading?`)) deleteMeterMut.mutate(reading.id); }}
+                                title={
+                                  isPropagated && propSrc
+                                    ? `Delete source reading (${propSrc.date} ${propSrc.readingType})`
+                                    : `Delete ${readingType}`
+                                }
+                                onClick={() => {
+                                  const msg = isPropagated && propSrc
+                                    ? `This ${readingType} is auto-filled from ${propSrc.date} ${propSrc.readingType} reading.\n\nDeleting will remove the source reading on ${propSrc.date}. Continue?`
+                                    : `Delete this ${readingType} reading?`;
+                                  if (confirm(msg)) deleteMeterMut.mutate(deletableId);
+                                }}
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
                               </button>

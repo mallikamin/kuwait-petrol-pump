@@ -33,6 +33,7 @@ export interface MeterReadingStatus {
     shiftName: string;
     date: string;
     readingType: 'closing' | 'opening';
+    sourceReadingId?: string;
   };
 }
 
@@ -356,6 +357,7 @@ export class BackdatedMeterReadingsDailyService {
         shiftName: targetShift.name || 'Daily',
         date: targetDate.toISOString().split('T')[0],
         readingType: 'closing',
+        sourceReadingId: previousClosing.id,
       },
     };
   }
@@ -391,6 +393,7 @@ export class BackdatedMeterReadingsDailyService {
         shiftName: targetShift.name || 'Daily',
         date: targetDate.toISOString().split('T')[0],
         readingType: 'opening',
+        sourceReadingId: nextOpening.id,
       },
     };
   }
