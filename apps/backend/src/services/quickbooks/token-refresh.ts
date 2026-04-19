@@ -1,8 +1,9 @@
 import OAuthClient from 'intuit-oauth';
 import { PrismaClient } from '@prisma/client';
-import { encryptToken, decryptToken } from './encryption';
+import { encryptToken, decryptToken, redactToken } from './encryption';
 import { redis } from '../../config/redis';
 import { QBTokenExpiredError, QBTransientError } from './errors';
+import { AuditLogger } from './audit-logger';
 
 const prisma = new PrismaClient();
 
@@ -118,13 +119,64 @@ export async function getValidAccessToken(
     throw new QBTransientError('Token refresh lock timeout', { organizationId });
   }
 
+  // Re-fetch INSIDE the lock so we always use the freshest refresh token.
+  // Prevents a stale-snapshot race: if another caller refreshed+rotated T1→T2
+  // between our initial findFirst (pre-lock) and our refresh call, we would
+  // otherwise send Intuit the now-invalid T1 and trigger a false "invalid"
+  // error that looks like an Intuit-side token death.
+  const lockedConnection = await db.qBConnection.findFirst({
+    where: { id: connection.id, isActive: true },
+  });
+
+  if (!lockedConnection || !lockedConnection.refreshTokenEncrypted) {
+    await releaseRefreshLock(organizationId);
+    throw new QBTokenExpiredError('QuickBooks connection no longer active');
+  }
+
+  // If another process already refreshed while we were waiting for the lock,
+  // short-circuit: their new token is valid, no reason to burn another refresh.
+  const lockedExpiresAt = lockedConnection.accessTokenExpiresAt
+    ? new Date(lockedConnection.accessTokenExpiresAt)
+    : null;
+  if (lockedExpiresAt && lockedExpiresAt.getTime() - now.getTime() > bufferMs) {
+    console.log(`[QB Token] Refresh preempted by concurrent process for org ${organizationId}`);
+    await releaseRefreshLock(organizationId);
+    return {
+      accessToken: decryptToken(lockedConnection.accessTokenEncrypted!),
+      realmId: lockedConnection.realmId,
+    };
+  }
+
+  const oldRefreshToken = decryptToken(lockedConnection.refreshTokenEncrypted);
+  const refreshAttemptStartedAt = new Date();
+
+  // Persistent forensic trail: we lose container stdout on every redeploy,
+  // so the audit log is the only durable record of what Intuit told us.
+  await AuditLogger.log({
+    operation: 'TOKEN_REFRESH_ATTEMPT',
+    entity_type: 'qb_connection',
+    entity_id: connection.id,
+    direction: 'APP_TO_QB',
+    status: 'PENDING',
+    metadata: {
+      organizationId,
+      realmId: lockedConnection.realmId,
+      pid: process.pid,
+      accessTokenExpiresAt: lockedConnection.accessTokenExpiresAt?.toISOString() ?? null,
+      refreshTokenExpiresAt: lockedConnection.refreshTokenExpiresAt?.toISOString() ?? null,
+      refreshTokenHead: redactToken(oldRefreshToken),
+      lastSyncAt: lockedConnection.lastSyncAt?.toISOString() ?? null,
+      minutesUntilAccessExpiry: lockedConnection.accessTokenExpiresAt
+        ? Math.round((lockedConnection.accessTokenExpiresAt.getTime() - refreshAttemptStartedAt.getTime()) / 60000)
+        : null,
+    },
+  });
+
   try {
     const oauthClient = getOAuthClient();
 
-    // Set the refresh token
-    const refreshToken = decryptToken(connection.refreshTokenEncrypted);
     oauthClient.setToken({
-      refresh_token: refreshToken,
+      refresh_token: oldRefreshToken,
     });
 
     // Attempt refresh
@@ -160,6 +212,25 @@ export async function getValidAccessToken(
       })
     );
 
+    await AuditLogger.log({
+      operation: 'TOKEN_REFRESH_SUCCESS',
+      entity_type: 'qb_connection',
+      entity_id: connection.id,
+      direction: 'APP_TO_QB',
+      status: 'SUCCESS',
+      metadata: {
+        organizationId,
+        realmId: connection.realmId,
+        pid: process.pid,
+        oldRefreshTokenHead: redactToken(oldRefreshToken),
+        newRefreshTokenHead: redactToken(token.refresh_token),
+        refreshTokenRotated: oldRefreshToken !== token.refresh_token,
+        accessTokenExpiresAt: accessTokenExpiresAt.toISOString(),
+        refreshTokenExpiresAt: refreshTokenExpiresAt.toISOString(),
+        durationMs: Date.now() - refreshAttemptStartedAt.getTime(),
+      },
+    });
+
     return {
       accessToken: token.access_token,
       realmId: connection.realmId,
@@ -168,6 +239,7 @@ export async function getValidAccessToken(
     // Classify error for proper handling
     const errorCode = error.authResponse?.body?.error;
     const errorStatus = error.authResponse?.status;
+    const willDeactivate = errorCode === 'invalid_grant';
 
     console.error(
       JSON.stringify({
@@ -179,11 +251,47 @@ export async function getValidAccessToken(
       })
     );
 
+    // Swallow audit-log faults in the failure path — we must not mask
+    // the original refresh error with an audit-logger DB hiccup.
+    try {
+      await AuditLogger.log({
+        operation: 'TOKEN_REFRESH_FAILURE',
+        entity_type: 'qb_connection',
+        entity_id: connection.id,
+        direction: 'APP_TO_QB',
+        status: 'FAILURE',
+        error_message: error.message || String(error),
+        request_payload: {
+          refreshTokenHead: redactToken(oldRefreshToken),
+        },
+        response_payload: {
+          status: errorStatus,
+          body: error.authResponse?.body ?? null,
+          intuit_tid: error.authResponse?.headers?.intuit_tid ?? null,
+        },
+        metadata: {
+          organizationId,
+          realmId: lockedConnection.realmId,
+          pid: process.pid,
+          errorCode,
+          errorStatus,
+          willDeactivate,
+          refreshTokenExpiresAt: lockedConnection.refreshTokenExpiresAt?.toISOString() ?? null,
+          minutesSinceConnectionEstablished: lockedConnection.createdAt
+            ? Math.round((refreshAttemptStartedAt.getTime() - lockedConnection.createdAt.getTime()) / 60000)
+            : null,
+          durationMs: Date.now() - refreshAttemptStartedAt.getTime(),
+        },
+      });
+    } catch (auditError) {
+      console.error('[QB Token] Failed to write TOKEN_REFRESH_FAILURE audit entry:', auditError);
+    }
+
     // Deactivate ONLY on Intuit's explicit "refresh token dead" signal.
     // A bare 400/401 or error messages containing "invalid"/"expired" are
     // frequently transient (clock skew, momentary upstream blip, generic
     // network phrasing) and previously caused unnecessary reconnects.
-    if (errorCode === 'invalid_grant') {
+    if (willDeactivate) {
       await db.qBConnection.update({
         where: { id: connection.id },
         data: { isActive: false },

@@ -21,6 +21,17 @@ jest.mock('intuit-oauth');
 jest.mock('./encryption', () => ({
   encryptToken: jest.fn((token) => `encrypted_${token}`),
   decryptToken: jest.fn((token) => token.replace('encrypted_', '')),
+  redactToken: jest.fn((token: string) =>
+    !token || token.length <= 8
+      ? '[REDACTED]'
+      : `${token.substring(0, 4)}...${token.substring(token.length - 4)}`
+  ),
+}));
+
+jest.mock('./audit-logger', () => ({
+  AuditLogger: {
+    log: jest.fn().mockResolvedValue(undefined),
+  },
 }));
 
 describe('Token Refresh - Critical Path Tests', () => {
@@ -405,6 +416,57 @@ describe('Token Refresh - Critical Path Tests', () => {
         where: { id: 'conn-1' },
         data: { isActive: false },
       });
+    });
+
+    it('should short-circuit and NOT call Intuit if re-fetch inside lock shows token is already fresh', async () => {
+      // Regression test for the stale-snapshot race:
+      // If another process rotates the refresh token between our pre-lock read
+      // and our lock acquisition, the pre-lock snapshot holds the now-dead T1.
+      // After acquiring the lock, we must re-fetch so we never send Intuit T1.
+      // Better still: if the re-fetched token is already fresh, skip the call
+      // entirely so we don't burn an unnecessary refresh.
+      const organizationId = 'org-123';
+      const now = new Date();
+      const expiresIn5Min = new Date(now.getTime() + 5 * 60 * 1000); // stale view
+      const expiresIn50Min = new Date(now.getTime() + 50 * 60 * 1000); // refreshed view
+
+      // Pre-lock read: caller sees "expires in 5 min" (stale)
+      mockPrisma.qBConnection.findFirst.mockResolvedValueOnce({
+        id: 'conn-1',
+        organizationId,
+        realmId: 'realm-123',
+        accessTokenEncrypted: 'encrypted_old_access',
+        refreshTokenEncrypted: 'encrypted_old_refresh',
+        accessTokenExpiresAt: expiresIn5Min,
+        refreshTokenExpiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000),
+        lastSyncAt: null,
+        createdAt: now,
+        isActive: true,
+      });
+
+      // Post-lock re-fetch: another worker already refreshed (fresh 50min token)
+      mockPrisma.qBConnection.findFirst.mockResolvedValueOnce({
+        id: 'conn-1',
+        organizationId,
+        realmId: 'realm-123',
+        accessTokenEncrypted: 'encrypted_new_access',
+        refreshTokenEncrypted: 'encrypted_new_refresh',
+        accessTokenExpiresAt: expiresIn50Min,
+        refreshTokenExpiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000),
+        lastSyncAt: null,
+        createdAt: now,
+        isActive: true,
+      });
+
+      (redis.set as any).mockResolvedValue('OK');
+      (redis.del as any).mockResolvedValue(1);
+
+      const result = await getValidAccessToken(organizationId, mockPrisma);
+
+      // Verify we did NOT call Intuit — the re-fetch saw a fresh token
+      expect(mockOAuthClient.refresh).not.toHaveBeenCalled();
+      expect(result.accessToken).toBe('new_access');
+      expect(redis.del).toHaveBeenCalledWith(`qb:token-refresh:${organizationId}`);
     });
 
     it('should always persist BOTH access and refresh tokens on successful refresh', async () => {
