@@ -27,6 +27,9 @@ jest.mock('../../../config/database', () => ({
     },
     product: {
       findFirst: jest.fn()
+    },
+    sale: {
+      update: jest.fn().mockResolvedValue({})
     }
   }
 }));

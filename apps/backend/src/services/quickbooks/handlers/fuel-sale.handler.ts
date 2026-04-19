@@ -151,6 +151,30 @@ export async function handleFuelSaleCreate(
     const responseData = (await response.json()) as any;
     const qbRecord = qbEntity === 'SalesReceipt' ? responseData.SalesReceipt : responseData.Invoice;
 
+    // Persist the QB document id on the Sale so downstream flows (credit
+    // customer receipt → ReceivePayment) can link + clear the Invoice.
+    // Without this, enqueueQbReceivePayments silently skips allocations
+    // because sale.qbInvoiceId stays NULL forever.
+    try {
+      await prisma.sale.update({
+        where: { id: payload.saleId },
+        data: {
+          qbInvoiceId: qbRecord.Id,
+          qbSynced: true,
+          qbSyncedAt: new Date(),
+          syncStatus: 'synced',
+        },
+      });
+    } catch (updateErr) {
+      // Non-fatal: audit log still captures qbId, queue result carries it,
+      // and retry/backfill can recover. We do not want a stale Sale row
+      // update to re-throw after QB has already created the record.
+      console.warn(
+        `[QB Handler] Post-sync sale.qbInvoiceId update failed for sale ${payload.saleId}: ` +
+        `${updateErr instanceof Error ? updateErr.message : String(updateErr)}`
+      );
+    }
+
     const duration = Date.now() - startTime;
     console.log(OpLog.qbWriteSuccess(operation, payload.saleId, qbRecord.Id, duration));
 

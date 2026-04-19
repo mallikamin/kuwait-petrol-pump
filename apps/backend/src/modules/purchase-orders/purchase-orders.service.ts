@@ -319,6 +319,10 @@ export class PurchaseOrdersService {
 
   /**
    * Record payment for purchase order
+   *
+   * Post-commit: if the PO has been synced to QuickBooks (po.qbBillId is set),
+   * a BillPayment job is enqueued so the payment clears Trade Payables in QB.
+   * Enqueue failure never rolls back the local payment record.
    */
   async recordPayment(
     poId: string,
@@ -344,7 +348,6 @@ export class PurchaseOrdersService {
       throw new AppError(400, 'Payment amount exceeds total purchase amount');
     }
 
-    // Create payment record
     const payment = await prisma.supplierPayment.create({
       data: {
         supplierId: po.supplierId,
@@ -356,7 +359,6 @@ export class PurchaseOrdersService {
       },
     });
 
-    // Update PO paid amount
     await prisma.purchaseOrder.update({
       where: { id: poId },
       data: {
@@ -366,6 +368,91 @@ export class PurchaseOrdersService {
       },
     });
 
+    // Post-commit QB enqueue. Never throw — the payment is already persisted.
+    await this.enqueueQbBillPayment({
+      paymentId: payment.id,
+      organizationId,
+      supplierId: po.supplierId,
+      qbBillId: po.qbBillId,
+      poNumber: po.poNumber,
+      paymentDate: data.paymentDate,
+      amount: data.amount,
+      paymentMethod: data.paymentMethod,
+      referenceNumber: data.referenceNumber,
+      notes: data.notes,
+    }).catch((err) => {
+      console.warn(
+        `[QB enqueue][bill-payment ${payment.id}] Enqueue failed: ${err?.message || err}. ` +
+        `Payment is persisted; QB sync will need a manual replay.`
+      );
+    });
+
     return payment;
+  }
+
+  /**
+   * Enqueue a supplier_payment/create_bill_payment job.
+   *
+   * Requires po.qbBillId to be set (PO must have synced to QB first as a
+   * Bill). Idempotent on (organization_id, idempotency_key).
+   */
+  private async enqueueQbBillPayment(params: {
+    paymentId: string;
+    organizationId: string;
+    supplierId: string;
+    qbBillId: string | null;
+    poNumber: string;
+    paymentDate: Date;
+    amount: number;
+    paymentMethod: string;
+    referenceNumber?: string | null;
+    notes?: string | null;
+  }): Promise<void> {
+    const connection = await prisma.qBConnection.findFirst({
+      where: { organizationId: params.organizationId, isActive: true },
+      select: { id: true },
+    });
+    if (!connection) return; // No QB connection → nothing to enqueue
+
+    if (!params.qbBillId) {
+      console.warn(
+        `[QB enqueue][bill-payment ${params.paymentId}] Skipping enqueue: ` +
+        `PO ${params.poNumber} has no qbBillId (Bill not synced to QB yet). ` +
+        `Sync the Bill first, then manually re-enqueue.`
+      );
+      return;
+    }
+
+    const paymentDateIso = new Date(params.paymentDate).toISOString().slice(0, 10);
+    const notes = params.notes || `Payment for PO ${params.poNumber}`;
+
+    await prisma.qBSyncQueue.createMany({
+      data: [
+        {
+          connectionId: connection.id,
+          organizationId: params.organizationId,
+          jobType: 'create_bill_payment',
+          entityType: 'supplier_payment',
+          entityId: params.paymentId,
+          priority: 5,
+          status: 'pending',
+          // Auto-approve — sync_mode on qb_connections is the real gate.
+          approvalStatus: 'approved',
+          idempotencyKey: `qb-bill-payment-${params.paymentId}`,
+          payload: {
+            paymentId: params.paymentId,
+            organizationId: params.organizationId,
+            supplierId: params.supplierId,
+            qbBillId: params.qbBillId,
+            paymentDate: paymentDateIso,
+            amount: params.amount,
+            paymentMethod: params.paymentMethod,
+            referenceNumber: params.referenceNumber || undefined,
+            notes,
+          },
+        },
+      ],
+      skipDuplicates: true,
+    });
   }
 }
