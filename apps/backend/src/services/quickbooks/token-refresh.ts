@@ -4,6 +4,7 @@ import { encryptToken, decryptToken, redactToken } from './encryption';
 import { redis } from '../../config/redis';
 import { QBTokenExpiredError, QBTransientError } from './errors';
 import { AuditLogger } from './audit-logger';
+import { refreshTokenViaHttp } from './token-refresh-http';
 
 const prisma = new PrismaClient();
 
@@ -11,7 +12,13 @@ const prisma = new PrismaClient();
 const LOCK_TTL_SECONDS = 30;
 
 /**
- * Get OAuth client configured with environment variables
+ * Get OAuth client configured with environment variables.
+ *
+ * Still used for OAuth authorize/exchange flows in routes.ts; the refresh path
+ * has been moved to refreshTokenViaHttp (token-refresh-http.ts) due to an
+ * SDK-internal failure in intuit-oauth 4.2.2 during refresh() — empirically
+ * proven in prod 2026-04-19. Keep this helper untouched for the initial
+ * OAuth code-exchange / authorize URL path which is not affected by the bug.
  */
 function getOAuthClient(): OAuthClient {
   return new OAuthClient({
@@ -173,15 +180,8 @@ export async function getValidAccessToken(
   });
 
   try {
-    const oauthClient = getOAuthClient();
-
-    oauthClient.setToken({
-      refresh_token: oldRefreshToken,
-    });
-
-    // Attempt refresh
-    const authResponse = await oauthClient.refresh();
-    const token = authResponse.getToken();
+    // Raw HTTPS POST — bypasses intuit-oauth SDK's broken refresh() path.
+    const token = await refreshTokenViaHttp(oldRefreshToken);
 
     if (!token.access_token || !token.refresh_token) {
       throw new Error('Invalid token response from QuickBooks');

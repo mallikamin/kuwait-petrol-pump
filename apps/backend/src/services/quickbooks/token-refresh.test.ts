@@ -7,7 +7,7 @@ import { PrismaClient } from '@prisma/client';
 import { getValidAccessToken } from './token-refresh';
 import { QBTokenExpiredError, QBTransientError } from './errors';
 import { redis } from '../../config/redis';
-import OAuthClient from 'intuit-oauth';
+import { refreshTokenViaHttp } from './token-refresh-http';
 
 jest.mock('../../config/redis', () => ({
   redis: {
@@ -16,7 +16,12 @@ jest.mock('../../config/redis', () => ({
   },
 }));
 
-jest.mock('intuit-oauth');
+// The real refresh is now raw HTTPS via ./token-refresh-http. Mock that module
+// instead of intuit-oauth (intuit-oauth 4.2.2 had an SDK-internal refresh bug
+// that caused a 100% failure rate in prod — see commit log 2026-04-19).
+jest.mock('./token-refresh-http', () => ({
+  refreshTokenViaHttp: jest.fn(),
+}));
 
 jest.mock('./encryption', () => ({
   encryptToken: jest.fn((token) => `encrypted_${token}`),
@@ -36,7 +41,7 @@ jest.mock('./audit-logger', () => ({
 
 describe('Token Refresh - Critical Path Tests', () => {
   let mockPrisma: any;
-  let mockOAuthClient: any;
+  const mockRefresh = refreshTokenViaHttp as jest.MockedFunction<typeof refreshTokenViaHttp>;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -48,15 +53,6 @@ describe('Token Refresh - Critical Path Tests', () => {
         update: jest.fn(),
       },
     };
-
-    // Mock OAuth Client
-    mockOAuthClient = {
-      setToken: jest.fn(),
-      refresh: jest.fn(),
-      getToken: jest.fn(),
-    };
-
-    (OAuthClient as any).mockImplementation(() => mockOAuthClient);
   });
 
   afterEach(() => {
@@ -85,13 +81,11 @@ describe('Token Refresh - Critical Path Tests', () => {
       (redis.del as any).mockResolvedValue(1);
 
       // Mock successful refresh
-      mockOAuthClient.refresh.mockResolvedValue({
-        getToken: () => ({
-          access_token: 'new_access',
-          refresh_token: 'new_refresh',
-          expires_in: 3600,
-          x_refresh_token_expires_in: 8640000,
-        }),
+      mockRefresh.mockResolvedValue({
+        access_token: 'new_access',
+        refresh_token: 'new_refresh',
+        expires_in: 3600,
+        x_refresh_token_expires_in: 8640000,
       });
 
       mockPrisma.qBConnection.update.mockResolvedValue({});
@@ -99,7 +93,7 @@ describe('Token Refresh - Critical Path Tests', () => {
       await getValidAccessToken(organizationId, mockPrisma);
 
       // Verify refresh was triggered
-      expect(mockOAuthClient.refresh).toHaveBeenCalled();
+      expect(mockRefresh).toHaveBeenCalled();
       expect(mockPrisma.qBConnection.update).toHaveBeenCalled();
     });
 
@@ -121,7 +115,7 @@ describe('Token Refresh - Critical Path Tests', () => {
       const result = await getValidAccessToken(organizationId, mockPrisma);
 
       // Verify NO refresh was triggered
-      expect(mockOAuthClient.refresh).not.toHaveBeenCalled();
+      expect(mockRefresh).not.toHaveBeenCalled();
       expect(result.accessToken).toBe('current_access');
     });
   });
@@ -146,13 +140,11 @@ describe('Token Refresh - Critical Path Tests', () => {
       (redis.set as any).mockResolvedValueOnce('OK');
       (redis.del as any).mockResolvedValue(1);
 
-      mockOAuthClient.refresh.mockResolvedValue({
-        getToken: () => ({
-          access_token: 'new_access',
-          refresh_token: 'new_refresh',
-          expires_in: 3600,
-          x_refresh_token_expires_in: 8640000,
-        }),
+      mockRefresh.mockResolvedValue({
+        access_token: 'new_access',
+        refresh_token: 'new_refresh',
+        expires_in: 3600,
+        x_refresh_token_expires_in: 8640000,
       });
 
       mockPrisma.qBConnection.update.mockResolvedValue({});
@@ -204,7 +196,7 @@ describe('Token Refresh - Critical Path Tests', () => {
       const result = await getValidAccessToken(organizationId, mockPrisma);
 
       // Verify NO refresh was triggered (used token refreshed by other process)
-      expect(mockOAuthClient.refresh).not.toHaveBeenCalled();
+      expect(mockRefresh).not.toHaveBeenCalled();
       expect(result.accessToken).toBe('new_access');
     });
   });
@@ -229,7 +221,7 @@ describe('Token Refresh - Critical Path Tests', () => {
       (redis.del as any).mockResolvedValue(1);
 
       // Mock invalid_grant error
-      mockOAuthClient.refresh.mockRejectedValue({
+      mockRefresh.mockRejectedValue({
         authResponse: { body: { error: 'invalid_grant' }, status: 400 },
         message: 'Invalid grant',
       });
@@ -264,7 +256,7 @@ describe('Token Refresh - Critical Path Tests', () => {
       (redis.del as any).mockResolvedValue(1);
 
       // Mock network error (503)
-      mockOAuthClient.refresh.mockRejectedValue({
+      mockRefresh.mockRejectedValue({
         authResponse: { status: 503 },
         message: 'Service unavailable',
       });
@@ -294,7 +286,7 @@ describe('Token Refresh - Critical Path Tests', () => {
       (redis.del as any).mockResolvedValue(1);
 
       // 400 without Intuit's invalid_grant code — previously this wrongly killed the connection
-      mockOAuthClient.refresh.mockRejectedValue({
+      mockRefresh.mockRejectedValue({
         authResponse: { body: { error: 'invalid_request' }, status: 400 },
         message: 'Bad Request',
       });
@@ -322,7 +314,7 @@ describe('Token Refresh - Critical Path Tests', () => {
       (redis.del as any).mockResolvedValue(1);
 
       // 401 without invalid_grant — previously this wrongly killed the connection
-      mockOAuthClient.refresh.mockRejectedValue({
+      mockRefresh.mockRejectedValue({
         authResponse: { status: 401 },
         message: 'Unauthorized',
       });
@@ -350,7 +342,7 @@ describe('Token Refresh - Critical Path Tests', () => {
       (redis.del as any).mockResolvedValue(1);
 
       // Error phrasing that previously tripped the broad string match
-      mockOAuthClient.refresh.mockRejectedValue({
+      mockRefresh.mockRejectedValue({
         message: 'invalid JSON response from upstream',
       });
 
@@ -377,7 +369,7 @@ describe('Token Refresh - Critical Path Tests', () => {
       (redis.del as any).mockResolvedValue(1);
 
       // Generic "expired" phrasing — e.g. socket, cert, cache — not the refresh token
-      mockOAuthClient.refresh.mockRejectedValue({
+      mockRefresh.mockRejectedValue({
         message: 'request expired before response was received',
       });
 
@@ -404,7 +396,7 @@ describe('Token Refresh - Critical Path Tests', () => {
       (redis.del as any).mockResolvedValue(1);
 
       // Rare but valid shape: 401 + explicit invalid_grant → real token death
-      mockOAuthClient.refresh.mockRejectedValue({
+      mockRefresh.mockRejectedValue({
         authResponse: { body: { error: 'invalid_grant' }, status: 401 },
         message: 'Unauthorized',
       });
@@ -464,9 +456,49 @@ describe('Token Refresh - Critical Path Tests', () => {
       const result = await getValidAccessToken(organizationId, mockPrisma);
 
       // Verify we did NOT call Intuit — the re-fetch saw a fresh token
-      expect(mockOAuthClient.refresh).not.toHaveBeenCalled();
+      expect(mockRefresh).not.toHaveBeenCalled();
       expect(result.accessToken).toBe('new_access');
       expect(redis.del).toHaveBeenCalledWith(`qb:token-refresh:${organizationId}`);
+    });
+
+    it('should send the decrypted refresh_token to the raw HTTPS helper (NOT via intuit-oauth SDK)', async () => {
+      // Lock in the SDK swap: the refresh must go through refreshTokenViaHttp,
+      // which hits oauth.platform.intuit.com directly. intuit-oauth 4.2.2 had
+      // an SDK-internal bug that failed the call synchronously — see commit log.
+      const organizationId = 'org-123';
+      const now = new Date();
+      const expiresIn5Min = new Date(now.getTime() + 5 * 60 * 1000);
+
+      mockPrisma.qBConnection.findFirst.mockResolvedValue({
+        id: 'conn-1',
+        organizationId,
+        realmId: 'realm-123',
+        accessTokenEncrypted: 'encrypted_old_access',
+        refreshTokenEncrypted: 'encrypted_my_live_refresh_token',
+        accessTokenExpiresAt: expiresIn5Min,
+        refreshTokenExpiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000),
+        lastSyncAt: null,
+        createdAt: now,
+        isActive: true,
+      });
+
+      (redis.set as any).mockResolvedValue('OK');
+      (redis.del as any).mockResolvedValue(1);
+
+      mockRefresh.mockResolvedValue({
+        access_token: 'fresh_access',
+        refresh_token: 'fresh_refresh',
+        expires_in: 3600,
+        x_refresh_token_expires_in: 8640000,
+      });
+
+      mockPrisma.qBConnection.update.mockResolvedValue({});
+
+      await getValidAccessToken(organizationId, mockPrisma);
+
+      // The decrypted refresh token (NOT the encrypted form) must be passed.
+      expect(mockRefresh).toHaveBeenCalledTimes(1);
+      expect(mockRefresh).toHaveBeenCalledWith('my_live_refresh_token');
     });
 
     it('should always persist BOTH access and refresh tokens on successful refresh', async () => {
@@ -487,13 +519,11 @@ describe('Token Refresh - Critical Path Tests', () => {
       (redis.set as any).mockResolvedValue('OK');
       (redis.del as any).mockResolvedValue(1);
 
-      mockOAuthClient.refresh.mockResolvedValue({
-        getToken: () => ({
-          access_token: 'new_access',
-          refresh_token: 'new_refresh',
-          expires_in: 3600,
-          x_refresh_token_expires_in: 8640000,
-        }),
+      mockRefresh.mockResolvedValue({
+        access_token: 'new_access',
+        refresh_token: 'new_refresh',
+        expires_in: 3600,
+        x_refresh_token_expires_in: 8640000,
       });
 
       mockPrisma.qBConnection.update.mockResolvedValue({});
