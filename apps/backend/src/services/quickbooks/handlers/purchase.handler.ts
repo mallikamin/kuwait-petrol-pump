@@ -231,6 +231,18 @@ async function buildBillPayload(organizationId: string, payload: PurchasePayload
     );
   }
 
+  // Trade Payables — forced APAccountRef so every Bill credits the same A/P
+  // account regardless of whether the vendor has a QB default. Required by
+  // accountant's S9/S10 spec ("PSO bill → Trade Payables").
+  const apAccountQbId = await EntityMappingService.getQbId(organizationId, 'account', 'trade-payables');
+  if (!apAccountQbId) {
+    throw new Error(
+      "Trade Payables account mapping not found. " +
+      "Create mapping (entityType: account, localId: 'trade-payables') pointing at QB Accounts Payable. " +
+      "Workbook spec requires every Bill to credit Trade Payables."
+    );
+  }
+
   // Lines — ItemBasedExpenseLineDetail referencing the mapped Inventory Item
   // so QB posts to Inventory Asset + A/P (workbook S9/S10).
   const lines: any[] = [];
@@ -257,6 +269,7 @@ async function buildBillPayload(organizationId: string, payload: PurchasePayload
 
   const billData: any = {
     VendorRef: { value: vendorQbId },
+    APAccountRef: { value: apAccountQbId },
     TxnDate: payload.txnDate,
     Line: lines,
     TotalAmt: payload.totalAmount,

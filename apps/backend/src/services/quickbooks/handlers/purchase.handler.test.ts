@@ -90,6 +90,7 @@ describe('Purchase handler (S9, S10) — ItemBasedExpenseLineDetail', () => {
       async (_o: string, type: string, id: string) => {
         if (type === 'vendor' && id === 'supplier-pso') return 'QB-VND-PSO';
         if (type === 'item' && id === 'fuel-HSD') return 'QB-ITEM-HSD';
+        if (type === 'account' && id === 'trade-payables') return 'QB-AP-132';
         return null;
       },
     );
@@ -102,6 +103,8 @@ describe('Purchase handler (S9, S10) — ItemBasedExpenseLineDetail', () => {
 
     const body = JSON.parse(((global.fetch as jest.MockedFunction<typeof fetch>).mock.calls[0][1] as any).body);
     expect(body.VendorRef.value).toBe('QB-VND-PSO');
+    // Forced Trade Payables APAccountRef — spec requires every Bill credit A/P 132.
+    expect(body.APAccountRef.value).toBe('QB-AP-132');
     expect(body.Line).toHaveLength(1);
     // Critical: Item-based, not Account-based.
     expect(body.Line[0].DetailType).toBe('ItemBasedExpenseLineDetail');
@@ -116,6 +119,7 @@ describe('Purchase handler (S9, S10) — ItemBasedExpenseLineDetail', () => {
       async (_o: string, type: string, id: string) => {
         if (type === 'vendor' && id === 'supplier-pso') return 'QB-VND-PSO';
         if (type === 'item' && id === 'prod-oil-4L') return 'QB-ITEM-OIL';
+        if (type === 'account' && id === 'trade-payables') return 'QB-AP-132';
         return null;
       },
     );
@@ -138,11 +142,16 @@ describe('Purchase handler (S9, S10) — ItemBasedExpenseLineDetail', () => {
     const body = JSON.parse(((global.fetch as jest.MockedFunction<typeof fetch>).mock.calls[0][1] as any).body);
     expect(body.Line[0].DetailType).toBe('ItemBasedExpenseLineDetail');
     expect(body.Line[0].ItemBasedExpenseLineDetail.ItemRef.value).toBe('QB-ITEM-OIL');
+    expect(body.APAccountRef.value).toBe('QB-AP-132');
   });
 
   it('fails fast when fuel item mapping is missing', async () => {
     (entityMapping.EntityMappingService.getQbId as jest.MockedFunction<any>).mockImplementation(
-      async (_o: string, type: string) => (type === 'vendor' ? 'QB-VND' : null),
+      async (_o: string, type: string, id: string) => {
+        if (type === 'vendor') return 'QB-VND';
+        if (type === 'account' && id === 'trade-payables') return 'QB-AP-132';
+        return null;
+      },
     );
     await expect(handlePurchaseCreate(mockJob, basePayload())).rejects.toThrow(
       /Item mapping not found for purchase line: localId=fuel-HSD/,
@@ -155,9 +164,23 @@ describe('Purchase handler (S9, S10) — ItemBasedExpenseLineDetail', () => {
     await expect(handlePurchaseCreate(mockJob, basePayload())).rejects.toThrow(/Vendor mapping not found/);
   });
 
+  it('fails fast when trade-payables account mapping is missing', async () => {
+    (entityMapping.EntityMappingService.getQbId as jest.MockedFunction<any>).mockImplementation(
+      async (_o: string, type: string) => (type === 'vendor' ? 'QB-VND' : null),
+    );
+    await expect(handlePurchaseCreate(mockJob, basePayload())).rejects.toThrow(
+      /Trade Payables account mapping not found/,
+    );
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
   it('updates PurchaseOrder.qbBillId on success (for downstream BillPayment linking)', async () => {
     (entityMapping.EntityMappingService.getQbId as jest.MockedFunction<any>).mockImplementation(
-      async (_o: string, type: string) => (type === 'vendor' ? 'QB-VND' : 'QB-ITEM'),
+      async (_o: string, type: string, id: string) => {
+        if (type === 'vendor') return 'QB-VND';
+        if (type === 'account' && id === 'trade-payables') return 'QB-AP-132';
+        return 'QB-ITEM';
+      },
     );
     (global.fetch as jest.MockedFunction<typeof fetch>).mockResolvedValue({
       ok: true, status: 200, json: async () => ({ Bill: { Id: 'QB-BILL-88' } }),

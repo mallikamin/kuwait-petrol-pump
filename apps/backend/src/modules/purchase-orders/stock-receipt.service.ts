@@ -13,6 +13,10 @@ export class StockReceiptService {
    * 4. Updates inventory (fuel or product)
    * 5. Recalculates COGS for fuel
    * 6. Updates PO status
+   *
+   * Post-commit: if the PO transitions to 'received' (fully received), a
+   * QuickBooks Bill job is enqueued (S9/S10). Partial receipts do not
+   * enqueue — Bill posts once per PO at full-receipt time.
    */
   async receiveStock(
     purchaseOrderId: string,
@@ -20,7 +24,7 @@ export class StockReceiptService {
     userId: string,
     input: ReceiveStockInput
   ) {
-    return await prisma.$transaction(async (tx) => {
+    const { receipt, enqueueBill } = await prisma.$transaction(async (tx) => {
       // 1. Validate PO exists and belongs to organization
       const po = await tx.purchaseOrder.findFirst({
         where: {
@@ -228,7 +232,103 @@ export class StockReceiptService {
         },
       });
 
-      return receipt;
+      return { receipt, enqueueBill: allItemsFullyReceived };
+    });
+
+    if (enqueueBill) {
+      // Post-commit QB enqueue — never rolls back stock receipt on failure.
+      await this.enqueueQbPurchaseBill(purchaseOrderId, organizationId).catch((err) => {
+        console.warn(
+          `[QB enqueue][po ${purchaseOrderId}] Enqueue failed: ${err?.message || err}. ` +
+          `Stock receipt is persisted; QB Bill sync will need a manual replay.`
+        );
+      });
+    }
+
+    return receipt;
+  }
+
+  /**
+   * Enqueue a create_bill job for a fully-received PO. Idempotent on PO id.
+   * Does NOT decrypt or call QB here — only writes to qb_sync_queue; the
+   * processor + dispatcher handle auth, DRY_RUN/FULL_SYNC gating, retries.
+   */
+  private async enqueueQbPurchaseBill(purchaseOrderId: string, organizationId: string): Promise<void> {
+    const connection = await prisma.qBConnection.findFirst({
+      where: { organizationId, isActive: true },
+      select: { id: true },
+    });
+    if (!connection) return; // No QB connection → nothing to enqueue
+
+    const po = await prisma.purchaseOrder.findUnique({
+      where: { id: purchaseOrderId },
+      include: {
+        supplier: { select: { id: true, name: true } },
+        items: {
+          include: {
+            fuelType: { select: { id: true, code: true, name: true } },
+            product: { select: { id: true, name: true } },
+          },
+        },
+      },
+    });
+    if (!po) return;
+
+    const lineItems = po.items.map((item) => {
+      const received = Number(item.quantityReceived);
+      const costPerUnit = Number(item.costPerUnit);
+      const amount = Number((received * costPerUnit).toFixed(2));
+      if (item.itemType === 'fuel' && item.fuelTypeId) {
+        return {
+          itemType: 'fuel' as const,
+          fuelTypeId: item.fuelTypeId,
+          fuelTypeName: item.fuelType?.name || item.fuelType?.code || 'FUEL',
+          quantity: received,
+          costPerUnit,
+          amount,
+        };
+      }
+      return {
+        itemType: 'product' as const,
+        productId: item.productId!,
+        productName: item.product?.name || 'PRODUCT',
+        quantity: received,
+        costPerUnit,
+        amount,
+      };
+    });
+
+    const totalAmount = Number(
+      lineItems.reduce((s, li) => s + li.amount, 0).toFixed(2)
+    );
+    const txnDate = new Date(po.receivedDate ?? po.orderDate).toISOString().slice(0, 10);
+
+    await prisma.qBSyncQueue.createMany({
+      data: [
+        {
+          connectionId: connection.id,
+          organizationId,
+          jobType: 'create_bill',
+          entityType: 'purchase_order',
+          entityId: po.id,
+          priority: 5,
+          status: 'pending',
+          // Auto-approve — sync_mode on qb_connections is the safety gate.
+          approvalStatus: 'approved',
+          idempotencyKey: `qb-po-${po.id}`,
+          payload: {
+            purchaseOrderId: po.id,
+            organizationId,
+            supplierId: po.supplierId,
+            supplierName: po.supplier?.name || 'SUPPLIER',
+            txnDate,
+            lineItems,
+            totalAmount,
+            poNumber: po.poNumber,
+          },
+        },
+      ],
+      skipDuplicates: true,
     });
   }
 }
