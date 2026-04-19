@@ -1,0 +1,67 @@
+name: Weekly Docs Maintenance PR
+
+# SAFE-ONLY: only refreshes docs/MAINTENANCE_LOG.md timestamp.
+# Never touches app, backend, frontend, deploy, or infra paths.
+
+on:
+  schedule:
+    - cron: "0 3 * * 1"  # Monday 03:00 UTC (08:00 PKT)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  maintenance-pr:
+    name: Open/Update weekly maintenance PR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Refresh maintenance log
+        run: |
+          mkdir -p docs
+          {
+            echo "# Maintenance Log"
+            echo ""
+            echo "Last automated maintenance check: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            echo ""
+            echo "This file is refreshed weekly by \`.github/workflows/weekly-maintenance-pr.yml\`."
+            echo "It never touches application or deploy code."
+          } > docs/MAINTENANCE_LOG.md
+
+      - name: Commit and push branch
+        id: commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B chore/weekly-maintenance
+          git add docs/MAINTENANCE_LOG.md
+          if git diff --cached --quiet; then
+            echo "No changes — skipping PR."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git commit -m "docs: weekly maintenance log refresh"
+          git push -f origin chore/weekly-maintenance
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Open PR (idempotent)
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          existing=$(gh pr list --head chore/weekly-maintenance --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
+          if [ -n "$existing" ]; then
+            echo "PR #$existing already open — updated with latest commit."
+          else
+            gh pr create \
+              --base "${{ github.event.repository.default_branch }}" \
+              --head chore/weekly-maintenance \
+              --title "docs: weekly maintenance log refresh" \
+              --body "Automated weekly maintenance PR. Refreshes \`docs/MAINTENANCE_LOG.md\` timestamp. No runtime code touched. Safe to squash-merge."
+          fi

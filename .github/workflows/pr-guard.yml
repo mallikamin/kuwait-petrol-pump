@@ -1,0 +1,53 @@
+name: PR Guard — Deploy-Sensitive Paths (Advisory)
+
+# ADVISORY-ONLY: this workflow surfaces warnings but never fails the check.
+# It exists to nudge reviewers when deploy-sensitive files change.
+# To turn it into a hard gate later, change the final step's `echo` warnings
+# to `exit 1` — but only after a second collaborator exists.
+
+on:
+  pull_request:
+    branches:
+      - master
+      - main
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+jobs:
+  advisory:
+    name: Deploy-Sensitive Advisory
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect deploy-sensitive changes
+        id: detect
+        run: |
+          base_sha="${{ github.event.pull_request.base.sha }}"
+          head_sha="${{ github.event.pull_request.head.sha }}"
+          changed=$(git diff --name-only "$base_sha" "$head_sha")
+          echo "Changed files:"
+          echo "$changed"
+          sensitive=$(echo "$changed" | grep -E '^(\.github/workflows/deploy|scripts/deploy|docker-compose.*\.yml$|nginx/)' || true)
+          if [ -n "$sensitive" ]; then
+            echo "sensitive=true" >> "$GITHUB_OUTPUT"
+            echo "Deploy-sensitive files detected:"
+            echo "$sensitive"
+          else
+            echo "sensitive=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Advisory notice (non-blocking)
+        if: steps.detect.outputs.sensitive == 'true'
+        env:
+          HAS_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'prod-safe-approved') }}
+        run: |
+          echo "::warning title=Deploy-sensitive change::This PR touches deploy-sensitive files. Review against SAFE_WORKFLOW_POLICY.md before merging."
+          if [ "$HAS_LABEL" = "true" ]; then
+            echo "::notice title=Label present::'prod-safe-approved' label applied — intent acknowledged."
+          else
+            echo "::warning title=No acknowledgement label::Consider adding the 'prod-safe-approved' label once you have confirmed the change is safe."
+          fi
+          echo "This check is advisory and will pass regardless."
