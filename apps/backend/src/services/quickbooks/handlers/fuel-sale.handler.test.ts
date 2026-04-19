@@ -62,6 +62,7 @@ describe('Fuel Sale Handler', () => {
       if (type === 'payment_method' && localId === 'cash') return 'QB-PAYMENT-CASH';
       if (type === 'item' && localId === 'fuel-1') return 'QB-ITEM-FUEL1';
       if (type === 'item' && localId === 'tax') return 'QB-ITEM-TAX';
+      if (type === 'bank_account' && localId === 'cash') return 'QB-CASH-IN-HAND';
       return null;
     });
 
@@ -525,6 +526,7 @@ describe('Fuel Sale Handler', () => {
           if (type === 'customer' && localId === 'walk-in') return 'QB-CUSTOMER-1';
           if (type === 'payment_method' && localId === 'cash') return 'QB-PAYMENT-1';
           if (type === 'item' && localId === 'fuel-1') return 'QB-ITEM-95';
+          if (type === 'bank_account' && localId === 'cash') return 'QB-CASH-IN-HAND';
           return null;
         });
 
@@ -671,6 +673,7 @@ describe('Fuel Sale Handler', () => {
         .mockImplementation(async (orgId, type, localId) => {
           if (type === 'customer') return 'QB-CUSTOMER-1';
           if (type === 'payment_method') return 'QB-PAYMENT-1';
+          if (type === 'bank_account' && localId === 'cash') return 'QB-CASH-IN-HAND';
           if (type === 'item') return null; // Missing item mapping
           return null;
         });
@@ -708,6 +711,7 @@ describe('Fuel Sale Handler', () => {
           if (type === 'customer' && localId === 'walk-in') return 'QB-CUST-DYNAMIC';
           if (type === 'payment_method' && localId === 'cash') return 'QB-PAY-DYNAMIC';
           if (type === 'item' && localId === 'fuel-1') return 'QB-ITEM-DYNAMIC';
+          if (type === 'bank_account' && localId === 'cash') return 'QB-CASH-IN-HAND';
           return null;
         });
 
@@ -752,6 +756,220 @@ describe('Fuel Sale Handler', () => {
       expect(requestBody.CustomerRef.value).toBe('QB-CUST-DYNAMIC');
       expect(requestBody.PaymentMethodRef.value).toBe('QB-PAY-DYNAMIC');
       expect(requestBody.Line[0].SalesItemLineDetail.ItemRef.value).toBe('QB-ITEM-DYNAMIC');
+      // Cash SalesReceipt must carry DepositToAccountRef (Cash in Hand), not Undeposited Funds.
+      expect(requestBody.DepositToAccountRef.value).toBe('QB-CASH-IN-HAND');
+    });
+  });
+
+  // ── Phase 1 routing (S1..S7) ──────────────────────────────────────────────
+  // Cash posts to SalesReceipt. Every AR-flavoured payment method posts to
+  // Invoice with a specific customer localId. These tests assert the routing
+  // decision AND the customer mapping that each branch uses.
+  describe('Payment-method routing: SalesReceipt vs Invoice', () => {
+    const mockConnection = {
+      id: 'conn-123',
+      organizationId: 'org-123',
+      realmId: 'realm-123',
+      accessTokenEncrypted: 'encrypted-access-token',
+      refreshTokenEncrypted: 'encrypted-refresh-token',
+      accessTokenExpiresAt: new Date(Date.now() + 3600 * 1000),
+      isActive: true,
+    };
+
+    const runWithMappings = async (
+      method: string,
+      customerId: string | undefined,
+      mappingResolver: (type: string, localId: string) => string | null,
+      qbResponse: any,
+    ) => {
+      (prisma.qBConnection.findFirst as jest.MockedFunction<any>).mockResolvedValue(mockConnection as any);
+      (encryption.decryptToken as jest.MockedFunction<typeof encryption.decryptToken>).mockReturnValue('valid-access-token');
+      (entityMapping.EntityMappingService.getQbId as jest.MockedFunction<any>).mockImplementation(
+        async (_orgId: string, type: string, localId: string) => mappingResolver(type, localId),
+      );
+      (global.fetch as jest.MockedFunction<typeof fetch>).mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => qbResponse,
+      } as Response);
+
+      const payload = { ...mockPayload, paymentMethod: method, customerId };
+      return handleFuelSaleCreate(mockJob, payload);
+    };
+
+    it('S1..S3: paymentMethod=cash posts to /salesreceipt with walk-in customer and Cash-in-Hand deposit', async () => {
+      const result = await runWithMappings('cash', undefined, (type, id) => {
+        if (type === 'customer' && id === 'walk-in') return 'QB-CUSTOMER-WALKIN';
+        if (type === 'payment_method' && id === 'cash') return 'QB-PM-CASH';
+        if (type === 'item' && id === 'fuel-1') return 'QB-ITEM-HSD';
+        if (type === 'bank_account' && id === 'cash') return 'QB-CASH-IN-HAND';
+        return null;
+      }, { SalesReceipt: { Id: '101', DocNumber: 'SR-101' } });
+
+      expect(result.success).toBe(true);
+      expect(result.qbEntity).toBe('SalesReceipt');
+      expect(result.qbId).toBe('101');
+      const [url] = (global.fetch as jest.MockedFunction<typeof fetch>).mock.calls[0];
+      expect(url as string).toContain('/salesreceipt');
+      const body = JSON.parse(((global.fetch as jest.MockedFunction<typeof fetch>).mock.calls[0][1] as any).body);
+      expect(body.CustomerRef.value).toBe('QB-CUSTOMER-WALKIN');
+      // Workbook S1–S3: Cash SalesReceipt must deposit to Cash in Hand, not Undeposited Funds.
+      expect(body.DepositToAccountRef.value).toBe('QB-CASH-IN-HAND');
+    });
+
+    it('S4..S6 (credit customer): paymentMethod=credit_customer posts to /invoice with the real customer', async () => {
+      const result = await runWithMappings('credit_customer', 'customer-abc', (type, id) => {
+        if (type === 'customer' && id === 'customer-abc') return 'QB-CUSTOMER-ABC';
+        if (type === 'payment_method' && id === 'credit_customer') return 'QB-PM-CREDIT';
+        if (type === 'item' && id === 'fuel-1') return 'QB-ITEM-HSD';
+        return null;
+      }, { Invoice: { Id: '202', DocNumber: 'INV-202' } });
+
+      expect(result.success).toBe(true);
+      expect(result.qbEntity).toBe('Invoice');
+      const [url] = (global.fetch as jest.MockedFunction<typeof fetch>).mock.calls[0];
+      expect(url as string).toContain('/invoice');
+      const body = JSON.parse(((global.fetch as jest.MockedFunction<typeof fetch>).mock.calls[0][1] as any).body);
+      expect(body.CustomerRef.value).toBe('QB-CUSTOMER-ABC');
+      // Invoices don't carry DepositToAccountRef — no money moved at invoice time.
+      expect(body.DepositToAccountRef).toBeUndefined();
+    });
+
+    it('S4..S6 (bank card): paymentMethod=bank_card posts to /invoice against bank-card-receivable', async () => {
+      // Card-type methods normalize to 'credit_card' for QB PaymentMethodRef lookup
+      // (shared QB id 4). The customer sub-ledger is what distinguishes them.
+      const result = await runWithMappings('bank_card', undefined, (type, id) => {
+        if (type === 'customer' && id === 'bank-card-receivable') return 'QB-CUSTOMER-BCR';
+        if (type === 'payment_method' && id === 'credit_card') return 'QB-PM-CREDITCARD';
+        if (type === 'item' && id === 'fuel-1') return 'QB-ITEM-HSD';
+        return null;
+      }, { Invoice: { Id: '203', DocNumber: 'INV-203' } });
+
+      expect(result.qbEntity).toBe('Invoice');
+      const body = JSON.parse(((global.fetch as jest.MockedFunction<typeof fetch>).mock.calls[0][1] as any).body);
+      expect(body.CustomerRef.value).toBe('QB-CUSTOMER-BCR');
+    });
+
+    it('S7: paymentMethod=pso_card posts to /invoice against pso-card-receivable', async () => {
+      // Same: pso_card normalizes to 'credit_card' for QB PaymentMethodRef
+      const result = await runWithMappings('pso_card', undefined, (type, id) => {
+        if (type === 'customer' && id === 'pso-card-receivable') return 'QB-CUSTOMER-PSO';
+        if (type === 'payment_method' && id === 'credit_card') return 'QB-PM-CREDITCARD';
+        if (type === 'item' && id === 'fuel-1') return 'QB-ITEM-HSD';
+        return null;
+      }, { Invoice: { Id: '204', DocNumber: 'INV-204' } });
+
+      expect(result.qbEntity).toBe('Invoice');
+      const body = JSON.parse(((global.fetch as jest.MockedFunction<typeof fetch>).mock.calls[0][1] as any).body);
+      expect(body.CustomerRef.value).toBe('QB-CUSTOMER-PSO');
+    });
+
+    it('normalizes aliases: "CASH" → cash → SalesReceipt; "pso" → pso_card → Invoice', async () => {
+      const a = await runWithMappings('CASH', undefined, (type, id) => {
+        if (type === 'customer' && id === 'walk-in') return 'QB-C-W';
+        if (type === 'payment_method' && id === 'cash') return 'QB-PM-C';
+        if (type === 'item' && id === 'fuel-1') return 'QB-I-H';
+        if (type === 'bank_account' && id === 'cash') return 'QB-CASH-IN-HAND';
+        return null;
+      }, { SalesReceipt: { Id: '1', DocNumber: 'SR-1' } });
+      expect(a.qbEntity).toBe('SalesReceipt');
+
+      jest.clearAllMocks();
+      (prisma.qBConnection.findFirst as jest.MockedFunction<any>).mockResolvedValue(mockConnection as any);
+      (encryption.decryptToken as jest.MockedFunction<typeof encryption.decryptToken>).mockReturnValue('t');
+      (entityMapping.EntityMappingService.getQbId as jest.MockedFunction<any>).mockImplementation(
+        async (_o: string, type: string, id: string) => {
+          if (type === 'customer' && id === 'pso-card-receivable') return 'QB-C-PSO';
+          if (type === 'payment_method' && id === 'credit_card') return 'QB-PM-CREDITCARD';
+          if (type === 'item' && id === 'fuel-1') return 'QB-I-H';
+          return null;
+        },
+      );
+      (global.fetch as jest.MockedFunction<typeof fetch>).mockResolvedValue({
+        ok: true, status: 200, json: async () => ({ Invoice: { Id: '2', DocNumber: 'INV-2' } }),
+      } as Response);
+
+      const b = await handleFuelSaleCreate(mockJob, { ...mockPayload, paymentMethod: 'pso' });
+      expect(b.qbEntity).toBe('Invoice');
+    });
+
+    it('fails fast for AR path when bank-card-receivable customer mapping is missing', async () => {
+      await expect(runWithMappings('bank_card', undefined, (type, id) => {
+        // bank-card-receivable deliberately missing
+        if (type === 'payment_method' && id === 'credit_card') return 'QB-PM';
+        if (type === 'item' && id === 'fuel-1') return 'QB-I';
+        return null;
+      }, {})).rejects.toThrow(/Customer mapping not found for Invoice.*bank-card-receivable/);
+    });
+
+    it('fails fast for pso_card when pso-card-receivable customer mapping is missing', async () => {
+      await expect(runWithMappings('pso_card', undefined, (type, id) => {
+        if (type === 'payment_method' && id === 'credit_card') return 'QB-PM';
+        if (type === 'item' && id === 'fuel-1') return 'QB-I';
+        return null;
+      }, {})).rejects.toThrow(/localId=pso-card-receivable/);
+    });
+
+    it('fails fast for credit_customer when payload omits customerId', async () => {
+      await expect(runWithMappings('credit_customer', undefined, () => null, {}))
+        .rejects.toThrow(/credit_customer sale requires customerId/);
+    });
+
+    it('throws for an unknown payment-method alias', async () => {
+      await expect(runWithMappings('gift-card', undefined, () => null, {}))
+        .rejects.toThrow(/Unknown paymentMethod/);
+    });
+
+    it('bank_card and pso_card share PaymentMethodRef(4) but route to DIFFERENT AR customers', async () => {
+      // Lock the distinction: card-type payments collapse at the QB PaymentMethod
+      // layer (all use qb_id=4 "Credit Card") but stay separate at the Customer
+      // layer, which is what the AR sub-ledger and reconciliation reports key on.
+      const pmLookups: string[] = [];
+      const custLookups: string[] = [];
+
+      const mkMock = (expectedCustomer: string, qbCustomer: string) =>
+        async (_o: string, type: string, id: string) => {
+          if (type === 'payment_method') { pmLookups.push(id); }
+          if (type === 'customer') { custLookups.push(id); }
+          if (type === 'customer' && id === expectedCustomer) return qbCustomer;
+          if (type === 'payment_method' && id === 'credit_card') return 'QB-PM-CREDITCARD';
+          if (type === 'item' && id === 'fuel-1') return 'QB-I';
+          return null;
+        };
+
+      // bank_card → Bank Card Receivable
+      (entityMapping.EntityMappingService.getQbId as jest.MockedFunction<any>)
+        .mockImplementation(mkMock('bank-card-receivable', 'QB-BCR-17'));
+      (global.fetch as jest.MockedFunction<typeof fetch>).mockResolvedValue({
+        ok: true, status: 200, json: async () => ({ Invoice: { Id: 'I1', DocNumber: 'INV-1' } }),
+      } as Response);
+      await handleFuelSaleCreate(mockJob, { ...mockPayload, paymentMethod: 'bank_card' });
+      const bankCardBody = JSON.parse(((global.fetch as jest.MockedFunction<typeof fetch>).mock.calls[0][1] as any).body);
+      expect(bankCardBody.CustomerRef.value).toBe('QB-BCR-17');
+      expect(bankCardBody.PaymentMethodRef.value).toBe('QB-PM-CREDITCARD');
+
+      // pso_card → PSO Card Receivables (different customer, same PM)
+      jest.clearAllMocks();
+      (prisma.qBConnection.findFirst as jest.MockedFunction<any>).mockResolvedValue(mockConnection as any);
+      (encryption.decryptToken as jest.MockedFunction<typeof encryption.decryptToken>).mockReturnValue('t');
+      (entityMapping.EntityMappingService.getQbId as jest.MockedFunction<any>)
+        .mockImplementation(mkMock('pso-card-receivable', 'QB-PCR-55'));
+      (global.fetch as jest.MockedFunction<typeof fetch>).mockResolvedValue({
+        ok: true, status: 200, json: async () => ({ Invoice: { Id: 'I2', DocNumber: 'INV-2' } }),
+      } as Response);
+      await handleFuelSaleCreate(mockJob, { ...mockPayload, paymentMethod: 'pso_card' });
+      const psoBody = JSON.parse(((global.fetch as jest.MockedFunction<typeof fetch>).mock.calls[0][1] as any).body);
+      expect(psoBody.CustomerRef.value).toBe('QB-PCR-55');
+      expect(psoBody.PaymentMethodRef.value).toBe('QB-PM-CREDITCARD');
+
+      // AR sub-ledgers are distinct (different CustomerRef values) even though
+      // PaymentMethodRef is identical — exactly what the workbook specifies.
+      expect(bankCardBody.CustomerRef.value).not.toBe(psoBody.CustomerRef.value);
+      expect(bankCardBody.PaymentMethodRef.value).toBe(psoBody.PaymentMethodRef.value);
+
+      // Both lookups passed 'credit_card' as the payment_method localId
+      expect(pmLookups).not.toContain('bank_card');
+      expect(pmLookups).not.toContain('pso_card');
     });
   });
 });

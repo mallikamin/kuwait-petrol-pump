@@ -1552,6 +1552,9 @@ export class DailyBackdatedEntriesService {
 
     // ✅ CREATE SALE RECORDS (so transactions appear in Sales tab)
     const createdSales: string[] = [];
+    // Track the QB-sync link: backdatedTxn.id → sale.id. Used downstream to
+    // build proper FuelSalePayload jobs (QB entityId = sale.id, not txn.id).
+    const saleIdByTxnId = new Map<string, string>();
     const productIdByNameCache = new Map<string, string | null>();
 
     for (const txn of allTransactions) {
@@ -1567,6 +1570,9 @@ export class DailyBackdatedEntriesService {
 
       if (existingSale) {
         console.log(`[Finalize] Skipping transaction ${txn.id} - sale already exists (${existingSale.id})`);
+        // Still record the link so the QB enqueue block below can reference
+        // the existing sale and let idempotencyKey prevent a duplicate job.
+        saleIdByTxnId.set(txn.id, existingSale.id);
         continue;
       }
 
@@ -1657,6 +1663,7 @@ export class DailyBackdatedEntriesService {
 
       const sale = await prisma.sale.create({ data: saleData });
       createdSales.push(sale.id);
+      saleIdByTxnId.set(txn.id, sale.id);
     }
 
     console.log(`[Finalize] Created ${createdSales.length} sale records from ${allTransactions.length} backdated transactions`);
@@ -1677,41 +1684,115 @@ export class DailyBackdatedEntriesService {
       });
 
       if (qbConnection) {
-        // Create sync queue jobs for each transaction
-        await prisma.qBSyncQueue.createMany({
-          data: plainTransactions.map((txn) => ({
+        // Build dispatchable QB jobs — one per transaction. Cash → SalesReceipt,
+        // everything else → Invoice. Payload matches FuelSalePayload contract
+        // so the fuel-sale handler (hit from either route in the dispatcher)
+        // can build the QB entity directly. idempotencyKey is keyed to the
+        // Sale record's id so re-finalizing the same day is a no-op on QB.
+        //
+        // NOTE: `create_backdated_sale` (legacy job type) is intentionally
+        // removed here — it had no dispatcher route and was silently dead-
+        // lettering every prior finalize. Any queue rows still carrying that
+        // jobType will fail explicitly at dispatch and surface in the UI.
+        const qbJobs: any[] = [];
+        const txnIdsWithJob: string[] = [];
+
+        for (const txn of plainTransactions) {
+          const saleId = saleIdByTxnId.get(txn.id);
+          if (!saleId) {
+            console.warn(
+              `[Finalize][QB] Skipping QB enqueue for txn ${txn.id}: no sale.id link ` +
+              `(likely non-fuel row with no resolvable product).`
+            );
+            continue;
+          }
+
+          const rawPaymentMethod = String(txn.paymentMethod || '').toLowerCase();
+          const isCash = rawPaymentMethod === 'cash';
+          const jobType = isCash ? 'create_sales_receipt' : 'create_invoice';
+
+          // Item localId: fuelTypeId for fuel rows, productId for non-fuel.
+          // The existing sale-creation path already resolved productId (incl.
+          // by-name fallback), so we re-use that resolution path here too.
+          let itemLocalId: string | null = null;
+          let itemName = '';
+          if (txn.fuelTypeId) {
+            itemLocalId = txn.fuelTypeId;
+            itemName = txn.fuelType?.name || txn.fuelCode || 'Fuel';
+          } else if (txn.productId) {
+            itemLocalId = txn.productId;
+            itemName = txn.productName || 'Product';
+          } else if (txn.productName?.trim()) {
+            const cached = productIdByNameCache.get(txn.productName.trim().toLowerCase());
+            if (cached) {
+              itemLocalId = cached;
+              itemName = txn.productName;
+            }
+          }
+          if (!itemLocalId) {
+            console.warn(
+              `[Finalize][QB] Skipping QB enqueue for txn ${txn.id}: cannot resolve item localId ` +
+              `(fuelTypeId=${txn.fuelTypeId}, productId=${txn.productId}, productName="${txn.productName || ''}").`
+            );
+            continue;
+          }
+
+          const qty = Number(txn.quantity) || 0;
+          const unitPrice = Number(txn.unitPrice) || 0;
+          const amount = Number(txn.lineTotal) || 0;
+          const txnDate =
+            txn.transactionDateTime instanceof Date
+              ? txn.transactionDateTime.toISOString().slice(0, 10)
+              : new Date(txn.transactionDateTime).toISOString().slice(0, 10);
+
+          qbJobs.push({
             connectionId: qbConnection.id,
             organizationId,
-            jobType: 'create_backdated_sale',
-            entityType: 'backdated_transaction',
-            entityId: txn.id,
+            jobType,
+            entityType: 'sale',
+            entityId: saleId,
             priority: 5,
             status: 'pending',
+            // Deterministic dedup per sale — re-finalize is a no-op thanks to
+            // the (organizationId, idempotencyKey) unique index on QBSyncQueue.
+            idempotencyKey: `qb-sale-${saleId}`,
             payload: {
-              transactionId: txn.id,
-              backdatedEntryId: txn.backdatedEntryId,
-              customerId: txn.customerId,
-              productName: txn.productName,
-              quantity: txn.quantity.toString(),
-              unitPrice: txn.unitPrice.toString(),
-              lineTotal: txn.lineTotal.toString(),
-              paymentMethod: txn.paymentMethod,
-              transactionDateTime: txn.transactionDateTime.toISOString(),
+              saleId,
+              organizationId,
+              customerId: txn.customerId || undefined,
+              bankId: (txn as any).bankId || undefined,
+              txnDate,
+              paymentMethod: rawPaymentMethod,
+              lineItems: [
+                {
+                  fuelTypeId: itemLocalId,
+                  fuelTypeName: itemName,
+                  quantity: qty,
+                  unitPrice: unitPrice,
+                  amount,
+                },
+              ],
+              totalAmount: amount,
             },
-          })),
-        });
+          });
+          txnIdsWithJob.push(txn.id);
+        }
 
-        // Update transaction QB sync status
-        await prisma.backdatedTransaction.updateMany({
-          where: {
-            id: {
-              in: plainTransactions.map((t) => t.id),
-            },
-          },
-          data: {
-            qbSyncStatus: 'queued',
-          } as any,
-        });
+        if (qbJobs.length > 0) {
+          // skipDuplicates so a re-finalize won't throw on the idempotencyKey
+          // unique constraint; the original job is kept.
+          await prisma.qBSyncQueue.createMany({
+            data: qbJobs,
+            skipDuplicates: true,
+          });
+        }
+
+        if (txnIdsWithJob.length > 0) {
+          await prisma.backdatedTransaction.updateMany({
+            where: { id: { in: txnIdsWithJob } },
+            data: { qbSyncStatus: 'queued' } as any,
+          });
+        }
       }
     }
 

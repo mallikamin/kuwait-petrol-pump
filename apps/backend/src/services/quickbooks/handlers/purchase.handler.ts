@@ -1,12 +1,20 @@
 /**
- * QuickBooks Purchase/Bill Handler
+ * QuickBooks Purchase/Bill Handler (S9, S10)
  *
- * Converts Kuwait POS purchase orders into QuickBooks Online Bills
- * Implements full OAuth token refresh, error handling, and audit logging
+ * Posts a POS purchase order (tanker receipt or GRN) to QB as a Bill with
+ * ItemBasedExpenseLineDetail rows. Each line references a mapped Inventory
+ * Item (HSD / PMG / specific non-fuel SKU), NOT an expense account — this is
+ * what lets QB automatically:
+ *   Dr Inventory Asset (child item rolls into parent)
+ *   Cr Accounts Payable (via VendorRef → Trade Payables)
+ *
+ * The previous implementation used AccountBasedExpenseLineDetail with
+ * `fuel_<uuid>` / `product_<uuid>` expense-account mappings, which posted
+ * directly to an expense line and skipped the Inventory Asset cycle —
+ * contradicting S9/S10 and leaving QB's perpetual inventory stale.
  */
 
 import { QBSyncQueue } from '@prisma/client';
-import { encryptToken } from '../encryption';
 import { getValidAccessToken as getValidToken } from '../token-refresh';
 import { AuditLogger } from '../audit-logger';
 import { checkKillSwitch, checkSyncMode } from '../safety-gates';
@@ -14,11 +22,7 @@ import { CompanyLock } from '../company-lock';
 import { EntityMappingService } from '../entity-mapping.service';
 import { classifyError, logClassifiedError, OpLog } from '../error-classifier';
 import { prisma } from '../../../config/database';
-
-// QuickBooks OAuth2 endpoints
-const QB_TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
-const QB_SANDBOX_API = 'https://sandbox-quickbooks.api.intuit.com';
-const QB_PRODUCTION_API = 'https://quickbooks.api.intuit.com';
+import { getQuickBooksApiUrl } from '../qb-shared';
 
 export interface PurchasePayload {
   purchaseOrderId: string;
@@ -29,9 +33,9 @@ export interface PurchasePayload {
   dueDate?: string;
   lineItems: Array<{
     itemType: 'fuel' | 'product';
-    fuelTypeId?: string;
+    fuelTypeId?: string;       // item localId for fuel rows
     fuelTypeName?: string;
-    productId?: string;
+    productId?: string;         // item localId for non-fuel rows
     productName?: string;
     quantity: number;
     costPerUnit: number;
@@ -49,21 +53,6 @@ export interface JobResult {
   error?: string;
 }
 
-/**
- * Main handler for bill creation in QuickBooks
- *
- * Flow:
- * 1. Validate payload
- * 2. Check organization isolation
- * 3. Check safety gates
- * 4. Get QB connection
- * 5. Validate company lock
- * 6. Refresh token if expired
- * 7. Build Bill JSON (with entity mapping lookups)
- * 8. POST to QuickBooks API
- * 9. Update PO with QB Bill ID
- * 10. Return result
- */
 export async function handlePurchaseCreate(
   job: QBSyncQueue,
   payload: PurchasePayload
@@ -71,43 +60,28 @@ export async function handlePurchaseCreate(
   const startTime = Date.now();
 
   try {
-    // 1. Validate payload
     validatePayload(payload);
 
-    // 2. Check organization isolation
     if (payload.organizationId !== job.organizationId) {
       throw new Error(
         `Organization mismatch: payload=${payload.organizationId}, job=${job.organizationId}`
       );
     }
 
-    // 3. Check safety gates
     await checkKillSwitch(job.organizationId);
     const syncMode = await checkSyncMode(job.organizationId);
 
-    // 4. Get QB connection
     const connection = await prisma.qBConnection.findFirst({
-      where: {
-        organizationId: job.organizationId,
-        isActive: true
-      }
+      where: { organizationId: job.organizationId, isActive: true },
     });
+    if (!connection) throw new Error('QuickBooks not connected for this organization');
 
-    if (!connection) {
-      throw new Error('QuickBooks not connected for this organization');
-    }
-
-    // 5. Validate company lock
     await CompanyLock.validateRealmId(connection.id, connection.realmId);
     await CompanyLock.lockConnectionToOrganization(connection.id, job.organizationId);
 
-    // 6. Refresh token if expired
     const { accessToken } = await getValidToken(job.organizationId, prisma);
-
-    // 7. Build Bill JSON
     const billPayload = await buildBillPayload(job.organizationId, payload);
 
-    // 8. Check if DRY_RUN mode
     if (syncMode === 'DRY_RUN') {
       console.log(OpLog.dryRunDecision(
         payload.purchaseOrderId,
@@ -125,19 +99,14 @@ export async function handlePurchaseCreate(
           jobId: job.id,
           syncMode: 'DRY_RUN',
           durationMs: Date.now() - startTime,
-          note: 'Dry-run mode: No actual QB API call made'
-        }
+          note: 'Dry-run mode: No QB API call made',
+        },
       });
 
-      return {
-        success: true,
-        qbId: 'DRY_RUN',
-        qbDocNumber: 'DRY_RUN'
-      };
+      return { success: true, qbId: 'DRY_RUN', qbDocNumber: 'DRY_RUN' };
     }
 
-    // 9. POST to QuickBooks API (FULL_SYNC mode only)
-    console.log(`[QB Handler][FULL_SYNC] Creating bill for PO ${payload.purchaseOrderId}`);
+    console.log(`[QB Handler][FULL_SYNC] Creating Bill for PO ${payload.purchaseOrderId}`);
 
     const qbApiUrl = getQuickBooksApiUrl(connection.realmId);
     const response = await fetch(
@@ -145,11 +114,11 @@ export async function handlePurchaseCreate(
       {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Accept': 'application/json',
-          'Content-Type': 'application/json'
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
         },
-        body: JSON.stringify(billPayload)
+        body: JSON.stringify(billPayload),
       }
     );
 
@@ -158,21 +127,15 @@ export async function handlePurchaseCreate(
       throw new Error(`QB API error: ${response.status} ${response.statusText} - ${errorText}`);
     }
 
-    const responseData = await response.json() as any;
+    const responseData = (await response.json()) as any;
     const bill = responseData.Bill;
-
     const duration = Date.now() - startTime;
 
-    // 10. Update PO with QB Bill ID
     await prisma.purchaseOrder.update({
       where: { id: payload.purchaseOrderId },
-      data: {
-        qbBillId: bill.Id,
-        qbSynced: true
-      }
+      data: { qbBillId: bill.Id, qbSynced: true },
     });
 
-    // 11. Log success
     console.log(OpLog.qbWriteSuccess('CREATE_BILL', payload.purchaseOrderId, bill.Id, duration));
 
     await AuditLogger.log({
@@ -188,30 +151,23 @@ export async function handlePurchaseCreate(
         syncMode: 'FULL_SYNC',
         qbId: bill.Id,
         qbDocNumber: bill.DocNumber,
-        durationMs: duration
-      }
+        durationMs: duration,
+        lineStyle: 'ItemBasedExpenseLineDetail',
+      },
     });
 
-    return {
-      success: true,
-      qbId: bill.Id,
-      qbDocNumber: bill.DocNumber
-    };
+    return { success: true, qbId: bill.Id, qbDocNumber: bill.DocNumber };
   } catch (error) {
     const duration = Date.now() - startTime;
-
-    // Classify error
     const classified = classifyError(error instanceof Error ? error : new Error(String(error)));
-
     console.error(OpLog.qbWriteFail('CREATE_BILL', payload.purchaseOrderId, classified.category));
     logClassifiedError(error instanceof Error ? error : String(error));
 
-    // Log failure
     let syncMode = 'UNKNOWN';
     try {
       const connection = await prisma.qBConnection.findFirst({
         where: { organizationId: job.organizationId, isActive: true },
-        select: { syncMode: true }
+        select: { syncMode: true },
       });
       syncMode = connection?.syncMode || 'UNKNOWN';
     } catch {
@@ -232,158 +188,80 @@ export async function handlePurchaseCreate(
         errorCategory: classified.category,
         errorSeverity: classified.severity,
         isRetryable: classified.isRetryable,
-        recommendedAction: classified.action
-      }
+        recommendedAction: classified.action,
+      },
     });
 
     throw error;
   }
 }
 
-/**
- * Validate required fields
- */
 function validatePayload(payload: PurchasePayload): void {
-  if (!payload.purchaseOrderId) {
-    throw new Error('Missing required field: purchaseOrderId');
-  }
-  if (!payload.organizationId) {
-    throw new Error('Missing required field: organizationId');
-  }
-  if (!payload.supplierId) {
-    throw new Error('Missing required field: supplierId');
-  }
-  if (!payload.txnDate) {
-    throw new Error('Missing required field: txnDate');
-  }
+  if (!payload.purchaseOrderId) throw new Error('Missing required field: purchaseOrderId');
+  if (!payload.organizationId) throw new Error('Missing required field: organizationId');
+  if (!payload.supplierId) throw new Error('Missing required field: supplierId');
+  if (!payload.txnDate) throw new Error('Missing required field: txnDate');
   if (!payload.lineItems || payload.lineItems.length === 0) {
     throw new Error('Missing required field: lineItems (must have at least 1 item)');
   }
   if (payload.totalAmount === undefined || payload.totalAmount < 0) {
     throw new Error('Invalid totalAmount');
   }
-
-  // Validate line items
   payload.lineItems.forEach((item, index) => {
-    if (!item.itemType) {
-      throw new Error(`Line item ${index}: Missing itemType`);
+    if (!item.itemType) throw new Error(`Line item ${index}: Missing itemType`);
+    if (item.itemType === 'fuel' && !item.fuelTypeId) {
+      throw new Error(`Line item ${index}: Fuel row missing fuelTypeId (item localId)`);
     }
-    if (item.quantity === undefined || item.quantity <= 0) {
-      throw new Error(`Line item ${index}: Invalid quantity`);
+    if (item.itemType === 'product' && !item.productId) {
+      throw new Error(`Line item ${index}: Product row missing productId (item localId)`);
     }
-    if (item.costPerUnit === undefined || item.costPerUnit < 0) {
-      throw new Error(`Line item ${index}: Invalid costPerUnit`);
-    }
-    if (item.amount === undefined || item.amount < 0) {
-      throw new Error(`Line item ${index}: Invalid amount`);
-    }
+    if (item.quantity === undefined || item.quantity <= 0) throw new Error(`Line item ${index}: Invalid quantity`);
+    if (item.costPerUnit === undefined || item.costPerUnit < 0) throw new Error(`Line item ${index}: Invalid costPerUnit`);
+    if (item.amount === undefined || item.amount < 0) throw new Error(`Line item ${index}: Invalid amount`);
   });
 }
 
-/**
- * Build QuickBooks Bill JSON payload
- * Uses EntityMappingService to resolve QB entity IDs
- */
-async function buildBillPayload(
-  organizationId: string,
-  payload: PurchasePayload
-): Promise<any> {
-  // 1. Resolve vendor mapping
-  const vendorQbId = await EntityMappingService.getQbId(
-    organizationId,
-    'vendor',
-    payload.supplierId
-  );
-
+async function buildBillPayload(organizationId: string, payload: PurchasePayload): Promise<any> {
+  // Vendor
+  const vendorQbId = await EntityMappingService.getQbId(organizationId, 'vendor', payload.supplierId);
   if (!vendorQbId) {
     throw new Error(
       `Vendor mapping not found: supplierId=${payload.supplierId}. ` +
-      `Please sync supplier to QuickBooks first or create manual mapping.`
+      `Sync supplier to QuickBooks first or create mapping (entityType: vendor, localId: ${payload.supplierId}).`
     );
   }
 
-  // 2. Map line items to QB format (AccountBasedExpenseLineDetail)
-  const lines = [];
-
+  // Lines — ItemBasedExpenseLineDetail referencing the mapped Inventory Item
+  // so QB posts to Inventory Asset + A/P (workbook S9/S10).
+  const lines: any[] = [];
   for (const item of payload.lineItems) {
-    // Resolve expense account mapping
-    let expenseAccountQbId: string | null;
-
-    if (item.itemType === 'fuel' && item.fuelTypeId) {
-      // Map fuel type to expense account
-      expenseAccountQbId = await EntityMappingService.getQbId(
-        organizationId,
-        'expense_account',
-        `fuel_${item.fuelTypeId}`
+    const itemLocalId = item.itemType === 'fuel' ? item.fuelTypeId! : item.productId!;
+    const itemQbId = await EntityMappingService.getQbId(organizationId, 'item', itemLocalId);
+    if (!itemQbId) {
+      throw new Error(
+        `Item mapping not found for purchase line: localId=${itemLocalId} (${item.fuelTypeName || item.productName || '?'}). ` +
+        `Create mapping (entityType: item, localId: ${itemLocalId}) pointing at the QB Inventory item.`
       );
-
-      if (!expenseAccountQbId) {
-        throw new Error(
-          `Expense account mapping not found for fuel type: ${item.fuelTypeName || item.fuelTypeId}. ` +
-          `Please create mapping via /api/quickbooks/mappings (entityType: expense_account, localId: fuel_${item.fuelTypeId}).`
-        );
-      }
-    } else if (item.itemType === 'product' && item.productId) {
-      // Map product to expense account
-      expenseAccountQbId = await EntityMappingService.getQbId(
-        organizationId,
-        'expense_account',
-        `product_${item.productId}`
-      );
-
-      if (!expenseAccountQbId) {
-        // Fallback to default COGS account
-        expenseAccountQbId = await EntityMappingService.getQbId(
-          organizationId,
-          'expense_account',
-          'default_cogs'
-        );
-
-        if (!expenseAccountQbId) {
-          throw new Error(
-            `Expense account mapping not found for product: ${item.productName || item.productId}. ` +
-            `Please create mapping (entityType: expense_account, localId: product_${item.productId}) or default_cogs.`
-          );
-        }
-      }
-    } else {
-      throw new Error(`Invalid line item: missing itemType or IDs`);
     }
-
     lines.push({
       Amount: item.amount,
-      DetailType: 'AccountBasedExpenseLineDetail',
-      AccountBasedExpenseLineDetail: {
-        AccountRef: {
-          value: expenseAccountQbId
-        }
+      DetailType: 'ItemBasedExpenseLineDetail',
+      ItemBasedExpenseLineDetail: {
+        ItemRef: { value: itemQbId },
+        Qty: item.quantity,
+        UnitPrice: item.costPerUnit,
       },
-      Description: item.description || `${item.fuelTypeName || item.productName} - ${item.quantity} @ ${item.costPerUnit}`
+      Description: item.description || `${item.fuelTypeName || item.productName} - ${item.quantity} @ ${item.costPerUnit}`,
     });
   }
 
-  // 3. Build final Bill payload
   const billData: any = {
-    VendorRef: {
-      value: vendorQbId
-    },
+    VendorRef: { value: vendorQbId },
     TxnDate: payload.txnDate,
     Line: lines,
     TotalAmt: payload.totalAmount,
-    PrivateNote: `Kuwait POS PO #${payload.poNumber}`
+    PrivateNote: `Kuwait POS PO #${payload.poNumber}`,
   };
-
-  if (payload.dueDate) {
-    billData.DueDate = payload.dueDate;
-  }
-
+  if (payload.dueDate) billData.DueDate = payload.dueDate;
   return billData;
-}
-
-/**
- * Get QuickBooks API base URL
- */
-function getQuickBooksApiUrl(realmId: string): string {
-  const environment = process.env.QUICKBOOKS_ENVIRONMENT || 'sandbox';
-  return environment === 'production' ? QB_PRODUCTION_API : QB_SANDBOX_API;
 }

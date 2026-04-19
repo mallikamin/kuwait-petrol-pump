@@ -2,6 +2,17 @@ import { prisma } from '../../config/database';
 import { Prisma } from '@prisma/client';
 import { AppError } from '../../middleware/error.middleware';
 
+/**
+ * QB ReceivePayment enqueue — maps POS paymentMethod → receive-payment handler's
+ * paymentChannel union. Centralised here so the credit service owns its
+ * QB-sync surface without leaking QB types outward.
+ */
+function toReceivePaymentChannel(
+  method: 'cash' | 'cheque' | 'bank_transfer' | 'online',
+): 'cash' | 'cheque' | 'bank_transfer' | 'online' {
+  return method;
+}
+
 // ============================================================
 // DTOs and Interfaces
 // ============================================================
@@ -406,6 +417,112 @@ export class CreditService {
   }
 
   /**
+   * Post-commit QB enqueue for a customer receipt (S8).
+   *
+   * Fan-out strategy: one QB ReceivePayment job per SALE-linked allocation
+   * whose underlying Sale has already synced as a QB Invoice (i.e.
+   * Sale.qbInvoiceId is populated). Allocations pointing at a Sale that
+   * hasn't been invoiced in QB yet are skipped with a warning — the
+   * ReceivePayment handler requires an Invoice to link against, and
+   * enqueueing a job with a null qbInvoiceId would fail fast at dispatch.
+   * Admins can replay via the admin UI once the upstream invoice syncs.
+   *
+   * Backdated-transaction allocations resolve to the Sale created by
+   * daily.service.finalizeDay (offlineQueueId pattern `backdated-<txnId>`).
+   *
+   * Failures are swallowed — the receipt is already committed and must not
+   * be invalidated because QB is temporarily unreachable.
+   */
+  private async enqueueQbReceivePayments(params: {
+    receiptId: string;
+    organizationId: string;
+    customerId: string;
+    receiptDate: Date;
+    paymentMethod: 'cash' | 'cheque' | 'bank_transfer' | 'online';
+    bankId?: string | null;
+    referenceNumber?: string | null;
+    notes?: string | null;
+    allocations: Array<{
+      sourceType: 'SALE' | 'BACKDATED_TRANSACTION';
+      sourceId: string;
+      amount: number;
+    }>;
+  }): Promise<void> {
+    try {
+      if (params.allocations.length === 0) return;
+
+      const connection = await prisma.qBConnection.findFirst({
+        where: { organizationId: params.organizationId, isActive: true },
+        select: { id: true },
+      });
+      if (!connection) return;
+
+      // Resolve each allocation to a Sale.qbInvoiceId. SALE → direct PK
+      // lookup; BACKDATED_TRANSACTION → find the Sale written by finalize
+      // using the deterministic offlineQueueId convention.
+      const enqueueRows: any[] = [];
+      const txnDate = new Date(params.receiptDate).toISOString().slice(0, 10);
+
+      for (const alloc of params.allocations) {
+        let qbInvoiceId: string | null = null;
+        if (alloc.sourceType === 'SALE') {
+          const sale = await prisma.sale.findUnique({
+            where: { id: alloc.sourceId },
+            select: { qbInvoiceId: true },
+          });
+          qbInvoiceId = sale?.qbInvoiceId || null;
+        } else if (alloc.sourceType === 'BACKDATED_TRANSACTION') {
+          const sale = await prisma.sale.findFirst({
+            where: { offlineQueueId: `backdated-${alloc.sourceId}` },
+            select: { qbInvoiceId: true },
+          });
+          qbInvoiceId = sale?.qbInvoiceId || null;
+        }
+
+        if (!qbInvoiceId) {
+          console.warn(
+            `[QB enqueue][receipt ${params.receiptId}] Allocation ${alloc.sourceType}:${alloc.sourceId} ` +
+            `skipped — upstream Sale has no qbInvoiceId yet. Admin will need to replay once invoice syncs.`
+          );
+          continue;
+        }
+
+        enqueueRows.push({
+          connectionId: connection.id,
+          organizationId: params.organizationId,
+          jobType: 'create_receive_payment',
+          entityType: 'customer_payment',
+          entityId: params.receiptId,
+          priority: 5,
+          status: 'pending',
+          idempotencyKey: `qb-receipt-${params.receiptId}-${alloc.sourceType}-${alloc.sourceId}`,
+          payload: {
+            receiptId: params.receiptId,
+            organizationId: params.organizationId,
+            customerId: params.customerId,
+            qbInvoiceId,
+            paymentDate: txnDate,
+            amount: alloc.amount,
+            paymentChannel: toReceivePaymentChannel(params.paymentMethod),
+            bankId: params.bankId || undefined,
+            referenceNumber: params.referenceNumber || undefined,
+            notes: params.notes || undefined,
+          },
+        });
+      }
+
+      if (enqueueRows.length > 0) {
+        await prisma.qBSyncQueue.createMany({ data: enqueueRows, skipDuplicates: true });
+      }
+    } catch (err: any) {
+      console.warn(
+        `[QB enqueue][receipt ${params.receiptId}] Enqueue failed: ${err?.message || err}. ` +
+        `Receipt is persisted; replay required.`
+      );
+    }
+  }
+
+  /**
    * Create a new receipt with allocations
    */
   async createReceipt(
@@ -413,7 +530,7 @@ export class CreditService {
     userId: string,
     data: CreateReceiptInput
   ): Promise<any> {
-    return await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       // 1. Validate org isolation (403 on mismatch)
       await this.validateOrgIsolation(
         organizationId,
@@ -506,8 +623,37 @@ export class CreditService {
         },
       });
 
-      return receipt;
+      // Fetch the actual allocations created (FIFO path wrote them inside
+      // autoAllocateFIFO; MANUAL wrote them from data.allocations). We read
+      // them back so the post-commit QB enqueue sees the canonical shape.
+      const allocations = await tx.customerReceiptAllocation.findMany({
+        where: { receiptId: receipt.id },
+        select: { sourceType: true, sourceId: true, allocatedAmount: true },
+      });
+
+      return { receipt, allocations };
     });
+
+    // Post-commit QB enqueue. Fan-out a ReceivePayment job per SALE/BACKDATED
+    // allocation whose upstream Sale has already been invoiced in QB. Runs
+    // outside the tx so a QB hiccup cannot roll back the committed receipt.
+    await this.enqueueQbReceivePayments({
+      receiptId: result.receipt.id,
+      organizationId,
+      customerId: data.customerId,
+      receiptDate: data.receiptDatetime,
+      paymentMethod: data.paymentMethod,
+      bankId: data.bankId,
+      referenceNumber: data.referenceNumber,
+      notes: data.notes,
+      allocations: result.allocations.map((a) => ({
+        sourceType: a.sourceType as 'SALE' | 'BACKDATED_TRANSACTION',
+        sourceId: a.sourceId,
+        amount: Number(a.allocatedAmount),
+      })),
+    });
+
+    return result.receipt;
   }
 
   /**

@@ -9,12 +9,19 @@
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import { QBSyncQueue } from '@prisma/client';
 
-// Mock the fuel sale handler
+// Mock every handler the dispatcher can route to.
 jest.mock('./handlers/fuel-sale.handler');
+jest.mock('./handlers/receive-payment.handler');
+jest.mock('./handlers/purchase.handler');
+jest.mock('./handlers/bill-payment.handler');
+jest.mock('./handlers/vendor.handler');
+jest.mock('./handlers/journal-entry.handler');
 
 // Import after mocking
 import { dispatch } from './job-dispatcher';
 import * as fuelSaleHandler from './handlers/fuel-sale.handler';
+import * as receivePaymentHandler from './handlers/receive-payment.handler';
+import * as journalEntryHandler from './handlers/journal-entry.handler';
 
 describe('Job Dispatcher', () => {
   beforeEach(() => {
@@ -181,6 +188,85 @@ describe('Job Dispatcher', () => {
     });
   });
 
+  describe('Phase 1 routes (S1..S10)', () => {
+    it('sale/create_invoice dispatches to fuel-sale handler (Invoice branch)', async () => {
+      const invoicePayload = {
+        saleId: 'sale-AR',
+        organizationId: 'org-1',
+        customerId: 'customer-abc',
+        txnDate: '2026-04-19',
+        paymentMethod: 'credit_customer',
+        lineItems: [{ fuelTypeId: 'fuel-HSD', fuelTypeName: 'HSD', quantity: 40, unitPrice: 260, amount: 10400 }],
+        totalAmount: 10400,
+      };
+      const mockJob = {
+        id: 'job-AR', entityType: 'sale', entityId: 'sale-AR',
+        jobType: 'create_invoice', organizationId: 'org-1', connectionId: 'conn-1',
+        payload: invoicePayload,
+      } as QBSyncQueue;
+
+      (fuelSaleHandler.handleFuelSaleCreate as jest.MockedFunction<typeof fuelSaleHandler.handleFuelSaleCreate>)
+        .mockResolvedValue({ success: true, qbId: 'QB-INV-1', qbDocNumber: 'INV-1', qbEntity: 'Invoice' });
+
+      const result = await dispatch(mockJob);
+      expect(fuelSaleHandler.handleFuelSaleCreate).toHaveBeenCalledWith(
+        mockJob,
+        expect.objectContaining({ saleId: 'sale-AR', paymentMethod: 'credit_customer' }),
+      );
+      expect(result.qbId).toBe('QB-INV-1');
+    });
+
+    it('inventory_adjustment/create_journal_entry dispatches to journal-entry handler (S11)', async () => {
+      const payload = {
+        gainLossId: 'gl-1', organizationId: 'org-1',
+        fuelCode: 'HSD', variant: 'loss',
+        quantityLitres: 40, costPerLitre: 260, monthLabel: '2026-04',
+      };
+      const mockJob = {
+        id: 'job-JE', entityType: 'inventory_adjustment', entityId: 'gl-1',
+        jobType: 'create_journal_entry', organizationId: 'org-1', connectionId: 'conn-1',
+        payload,
+      } as QBSyncQueue;
+
+      (journalEntryHandler.handleJournalEntryCreate as jest.MockedFunction<typeof journalEntryHandler.handleJournalEntryCreate>)
+        .mockResolvedValue({ success: true, qbId: 'QB-JE-1', qbDocNumber: 'DIP-2026-04-HSD-LOSS' });
+
+      const result = await dispatch(mockJob);
+      expect(journalEntryHandler.handleJournalEntryCreate).toHaveBeenCalledWith(
+        mockJob,
+        expect.objectContaining({ gainLossId: 'gl-1', fuelCode: 'HSD', variant: 'loss' }),
+      );
+      expect(result.qbId).toBe('QB-JE-1');
+    });
+
+    it('customer_payment/create_receive_payment dispatches to receive-payment handler', async () => {
+      const payload = {
+        receiptId: 'receipt-1',
+        organizationId: 'org-1',
+        customerId: 'customer-abc',
+        qbInvoiceId: 'QB-INV-1',
+        paymentDate: '2026-04-19',
+        amount: 10400,
+        paymentChannel: 'cash',
+      };
+      const mockJob = {
+        id: 'job-RP', entityType: 'customer_payment', entityId: 'receipt-1',
+        jobType: 'create_receive_payment', organizationId: 'org-1', connectionId: 'conn-1',
+        payload,
+      } as QBSyncQueue;
+
+      (receivePaymentHandler.handleReceivePaymentCreate as jest.MockedFunction<typeof receivePaymentHandler.handleReceivePaymentCreate>)
+        .mockResolvedValue({ success: true, qbId: 'QB-PAY-1', qbDocNumber: 'PAY-1' });
+
+      const result = await dispatch(mockJob);
+      expect(receivePaymentHandler.handleReceivePaymentCreate).toHaveBeenCalledWith(
+        mockJob,
+        expect.objectContaining({ receiptId: 'receipt-1', qbInvoiceId: 'QB-INV-1' }),
+      );
+      expect(result.qbId).toBe('QB-PAY-1');
+    });
+  });
+
   describe('Unsupported Paths', () => {
     it('should throw explicit error for unknown entityType', async () => {
       const mockJob = {
@@ -211,6 +297,27 @@ describe('Job Dispatcher', () => {
 
       await expect(dispatch(mockJob)).rejects.toThrow(
         'Unsupported dispatch path: entityType=sale, jobType=delete_sales_receipt'
+      );
+    });
+
+    // Regression guard: the legacy `create_backdated_sale` job type silently
+    // dead-lettered every finalize because it had no route. daily.service now
+    // emits create_sales_receipt / create_invoice instead, and any orphaned
+    // queue rows still carrying this legacy type must fail loudly so operators
+    // can see them in the admin UI rather than silently retrying forever.
+    it('should throw explicit error for legacy backdated_transaction/create_backdated_sale path', async () => {
+      const mockJob = {
+        id: 'job-legacy',
+        entityType: 'backdated_transaction',
+        entityId: 'txn-1',
+        jobType: 'create_backdated_sale',
+        organizationId: 'org-1',
+        connectionId: 'conn-1',
+        payload: '{}',
+      } as QBSyncQueue;
+
+      await expect(dispatch(mockJob)).rejects.toThrow(
+        /Unsupported dispatch path: entityType=backdated_transaction, jobType=create_backdated_sale/,
       );
     });
   });

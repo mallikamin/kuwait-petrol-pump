@@ -122,6 +122,67 @@ export class MonthlyGainLossService {
       },
     });
 
+    // QB enqueue (S11 — dip-variance JournalEntry). Uses the branch's current
+    // FuelInventory.avgCostPerLiter as the cost basis (workbook: "Variance Qty
+    // × Last Purchase Cost" — weighted average is the closest running value
+    // the system tracks).
+    try {
+      const qbConnection = await prisma.qBConnection.findFirst({
+        where: { organizationId: branch.organizationId, isActive: true },
+        select: { id: true },
+      });
+      if (qbConnection && (entry.fuelType.code === 'HSD' || entry.fuelType.code === 'PMG')) {
+        const qty = parseFloat(entry.quantity.toString());
+        if (qty !== 0) {
+          const inventoryRow = await prisma.fuelInventory.findUnique({
+            where: {
+              branchId_fuelTypeId: { branchId, fuelTypeId },
+            },
+            select: { avgCostPerLiter: true },
+          });
+          const costPerLitre = inventoryRow ? parseFloat(inventoryRow.avgCostPerLiter.toString()) : 0;
+
+          if (costPerLitre > 0) {
+            await prisma.qBSyncQueue.create({
+              data: {
+                connectionId: qbConnection.id,
+                organizationId: branch.organizationId,
+                jobType: 'create_journal_entry',
+                entityType: 'inventory_adjustment',
+                entityId: entry.id,
+                priority: 5,
+                status: 'pending',
+                // Key includes fuel + month so re-entering the same row
+                // (after a delete-then-recreate) is naturally deduped.
+                idempotencyKey: `qb-dipvar-${entry.id}`,
+                payload: {
+                  gainLossId: entry.id,
+                  organizationId: branch.organizationId,
+                  fuelCode: entry.fuelType.code as 'HSD' | 'PMG',
+                  variant: qty > 0 ? 'gain' : 'loss',
+                  quantityLitres: Math.abs(qty),
+                  costPerLitre,
+                  monthLabel: month,
+                  branchName: branch.name,
+                },
+              },
+            });
+          } else {
+            console.warn(
+              `[QB enqueue][dipvar ${entry.id}] Skipping enqueue: no avgCostPerLiter on ` +
+              `FuelInventory for branch=${branchId} fuel=${entry.fuelType.code}. ` +
+              `Admin must seed a cost basis before this JE can sync.`
+            );
+          }
+        }
+      }
+    } catch (err: any) {
+      // Don't fail the write — the row is persisted and admin can replay.
+      console.warn(
+        `[QB enqueue][dipvar ${entry.id}] Enqueue failed: ${err?.message || err}`
+      );
+    }
+
     return {
       id: entry.id,
       branchId: entry.branchId,
