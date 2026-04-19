@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import { AlertCircle, Banknote, Fuel, Package, ShoppingBag, Clock, Users, Droplet } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { AlertCircle, Banknote, Fuel, Package, ShoppingBag, Users, Droplet } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -75,10 +76,10 @@ export function Dashboard() {
       </div>
 
       {/* Stats Grid */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-3">
         {statsLoading ? (
           <>
-            {[...Array(4)].map((_, i) => (
+            {[...Array(3)].map((_, i) => (
               <Skeleton key={i} className="h-32" />
             ))}
           </>
@@ -102,12 +103,6 @@ export function Dashboard() {
               icon={<ShoppingBag className="h-4 w-4 text-muted-foreground" />}
               trend="Non-fuel revenue today"
             />
-            <StatCard
-              title="Active Shifts"
-              value={stats?.active_shifts || 0}
-              icon={<Clock className="h-4 w-4 text-muted-foreground" />}
-              trend="Currently open shifts"
-            />
           </>
         )}
       </div>
@@ -122,12 +117,14 @@ export function Dashboard() {
           </>
         ) : (
           <>
-            <StatCard
-              title="Pending Bifurcations"
-              value={stats?.pending_bifurcations || 0}
-              icon={<AlertCircle className="h-4 w-4 text-yellow-500" />}
-              trend="Needs verification"
-            />
+            <Link to="/reconciliation" className="block transition-opacity hover:opacity-80">
+              <StatCard
+                title="Pending Bifurcations"
+                value={stats?.pending_bifurcations || 0}
+                icon={<AlertCircle className="h-4 w-4 text-yellow-500" />}
+                trend="Click to open Reconciliation"
+              />
+            </Link>
             <StatCard
               title="Low Stock Items"
               value={stats?.low_stock_products || 0}

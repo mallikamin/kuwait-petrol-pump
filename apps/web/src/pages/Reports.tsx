@@ -40,7 +40,6 @@ import {
 
 type ReportType =
   | 'daily-sales'
-  | 'shift'
   | 'inventory'
   | 'customer-ledger'
   | 'variance'
@@ -170,7 +169,6 @@ export function Reports() {
     new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
   );
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
-  const [selectedShiftId, setSelectedShiftId] = useState<string>('');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [fetchEnabled, setFetchEnabled] = useState(false);
 
@@ -207,13 +205,6 @@ export function Reports() {
       }
     },
     enabled: fetchEnabled && selectedReport === 'daily-sales' && !!branchId,
-  });
-
-  // Shift Report
-  const { data: shiftReport, isLoading: loadingShift, isError: errorShift } = useQuery({
-    queryKey: ['report-shift', selectedShiftId],
-    queryFn: () => reportsApi.getShiftReport(selectedShiftId),
-    enabled: fetchEnabled && selectedReport === 'shift' && !!selectedShiftId,
   });
 
   // Inventory
@@ -482,7 +473,6 @@ export function Reports() {
 
   const isLoading =
     loadingDaily ||
-    loadingShift ||
     loadingInventory ||
     loadingLedger ||
     loadingVariance ||
@@ -492,7 +482,6 @@ export function Reports() {
     loadingProductWise;
   const isError =
     errorDaily ||
-    errorShift ||
     errorInventory ||
     errorLedger ||
     errorVariance ||
@@ -510,13 +499,31 @@ export function Reports() {
     if (!dailySales) return;
     const summary = dailySales.summary || {};
     const payments = dailySales.paymentMethodBreakdown || [];
-    const shifts = dailySales.shiftBreakdown || [];
     const shiftFuels = dailySales.shiftFuelBreakdown || [];
     const variantPayments = dailySales.variantPaymentBreakdown || [];
     const fuelByType = summary.fuel?.byType || {};
 
+    // Aggregate shift-wise fuel breakdown into fuel-type-only rows
+    const fuelAgg = new Map<string, { liters: number; count: number; amount: number }>();
+    for (const sf of shiftFuels) {
+      const key = sf.fuelType || '-';
+      const prev = fuelAgg.get(key) || { liters: 0, count: 0, amount: 0 };
+      fuelAgg.set(key, {
+        liters: prev.liters + Number(sf.liters || 0),
+        count: prev.count + Number(sf.count || 0),
+        amount: prev.amount + Number(sf.amount || 0),
+      });
+    }
+
+    const titleDate =
+      dailySalesFilterMode === 'date-range'
+        ? `${formatDate(startDate)} to ${formatDate(endDate)}`
+        : dailySalesFilterMode === 'single-date'
+          ? formatDate(reportDate)
+          : 'All Data';
+
     const rows: (string | number)[][] = [
-      ['Daily Sales Report', formatDate(reportDate)],
+      ['Daily Sales Report', titleDate],
       ['', ''],
       ['Summary', 'Count', 'Amount'],
       ['Total Sales', summary.totalTransactions || 0, Number(summary.totalAmount || 0)],
@@ -530,17 +537,19 @@ export function Reports() {
         Number(data.amount || 0)
       ]),
       ['', '', ''],
+      ['Fuel Type', 'Liters', 'Transactions', 'Amount'],
+      ...Array.from(fuelAgg.entries()).map(([fuelType, v]) => [
+        fuelType,
+        v.liters.toFixed(2),
+        v.count,
+        v.amount,
+      ]),
+      ['', '', '', ''],
       ['Payment Method', 'Count', 'Amount'],
       ...payments.map((p: any) => [p.paymentMethod || p.method, p.count || p._count || 0, Number(p.totalAmount || p.amount || 0)]),
       ['', '', ''],
       ['Product Variant', 'Payment Type', 'Count', 'Amount'],
       ...variantPayments.map((vp: any) => [vp.variant, vp.paymentMethod, vp.count, Number(vp.amount)]),
-      ['', '', '', ''],
-      ['Shift', 'Total Sales Count', 'Amount'],
-      ...shifts.map((s: any) => [s.shiftNumber || s.name || '-', s.salesCount || s.count || 0, Number(s.totalAmount || s.amount || 0)]),
-      ['', '', '', ''],
-      ['Shift', 'Fuel Type', 'Liters', 'Count', 'Amount'],
-      ...shiftFuels.map((sf: any) => [sf.shiftName || '-', sf.fuelType || '-', Number(sf.liters || 0).toFixed(2), sf.count || 0, Number(sf.amount || 0)]),
     ];
 
     const dailyMeta: ReportMeta = {
@@ -559,17 +568,40 @@ export function Reports() {
     if (!dailySales) return;
     const summary = dailySales.summary || {};
     const payments = dailySales.paymentMethodBreakdown || [];
-    const shifts = dailySales.shiftBreakdown || [];
     const shiftFuels = dailySales.shiftFuelBreakdown || [];
     const variantPayments = dailySales.variantPaymentBreakdown || [];
 
+    const fuelAgg = new Map<string, { liters: number; count: number; amount: number }>();
+    for (const sf of shiftFuels) {
+      const key = sf.fuelType || '-';
+      const prev = fuelAgg.get(key) || { liters: 0, count: 0, amount: 0 };
+      fuelAgg.set(key, {
+        liters: prev.liters + Number(sf.liters || 0),
+        count: prev.count + Number(sf.count || 0),
+        amount: prev.amount + Number(sf.amount || 0),
+      });
+    }
+    const fuelRows = Array.from(fuelAgg.entries()).map(([fuelType, v]) => ({ fuelType, ...v }));
+
+    const titleDate =
+      dailySalesFilterMode === 'date-range'
+        ? `${formatDate(startDate)} to ${formatDate(endDate)}`
+        : dailySalesFilterMode === 'single-date'
+          ? formatDate(reportDate)
+          : 'All Data';
+
     let html = `
-      <h2>Summary - ${formatDate(reportDate)}</h2>
+      <h2>Summary - ${titleDate}</h2>
       <table>
         <tr><th>Category</th><th class="right">Count</th><th class="right">Amount</th></tr>
         <tr><td>Total Sales</td><td class="right">${summary.totalTransactions || 0}</td><td class="right bold">${formatCurrency(Number(summary.totalAmount || 0))}</td></tr>
         <tr><td>Fuel Sales</td><td class="right">${summary.fuel?.count || 0}</td><td class="right">${formatCurrency(Number(summary.fuel?.amount || 0))}</td></tr>
         <tr><td>Non-Fuel Sales</td><td class="right">${summary.nonFuel?.count || 0}</td><td class="right">${formatCurrency(Number(summary.nonFuel?.amount || 0))}</td></tr>
+      </table>
+      <h2>Fuel Type Breakdown</h2>
+      <table>
+        <tr><th>Fuel Type</th><th class="right">Liters</th><th class="right">Transactions</th><th class="right">Amount</th></tr>
+        ${fuelRows.map((f) => `<tr><td>${f.fuelType}</td><td class="right">${f.liters.toFixed(2)} L</td><td class="right">${f.count}</td><td class="right">${formatCurrency(f.amount)}</td></tr>`).join('')}
       </table>
       <h2>Payment Breakdown</h2>
       <table>
@@ -580,16 +612,6 @@ export function Reports() {
       <table>
         <tr><th>Variant</th><th>Payment</th><th class="right">Count</th><th class="right">Amount</th><th class="right">Liters</th></tr>
         ${variantPayments.map((vp: any) => `<tr><td>${vp.variant}</td><td>${vp.paymentMethod}</td><td class="right">${vp.count}</td><td class="right">${formatCurrency(Number(vp.amount))}</td><td class="right">${vp.liters ? Number(vp.liters).toFixed(2) + ' L' : '-'}</td></tr>`).join('')}
-      </table>
-      <h2>Shift Breakdown</h2>
-      <table>
-        <tr><th>Shift</th><th class="right">Total Sales Count</th><th class="right">Amount</th></tr>
-        ${shifts.map((s: any) => `<tr><td>${s.shiftNumber || s.name || '-'}</td><td class="right">${s.salesCount || s.count || 0}</td><td class="right">${formatCurrency(Number(s.totalAmount || s.amount || 0))}</td></tr>`).join('')}
-      </table>
-      <h2>Shift-wise Fuel Type Breakdown</h2>
-      <table>
-        <tr><th>Shift</th><th>Fuel Type</th><th class="right">Liters</th><th class="right">Count</th><th class="right">Amount</th></tr>
-        ${shiftFuels.map((sf: any) => `<tr><td>${sf.shiftName || '-'}</td><td>${sf.fuelType || '-'}</td><td class="right">${Number(sf.liters || 0).toFixed(2)} L</td><td class="right">${sf.count || 0}</td><td class="right">${formatCurrency(Number(sf.amount || 0))}</td></tr>`).join('')}
       </table>`;
     printReport('Daily Sales Report', html, {
       branchName: dailySales?.branch?.name,
@@ -826,7 +848,6 @@ export function Reports() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="daily-sales">Daily Sales Summary</SelectItem>
-                  <SelectItem value="shift">Shift Report</SelectItem>
                   <SelectItem value="inventory">Inventory Report</SelectItem>
                   <SelectItem value="customer-ledger">Customer Ledger</SelectItem>
                   <SelectItem value="variance">Variance Report</SelectItem>
@@ -872,18 +893,6 @@ export function Reports() {
                   </>
                 )}
               </>
-            )}
-
-            {selectedReport === 'shift' && (
-              <div className="space-y-2">
-                <Label>Shift Instance ID</Label>
-                <Input
-                  type="text"
-                  placeholder="Enter shift instance ID"
-                  value={selectedShiftId}
-                  onChange={(e) => { setSelectedShiftId(e.target.value); setFetchEnabled(false); }}
-                />
-              </div>
             )}
 
             {selectedReport === 'customer-ledger' && (
@@ -1365,7 +1374,15 @@ export function Reports() {
       {selectedReport === 'daily-sales' && dailySales && !isLoading && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold">Daily Sales - {formatDate(reportDate)}</h2>
+            <h2 className="text-xl font-semibold">
+              Daily Sales{
+                dailySalesFilterMode === 'date-range'
+                  ? ` - ${formatDate(startDate)} to ${formatDate(endDate)}`
+                  : dailySalesFilterMode === 'single-date'
+                    ? ` - ${formatDate(reportDate)}`
+                    : ' - All Data'
+              }
+            </h2>
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={exportDailySalesCSV}>
                 <Download className="mr-2 h-4 w-4" /> CSV
@@ -1418,6 +1435,52 @@ export function Reports() {
               </div>
             </div>
           )}
+
+          {/* Fuel Type Breakdown (aggregated across shifts) */}
+          {dailySales.shiftFuelBreakdown?.length > 0 && (() => {
+            const byFuel = new Map<string, { liters: number; count: number; amount: number }>();
+            for (const sf of dailySales.shiftFuelBreakdown) {
+              const key = sf.fuelType || '-';
+              const prev = byFuel.get(key) || { liters: 0, count: 0, amount: 0 };
+              byFuel.set(key, {
+                liters: prev.liters + Number(sf.liters || 0),
+                count: prev.count + Number(sf.count || 0),
+                amount: prev.amount + Number(sf.amount || 0),
+              });
+            }
+            const fuelRows = Array.from(byFuel.entries()).map(([fuelType, v]) => ({ fuelType, ...v }));
+            return (
+              <Card>
+                <CardHeader><CardTitle className="text-base">Fuel Type Breakdown</CardTitle></CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Fuel Type</TableHead>
+                        <TableHead className="text-right">Liters</TableHead>
+                        <TableHead className="text-right">Transactions</TableHead>
+                        <TableHead className="text-right">Amount</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {fuelRows.map((f, i) => (
+                        <TableRow key={i}>
+                          <TableCell>
+                            <Badge variant="outline">{f.fuelType}</Badge>
+                          </TableCell>
+                          <TableCell className="text-right text-muted-foreground">
+                            {f.liters.toFixed(2)} L
+                          </TableCell>
+                          <TableCell className="text-right">{f.count}</TableCell>
+                          <TableCell className="text-right font-medium">{formatCurrency(f.amount)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            );
+          })()}
 
           {/* Payment Breakdown */}
           {dailySales.paymentMethodBreakdown?.length > 0 && (
@@ -1487,192 +1550,6 @@ export function Reports() {
             </Card>
           )}
 
-          {/* Shift Breakdown */}
-          {dailySales.shiftBreakdown?.length > 0 && (
-            <Card>
-              <CardHeader><CardTitle className="text-base">Shift Breakdown</CardTitle></CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Shift</TableHead>
-                      <TableHead className="text-right">Total Sales Count</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {dailySales.shiftBreakdown.map((s: any, i: number) => (
-                      <TableRow key={i}>
-                        <TableCell>{s.shiftNumber || s.name || '-'}</TableCell>
-                        <TableCell className="text-right">{s.salesCount || s.count || 0}</TableCell>
-                        <TableCell className="text-right font-medium">{formatCurrency(Number(s.totalAmount || s.amount || 0))}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Shift-wise Fuel Type Breakdown */}
-          {dailySales.shiftFuelBreakdown?.length > 0 && (
-            <Card>
-              <CardHeader><CardTitle className="text-base">Shift-wise Fuel Type Breakdown</CardTitle></CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Shift</TableHead>
-                      <TableHead>Fuel Type</TableHead>
-                      <TableHead className="text-right">Liters</TableHead>
-                      <TableHead className="text-right">Transactions</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {dailySales.shiftFuelBreakdown.map((sf: any, i: number) => (
-                      <TableRow key={i}>
-                        <TableCell className="font-medium">{sf.shiftName || '-'}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{sf.fuelType || '-'}</Badge>
-                        </TableCell>
-                        <TableCell className="text-right text-muted-foreground">
-                          {typeof sf.liters === 'number' ? `${Number(sf.liters).toFixed(2)} L` : '-'}
-                        </TableCell>
-                        <TableCell className="text-right">{sf.count || 0}</TableCell>
-                        <TableCell className="text-right font-medium">{formatCurrency(Number(sf.amount || 0))}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      )}
-
-      {/* SHIFT REPORT */}
-      {selectedReport === 'shift' && shiftReport && !isLoading && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold">Shift Report</h2>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={() => {
-                if (!shiftReport) return;
-                const headers = ['Metric', 'Value'];
-                const rows: (string | number)[][] = [
-                  ['Shift', shiftReport.shiftInstance?.shiftName || '-'],
-                  ['Date', formatDate(shiftReport.shiftInstance?.date || new Date())],
-                  ['Status', shiftReport.shiftInstance?.status || '-'],
-                  ['Opened By', shiftReport.shiftInstance?.openedBy?.fullName || '-'],
-                  ['Closed By', shiftReport.shiftInstance?.closedBy?.fullName || '-'],
-                  ['', ''],
-                  ['Total Sales', shiftReport.sales?.totalAmount || 0],
-                  ['Fuel Sales', shiftReport.sales?.fuel?.amount || 0],
-                  ['Non-Fuel Sales', shiftReport.sales?.nonFuel?.amount || 0],
-                ];
-                downloadBrandedCSV(
-                  `shift-report-${shiftReport.shiftInstance?.id || 'unknown'}.csv`,
-                  {
-                    reportName: 'Shift Report',
-                    branchName: shiftReport?.branch?.name,
-                    startDate: shiftReport?.shiftInstance?.date,
-                    endDate: shiftReport?.shiftInstance?.date,
-                  },
-                  headers,
-                  rows,
-                );
-              }}>
-                <Download className="mr-2 h-4 w-4" /> CSV
-              </Button>
-            </div>
-          </div>
-
-          <Card>
-            <CardHeader><CardTitle className="text-base">Shift Information</CardTitle></CardHeader>
-            <CardContent>
-              <div className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <p className="text-sm text-muted-foreground">Shift Name</p>
-                  <p className="font-medium">{shiftReport.shiftInstance?.shiftName || '-'}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Date</p>
-                  <p className="font-medium">{formatDate(shiftReport.shiftInstance?.date || new Date())}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Opened By</p>
-                  <p className="font-medium">{shiftReport.shiftInstance?.openedBy?.fullName || '-'}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Closed By</p>
-                  <p className="font-medium">{shiftReport.shiftInstance?.closedBy?.fullName || '-'}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <div className="grid gap-4 md:grid-cols-3">
-            <Card>
-              <CardContent className="pt-6">
-                <p className="text-sm text-muted-foreground">Total Sales</p>
-                <p className="text-2xl font-bold">{formatCurrency(Number(shiftReport.sales?.totalAmount || 0))}</p>
-                <p className="text-xs text-muted-foreground">{shiftReport.sales?.totalCount || 0} transactions</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <p className="text-sm text-muted-foreground">Fuel Sales</p>
-                <p className="text-2xl font-bold">{formatCurrency(Number(shiftReport.sales?.fuel?.amount || 0))}</p>
-                <p className="text-xs text-muted-foreground">{shiftReport.sales?.fuel?.count || 0} transactions</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <p className="text-sm text-muted-foreground">Non-Fuel Sales</p>
-                <p className="text-2xl font-bold">{formatCurrency(Number(shiftReport.sales?.nonFuel?.amount || 0))}</p>
-                <p className="text-xs text-muted-foreground">{shiftReport.sales?.nonFuel?.count || 0} transactions</p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {shiftReport.meterReadings?.variance?.length > 0 && (
-            <Card>
-              <CardHeader><CardTitle className="text-base">Meter Readings & Variance</CardTitle></CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Nozzle</TableHead>
-                      <TableHead>Fuel Type</TableHead>
-                      <TableHead className="text-right">Opening</TableHead>
-                      <TableHead className="text-right">Closing</TableHead>
-                      <TableHead className="text-right">Difference</TableHead>
-                      <TableHead className="text-right">Actual Sales</TableHead>
-                      <TableHead className="text-right">Variance</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {shiftReport.meterReadings.variance.map((v: any, i: number) => (
-                      <TableRow key={i}>
-                        <TableCell>Unit {v.nozzle?.unitNumber} - Nozzle {v.nozzle?.nozzleNumber}</TableCell>
-                        <TableCell>{v.nozzle?.fuelType}</TableCell>
-                        <TableCell className="text-right">{v.openingReading?.value?.toFixed(2) || '-'}</TableCell>
-                        <TableCell className="text-right">{v.closingReading?.value?.toFixed(2) || '-'}</TableCell>
-                        <TableCell className="text-right">{v.meterDifference?.toFixed(2) || '-'}</TableCell>
-                        <TableCell className="text-right">{v.actualSales?.toFixed(2) || '0.00'}</TableCell>
-                        <TableCell className="text-right">
-                          <Badge variant={Number(v.variance || 0) === 0 ? 'default' : 'destructive'}>
-                            {v.variance?.toFixed(2) || '-'}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          )}
         </div>
       )}
 
