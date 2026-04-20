@@ -38,6 +38,7 @@ import {
   resolveItemLocalId,
   PaymentMethod,
 } from '../qb-shared';
+import { ensureCustomerMapping } from '../ensure-customer-mapping';
 
 export interface FuelSalePayload {
   saleId: string;
@@ -333,6 +334,7 @@ async function buildSalesReceiptPayload(
   method: PaymentMethod,
 ): Promise<any> {
   const customerLocalId = payload.customerId || 'walk-in';
+  await ensureCustomerMapping(organizationId, customerLocalId);
   const customerQbId = await EntityMappingService.getQbId(organizationId, 'customer', customerLocalId);
   if (!customerQbId) {
     // Distinct message for walk-in so preflight error search / existing tests
@@ -401,6 +403,7 @@ async function buildInvoicePayload(
   method: PaymentMethod,
 ): Promise<any> {
   const customerLocalId = invoiceCustomerLocalId(method, payload.customerId);
+  await ensureCustomerMapping(organizationId, customerLocalId);
   const customerQbId = await EntityMappingService.getQbId(organizationId, 'customer', customerLocalId);
   if (!customerQbId) {
     throw new Error(
