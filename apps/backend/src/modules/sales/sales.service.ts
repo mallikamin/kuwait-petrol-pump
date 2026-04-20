@@ -2,112 +2,12 @@ import { prisma } from '../../config/database';
 import { AppError } from '../../middleware/error.middleware';
 import { Decimal } from '@prisma/client/runtime/library';
 import { CreateFuelSaleInput, CreateNonFuelSaleInput } from './sales.schema';
-import { normalizePaymentMethod, isCashSale } from '../../services/quickbooks/qb-shared';
+import { enqueueQbSaleSync } from '../../services/quickbooks/enqueue-sale';
 
 type CreateFuelSaleData = CreateFuelSaleInput;
 type CreateNonFuelSaleData = CreateNonFuelSaleInput;
 
 export class SalesService {
-  /**
-   * Post-create QB enqueue hook for real-time POS sales.
-   *
-   * Called after prisma.sale.create in both createFuelSale and
-   * createNonFuelSale. Does NOT throw on enqueue failure — the sale is
-   * already persisted and must not be rolled back just because QB is
-   * temporarily unreachable. Failures are logged and the sale's
-   * qbSyncStatus/qbSynced flags stay false so admin UI can surface a
-   * manual retry.
-   *
-   * Job shape matches FuelSalePayload so the fuel-sale handler (which
-   * routes SalesReceipt vs Invoice internally) works uniformly from both
-   * daily.service finalize and this real-time path.
-   */
-  private async enqueueQbSaleSync(params: {
-    saleId: string;
-    organizationId: string;
-    saleDate: Date;
-    paymentMethod: string;
-    totalAmount: number;
-    customerId?: string | null;
-    bankId?: string | null;
-    lineItems: Array<{
-      itemLocalId: string;
-      itemName: string;
-      quantity: number;
-      unitPrice: number;
-      amount: number;
-    }>;
-  }): Promise<void> {
-    try {
-      const connection = await prisma.qBConnection.findFirst({
-        where: { organizationId: params.organizationId, isActive: true },
-        select: { id: true },
-      });
-      if (!connection) return; // No QB connection → nothing to enqueue
-
-      let normalized: ReturnType<typeof normalizePaymentMethod>;
-      try {
-        normalized = normalizePaymentMethod(params.paymentMethod);
-      } catch (err: any) {
-        // Unknown payment method alias — log and skip enqueue rather than
-        // swallow silently. Admin will see the untracked sale in the UI.
-        console.warn(
-          `[QB enqueue][sale ${params.saleId}] Skipping enqueue: ${err?.message || err}`
-        );
-        return;
-      }
-
-      const jobType = isCashSale(normalized) ? 'create_sales_receipt' : 'create_invoice';
-      const txnDate = new Date(params.saleDate).toISOString().slice(0, 10);
-
-      await prisma.qBSyncQueue.createMany({
-        data: [
-          {
-            connectionId: connection.id,
-            organizationId: params.organizationId,
-            jobType,
-            entityType: 'sale',
-            entityId: params.saleId,
-            priority: 5,
-            status: 'pending',
-            // Auto-approve so the processor runs the job without admin action.
-            // sync_mode on qb_connections (DRY_RUN / FULL_SYNC / READ_ONLY)
-            // is the real safety gate that decides whether QB is actually hit.
-            approvalStatus: 'approved',
-            idempotencyKey: `qb-sale-${params.saleId}`,
-            payload: {
-              saleId: params.saleId,
-              organizationId: params.organizationId,
-              customerId: params.customerId || undefined,
-              bankId: params.bankId || undefined,
-              txnDate,
-              paymentMethod: params.paymentMethod,
-              lineItems: params.lineItems.map((li) => ({
-                // FuelSalePayload uses `fuelTypeId`/`fuelTypeName` as the
-                // item-mapping localId + label for BOTH fuel and non-fuel
-                // rows. See fuel-sale.handler buildLines().
-                fuelTypeId: li.itemLocalId,
-                fuelTypeName: li.itemName,
-                quantity: li.quantity,
-                unitPrice: li.unitPrice,
-                amount: li.amount,
-              })),
-              totalAmount: params.totalAmount,
-            },
-          },
-        ],
-        skipDuplicates: true,
-      });
-    } catch (err: any) {
-      // Swallow — idempotencyKey / skipDuplicates means the likely errors
-      // are DB hiccups or permission. Never fail the sale for these.
-      console.warn(
-        `[QB enqueue][sale ${params.saleId}] Enqueue failed: ${err?.message || err}. ` +
-        `Sale is persisted; QB sync will need a manual replay.`
-      );
-    }
-  }
-
   private buildFuelSaleSignature(sale: {
     saleType?: string | null;
     saleDate: Date;
@@ -295,7 +195,7 @@ export class SalesService {
     });
 
     // QB enqueue (fuel sale) — single fuel line item
-    await this.enqueueQbSaleSync({
+    await enqueueQbSaleSync({
       saleId: sale.id,
       organizationId,
       saleDate: sale.saleDate,
@@ -429,7 +329,7 @@ export class SalesService {
     }
 
     // QB enqueue (non-fuel sale) — one line item per product in the cart
-    await this.enqueueQbSaleSync({
+    await enqueueQbSaleSync({
       saleId: sale.id,
       organizationId,
       saleDate: sale.saleDate,
