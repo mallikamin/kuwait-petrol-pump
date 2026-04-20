@@ -28,6 +28,7 @@ import { EntityMappingService } from '../entity-mapping.service';
 import { classifyError, logClassifiedError, OpLog } from '../error-classifier';
 import { prisma } from '../../../config/database';
 import { getQuickBooksApiUrl } from '../qb-shared';
+import { ensureCustomerMapping } from '../ensure-customer-mapping';
 
 export interface ReceivePaymentPayload {
   receiptId: string;           // CustomerReceipt.id (our source row)
@@ -212,6 +213,7 @@ async function buildReceivePaymentPayload(
   payload: ReceivePaymentPayload,
 ): Promise<any> {
   // 1. Resolve customer — must already be mapped (invoice can't have been synced otherwise).
+  await ensureCustomerMapping(organizationId, payload.customerId);
   const customerQbId = await EntityMappingService.getQbId(organizationId, 'customer', payload.customerId);
   if (!customerQbId) {
     throw new Error(
