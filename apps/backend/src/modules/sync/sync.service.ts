@@ -15,6 +15,7 @@ import {
   SyncStatusResponse,
 } from './sync.types';
 import { TenantValidator } from './tenant-validator';
+import { enqueueQbSaleSync } from '../../services/quickbooks/enqueue-sale';
 
 const prisma = new PrismaClient();
 
@@ -56,7 +57,7 @@ export class SyncService {
         }
 
         // Create sale with line items in a transaction (atomic)
-        await prisma.$transaction(async (tx) => {
+        const createdSale = await prisma.$transaction(async (tx) => {
           // Create master sale record
           const sale = await tx.sale.create({
             data: {
@@ -107,7 +108,13 @@ export class SyncService {
               })),
             });
           }
+
+          return sale;
         });
+
+        // QB enqueue outside the transaction: sale is persisted; a transient
+        // enqueue failure must not roll back a successful offline sync.
+        await this.enqueueSaleToQb(createdSale, queuedSale, organizationId);
 
         result.synced++;
       } catch (error) {
@@ -125,6 +132,58 @@ export class SyncService {
     }
 
     return result;
+  }
+
+  private static async enqueueSaleToQb(
+    createdSale: { id: string; saleDate: Date },
+    queuedSale: QueuedSale,
+    organizationId: string
+  ): Promise<void> {
+    try {
+      const fuelTypeIds = (queuedSale.fuelSales || []).map((f) => f.fuelTypeId);
+      const productIds = (queuedSale.nonFuelSales || []).map((nf) => nf.productId);
+
+      const [fuelTypes, products] = await Promise.all([
+        fuelTypeIds.length
+          ? prisma.fuelType.findMany({ where: { id: { in: fuelTypeIds } }, select: { id: true, name: true } })
+          : Promise.resolve([] as Array<{ id: string; name: string }>),
+        productIds.length
+          ? prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, name: true } })
+          : Promise.resolve([] as Array<{ id: string; name: string }>),
+      ]);
+
+      const lineItems = [
+        ...(queuedSale.fuelSales || []).map((f) => ({
+          itemLocalId: f.fuelTypeId,
+          itemName: fuelTypes.find((ft) => ft.id === f.fuelTypeId)?.name || 'Fuel',
+          quantity: Number(f.quantityLiters),
+          unitPrice: Number(f.pricePerLiter),
+          amount: Number(f.totalAmount),
+        })),
+        ...(queuedSale.nonFuelSales || []).map((nf) => ({
+          itemLocalId: nf.productId,
+          itemName: products.find((p) => p.id === nf.productId)?.name || 'Product',
+          quantity: Number(nf.quantity),
+          unitPrice: Number(nf.unitPrice),
+          amount: Number(nf.totalAmount),
+        })),
+      ];
+
+      await enqueueQbSaleSync({
+        saleId: createdSale.id,
+        organizationId,
+        saleDate: createdSale.saleDate,
+        paymentMethod: queuedSale.paymentMethod,
+        totalAmount: Number(queuedSale.totalAmount),
+        customerId: queuedSale.customerId,
+        bankId: queuedSale.bankId,
+        lineItems,
+      });
+    } catch (err: any) {
+      console.warn(
+        `[QB enqueue][sync sale ${createdSale.id}] ${err?.message || err}. Sale persisted; QB needs manual replay.`
+      );
+    }
   }
 
   /**
