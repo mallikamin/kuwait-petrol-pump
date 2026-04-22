@@ -297,7 +297,7 @@ export function Credit() {
     branchId: string;
     receiptDatetime: string;
     amount: string;
-    paymentMethod: 'cash';
+    paymentMethod: 'cash' | 'cheque' | 'bank_transfer' | 'online' | 'pso_card';
     bankId: string;
     referenceNumber: string;
     notes: string;
@@ -943,6 +943,7 @@ export function Credit() {
                     <SelectItem value="cheque">Cheque</SelectItem>
                     <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
                     <SelectItem value="online">Online</SelectItem>
+                    <SelectItem value="pso_card">PSO Card</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

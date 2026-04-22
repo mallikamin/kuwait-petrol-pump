@@ -6,6 +6,13 @@ import { AppError } from '../../middleware/error.middleware';
  * QB ReceivePayment enqueue — maps POS paymentMethod → receive-payment handler's
  * paymentChannel union. Centralised here so the credit service owns its
  * QB-sync surface without leaking QB types outward.
+ *
+ * `pso_card` is intentionally NOT mapped here — it does not go through the
+ * ReceivePayment path because the money isn't actually received yet (PSO
+ * remits later). Instead, pso_card receipts enqueue a separate Invoice to
+ * the "PSO Card Receivables" customer so its AR increases, while the credit
+ * customer's invoice is left untouched in QB. The accountant can reconcile
+ * the customer-side settlement once the client confirms the workflow.
  */
 function toReceivePaymentChannel(
   method: 'cash' | 'cheque' | 'bank_transfer' | 'online',
@@ -22,7 +29,7 @@ export interface CreateReceiptInput {
   branchId: string;
   receiptDatetime: Date;
   amount: number;
-  paymentMethod: 'cash' | 'cheque' | 'bank_transfer' | 'online';
+  paymentMethod: 'cash' | 'cheque' | 'bank_transfer' | 'online' | 'pso_card';
   bankId?: string;
   referenceNumber?: string;
   notes?: string;
@@ -39,7 +46,7 @@ export interface UpdateReceiptInput {
   branchId?: string;
   receiptDatetime?: Date;
   amount?: number;
-  paymentMethod?: 'cash' | 'cheque' | 'bank_transfer' | 'online';
+  paymentMethod?: 'cash' | 'cheque' | 'bank_transfer' | 'online' | 'pso_card';
   bankId?: string | null;
   referenceNumber?: string | null;
   notes?: string | null;
@@ -445,7 +452,7 @@ export class CreditService {
     organizationId: string;
     customerId: string;
     receiptDate: Date;
-    paymentMethod: 'cash' | 'cheque' | 'bank_transfer' | 'online';
+    paymentMethod: 'cash' | 'cheque' | 'bank_transfer' | 'online' | 'pso_card';
     bankId?: string | null;
     referenceNumber?: string | null;
     notes?: string | null;
@@ -464,11 +471,53 @@ export class CreditService {
       });
       if (!connection) return;
 
+      const txnDate = new Date(params.receiptDate).toISOString().slice(0, 10);
+
+      // PSO Card receipts: do not post a ReceivePayment (money isn't actually
+      // settled yet — PSO remits later). Instead, enqueue one Invoice against
+      // the 'pso-card-receivable' customer for the full receipt total so QB's
+      // PSO Card Receivables AR balance increases as requested. Final
+      // workflow (how we close the credit customer's invoice in QB) is
+      // pending client confirmation; this placeholder keeps the user-facing
+      // behaviour accurate without fabricating a cash path.
+      if (params.paymentMethod === 'pso_card') {
+        const totalAmount = params.allocations.reduce((sum, a) => sum + a.amount, 0);
+        await prisma.qBSyncQueue.create({
+          data: {
+            connectionId: connection.id,
+            organizationId: params.organizationId,
+            jobType: 'create_invoice',
+            entityType: 'sale',
+            entityId: params.receiptId,
+            priority: 5,
+            status: 'pending',
+            approvalStatus: 'approved',
+            idempotencyKey: `qb-receipt-pso-${params.receiptId}`,
+            payload: {
+              saleId: params.receiptId,
+              organizationId: params.organizationId,
+              txnDate,
+              paymentMethod: 'pso_card',
+              totalAmount,
+              lineItems: [
+                {
+                  fuelTypeId: 'non-fuel-item',
+                  fuelTypeName: 'PSO Card credit-receipt settlement',
+                  quantity: 1,
+                  unitPrice: totalAmount,
+                  amount: totalAmount,
+                },
+              ],
+            },
+          },
+        });
+        return;
+      }
+
       // Resolve each allocation to a Sale.qbInvoiceId. SALE → direct PK
       // lookup; BACKDATED_TRANSACTION → find the Sale written by finalize
       // using the deterministic offlineQueueId convention.
       const enqueueRows: any[] = [];
-      const txnDate = new Date(params.receiptDate).toISOString().slice(0, 10);
 
       for (const alloc of params.allocations) {
         let qbInvoiceId: string | null = null;

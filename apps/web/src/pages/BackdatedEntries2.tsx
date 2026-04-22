@@ -304,17 +304,18 @@ export function BackdatedEntries2() {
     setIsDirty(true);
   }, [transactions]);
 
-  // Price sync: when fuelPricesData / productsData load (or businessDate changes),
-  // lock each row's unitPrice + lineTotal to the master source of truth. If
-  // no source value exists (e.g. product not in master list, price not set
-  // for date), force "0" — never fall back to a previously-stored price.
-  // This is a display+payload correction, not a user edit, so we suppress the
-  // dirty flag via hydratingRef.
+  // Price sync: when fuelPricesData loads (or businessDate changes), lock fuel
+  // rows' unitPrice + lineTotal to the master source of truth. Non-fuel rows
+  // (fuelCode='OTHER') are user-editable now, so we DO NOT overwrite their
+  // price here — doing so silently clobbered user edits before Global Save
+  // could fire. This is a display+payload correction for fuel only, and is
+  // suppressed from the dirty flag via hydratingRef.
   useEffect(() => {
     if (transactions.length === 0) return;
-    if (!fuelPricesData && !productsData) return;
+    if (!fuelPricesData) return;
     let changed = false;
     const next = transactions.map(t => {
+      if (t.fuelCode !== 'HSD' && t.fuelCode !== 'PMG') return t;
       const src = derivePriceFor(t.fuelCode, t.productName) || '0';
       if (toNumber(t.unitPrice) === toNumber(src)) return t;
       changed = true;
@@ -325,7 +326,7 @@ export function BackdatedEntries2() {
       hydratingRef.current = true;
       setTransactions(next);
     }
-  }, [fuelPricesData, productsData]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fuelPricesData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-save (2 min)
   useEffect(() => {

@@ -9,7 +9,7 @@ export const createReceiptSchema = z.object({
   branchId: z.string().uuid(),
   receiptDatetime: z.string().datetime().transform((str) => new Date(str)),
   amount: z.number().positive(),
-  paymentMethod: z.enum(['cash', 'cheque', 'bank_transfer', 'online']),
+  paymentMethod: z.enum(['cash', 'cheque', 'bank_transfer', 'online', 'pso_card']),
   bankId: z.string().uuid().optional(),
   referenceNumber: z.string().max(100).optional(),
   notes: z.string().optional(),
@@ -34,7 +34,7 @@ export const updateReceiptSchema = z.object({
     .transform((str) => new Date(str))
     .optional(),
   amount: z.number().positive().optional(),
-  paymentMethod: z.enum(['cash', 'cheque', 'bank_transfer', 'online']).optional(),
+  paymentMethod: z.enum(['cash', 'cheque', 'bank_transfer', 'online', 'pso_card']).optional(),
   bankId: z.string().uuid().nullable().optional(),
   referenceNumber: z.string().max(100).nullable().optional(),
   notes: z.string().nullable().optional(),
