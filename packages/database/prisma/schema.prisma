@@ -41,6 +41,7 @@ model Organization {
   customerBranchLimits   CustomerBranchLimit[]
   customerReceipts       CustomerReceipt[]
   monthlyInventoryGainLoss MonthlyInventoryGainLoss[]
+  cashLedgerEntries        CashLedgerEntry[]
 
   @@map("organizations")
 }
@@ -73,6 +74,7 @@ model Branch {
   customerReceipts       CustomerReceipt[]
   monthlyInventoryGainLoss MonthlyInventoryGainLoss[]
   inventoryBootstrap       InventoryBootstrap[]
+  cashLedgerEntries        CashLedgerEntry[]
 
   @@map("branches")
 }
@@ -202,6 +204,8 @@ model User {
   deletedReceipts                 CustomerReceipt[]       @relation("ReceiptDeletedBy")
   monthlyInventoryGainLoss        MonthlyInventoryGainLoss[]
   updatedInventoryBootstraps      InventoryBootstrap[]
+  createdCashLedgerEntries        CashLedgerEntry[]       @relation("CashLedgerCreatedBy")
+  reversedCashLedgerEntries       CashLedgerEntry[]       @relation("CashLedgerReversedBy")
 
   @@unique([organizationId, username], name: "unique_org_username") // Multi-tenant safety
   @@index([organizationId], name: "idx_users_org")
@@ -255,6 +259,7 @@ model ShiftInstance {
   meterReadings MeterReading[]
   sales         Sale[]
   bifurcations  Bifurcation[]
+  cashLedgerEntries CashLedgerEntry[]
 
   @@unique([shiftId, date])
   @@index([branchId, date], name: "idx_shift_instances_date")
@@ -1372,6 +1377,41 @@ model MonthlyInventoryGainLoss {
 ///                        + gainLoss[bootstrap_date, period_start)
 /// and closing = opening + period activity. Exactly one of productId or
 /// fuelTypeId is set per row (enforced by DB CHECK).
+/// Cash Ledger Entry — every rupee of physical cash moving through the
+/// drawer. Append-only log used for end-of-day cash reconciliation.
+/// Sources are enumerated string codes so new modules (PSO top-up,
+/// expenses, driver handouts) can post without schema churn.
+model CashLedgerEntry {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId  String    @map("organization_id") @db.Uuid
+  branchId        String    @map("branch_id") @db.Uuid
+  businessDate    DateTime  @map("business_date") @db.Date
+  shiftInstanceId String?   @map("shift_instance_id") @db.Uuid
+  direction       String    @db.VarChar(3)  // 'IN' | 'OUT'
+  source          String    @db.VarChar(32) // 'SALE' | 'CREDIT_RECEIPT' | 'ADVANCE_DEPOSIT' | 'PSO_TOPUP' | 'EXPENSE' | 'DRIVER_HANDOUT' | 'COUNTER_VARIANCE' | 'MANUAL_ADJUSTMENT'
+  sourceId        String?   @map("source_id") @db.Uuid
+  amount          Decimal   @db.Decimal(12, 2)
+  memo            String?   @db.Text
+  createdBy       String?   @map("created_by") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  reversedAt      DateTime? @map("reversed_at") @db.Timestamptz
+  reversedBy      String?   @map("reversed_by") @db.Uuid
+  reversalReason  String?   @map("reversal_reason") @db.Text
+
+  organization  Organization   @relation(fields: [organizationId], references: [id])
+  branch        Branch         @relation(fields: [branchId], references: [id])
+  shiftInstance ShiftInstance? @relation(fields: [shiftInstanceId], references: [id])
+  createdByUser User?          @relation(fields: [createdBy], references: [id], name: "CashLedgerCreatedBy")
+  reversedByUser User?         @relation(fields: [reversedBy], references: [id], name: "CashLedgerReversedBy")
+
+  @@unique([source, sourceId, direction], name: "unique_cash_ledger_source_direction")
+  @@index([branchId, businessDate], name: "idx_cash_ledger_branch_date")
+  @@index([branchId, direction, createdAt], name: "idx_cash_ledger_branch_dir_time")
+  @@index([source, sourceId], name: "idx_cash_ledger_source")
+  @@index([organizationId, businessDate], name: "idx_cash_ledger_org_date")
+  @@map("cash_ledger_entries")
+}
+
 model InventoryBootstrap {
   id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   branchId   String   @map("branch_id") @db.Uuid

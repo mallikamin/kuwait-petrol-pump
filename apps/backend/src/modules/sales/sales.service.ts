@@ -3,6 +3,7 @@ import { AppError } from '../../middleware/error.middleware';
 import { Decimal } from '@prisma/client/runtime/library';
 import { CreateFuelSaleInput, CreateNonFuelSaleInput } from './sales.schema';
 import { enqueueQbSaleSync } from '../../services/quickbooks/enqueue-sale';
+import { CashLedgerService } from '../cash-ledger/cash-ledger.service';
 
 type CreateFuelSaleData = CreateFuelSaleInput;
 type CreateNonFuelSaleData = CreateNonFuelSaleInput;
@@ -214,6 +215,24 @@ export class SalesService {
       ],
     });
 
+    // Cash ledger: cash sales post an IN entry so EOD reconciliation sees
+    // every rupee that entered the drawer. Non-cash sales (card/credit/
+    // pso_card) must NOT post here — they don't move physical cash.
+    if (paymentMethod === 'cash') {
+      await CashLedgerService.tryPost({
+        organizationId,
+        branchId,
+        businessDate: sale.saleDate,
+        shiftInstanceId: sale.shiftInstanceId || null,
+        direction: 'IN',
+        source: 'SALE',
+        sourceId: sale.id,
+        amount: totalAmount,
+        memo: `Cash fuel sale ${sale.id.slice(0, 8)}`,
+        createdBy: userId,
+      });
+    }
+
     return sale;
   }
 
@@ -348,6 +367,22 @@ export class SalesService {
         };
       }),
     });
+
+    // Cash ledger IN for cash non-fuel sales (same rule as fuel).
+    if (paymentMethod === 'cash') {
+      await CashLedgerService.tryPost({
+        organizationId,
+        branchId,
+        businessDate: sale.saleDate,
+        shiftInstanceId: sale.shiftInstanceId || null,
+        direction: 'IN',
+        source: 'SALE',
+        sourceId: sale.id,
+        amount: totalAmount,
+        memo: `Cash non-fuel sale ${sale.id.slice(0, 8)}`,
+        createdBy: userId,
+      });
+    }
 
     return sale;
   }
