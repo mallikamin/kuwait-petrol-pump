@@ -31,7 +31,7 @@ export const createNonFuelSaleSchema = z.object({
       unitPrice: z.number().positive(),
     })
   ).min(1),
-  paymentMethod: z.enum(['cash', 'credit', 'card']),
+  paymentMethod: z.enum(['cash', 'credit', 'card', 'pso_card']),
   bankId: z.string().uuid().optional(), // Required if paymentMethod='card'
   customerId: z.string().uuid().optional(),
   taxAmount: z.number().nonnegative().optional(),
