@@ -168,7 +168,62 @@ returns only deposits.
 
 ## Task 3 — Tests for Phases 2-5
 
-_Pending._
+### Scope
+
+Unit test coverage for the Phase 2-5 services added in the prior
+sprint. Mirrors the shape of `cash-ledger.service.test.ts` (in-memory
+prisma mock + mocked `CashLedgerService` to focus assertions on the
+service-under-test's own behaviour). Target was 35+ new tests.
+
+### Files added
+
+- `apps/backend/src/modules/expenses/expenses.service.test.ts` (17 tests)
+- `apps/backend/src/modules/cash-reconciliation/cash-reconciliation.service.test.ts` (13 tests)
+- `apps/backend/src/modules/pso-topup/pso-topup.service.test.ts` (12 tests)
+- `apps/backend/src/modules/customer-advance/customer-advance.service.test.ts` (19 tests)
+
+**Total: 61 new tests, all passing. Zero source-file changes.**
+
+Coverage per suite: happy-path + cash_ledger side-effect verified via
+spy on mocked `CashLedgerService.tryPost`, void/reversal via spy on
+`CashLedgerService.reverse`, validation errors (amount ≤ 0, missing
+FKs, inactive accounts), org isolation (cross-org mutations rejected),
+QB enqueue presence/absence based on active connection.
+
+### Notes on what the tests surfaced
+
+- `cash-reconciliation.service.ts:134` writes the variance ledger with
+  `sourceId = randomUUID()` but on re-close reads back using
+  `sourceId = recon.id`. The tests document the current behaviour
+  (reverse-on-re-close only fires when the stored sourceId matches
+  recon.id). Flagged as a likely bug — out of scope for Task 3. Not
+  patched here.
+
+### Pre-change checks
+
+| Check                      | Command                                       | Result       |
+| -------------------------- | --------------------------------------------- | ------------ |
+| Backend typecheck          | `cd apps/backend && npx tsc --noEmit`         | PASS         |
+| Full backend jest (master) | `npx jest`                                    | 336/379 passing (43 failures — pre-existing DB-dependent integration tests, unchanged) |
+
+### Post-change checks
+
+| Check                      | Command                                              | Result                                |
+| -------------------------- | ---------------------------------------------------- | ------------------------------------- |
+| Backend typecheck          | `cd apps/backend && npx tsc --noEmit`                | PASS (exit 0)                         |
+| New tests (targeted)       | `npx jest --testPathPattern='expenses\|cash-reconciliation\|pso-topup\|customer-advance'` | 61/61 passing across 4 suites |
+| Full backend jest          | `npx jest`                                           | 397/440 passing (+61 vs master, same 43 pre-existing failures) |
+
+**Delta from baseline: +4 passing suites, +61 passing tests, zero new
+failures.** The 43 pre-existing failures on master also fail on this
+branch — they are DB-dependent integration tests untouched by this
+PR.
+
+### What changed / what did NOT change
+
+- **Changed:** four new test files only.
+- **Did NOT change:** any production source file. This is
+  pure coverage hardening.
 
 ---
 
