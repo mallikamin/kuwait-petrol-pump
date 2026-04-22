@@ -229,4 +229,110 @@ PR.
 
 ## Task 4 — Reports page additions
 
-_Pending._
+### Scope
+
+Extended the existing **Reports** page (`/reports`) with four new
+report types, reusing the existing report-type switcher, date-range
+state, and CSV export helpers — **no new route, no new sidebar entry,
+no separate page**. The selector dropdown now includes: Expenses
+Report, Customer Advance Balances, PSO Top-Ups Summary, Cash
+Reconciliation History.
+
+### Files changed
+
+**Backend** (thin aggregation endpoints):
+- `apps/backend/src/modules/reports/reports.service.ts`
+  - `getExpensesReport(org, start, end, branchId?, accountId?)` —
+    per-account totals + entry list (Prisma findMany + in-memory fold)
+  - `getCustomerAdvanceBalances(org)` — raw SQL groupBy on
+    `customer_advance_movements` with non-zero HAVING; totals for
+    held and overdrawn
+  - `getPsoTopupsSummary(org, start, end, branchId?)` — period
+    total + per-customer breakdown
+  - `getCashReconHistory(org, start, end, branchId?, status?)` —
+    closed-days list + over/short totals
+- `apps/backend/src/modules/reports/reports.controller.ts`
+  - Shared helpers: `requireReportRole`, `parseDateRange`
+  - 3 new zod schemas (expenses / pso-topups / cash-recon require
+    startDate+endDate; advance-balances is point-in-time, no schema)
+  - 4 controller methods following existing handler style
+- `apps/backend/src/modules/reports/reports.routes.ts`
+  - `GET /api/reports/expenses`
+  - `GET /api/reports/customer-advance-balances`
+  - `GET /api/reports/pso-topups-summary`
+  - `GET /api/reports/cash-recon-history`
+
+**Frontend** (integrated into existing `/reports` page):
+- `apps/web/src/api/reports.ts` — 4 new client methods matching the
+  established `params` construction pattern
+- `apps/web/src/pages/Reports.tsx`
+  - `ReportType` union extended with 4 new values
+  - 4 new `SelectItem` rows in the existing report picker
+  - `cashReconStatus` state (the only new state — shared
+    `startDate`/`endDate` for all 4)
+  - 4 new `useQuery` hooks (same shape as the other report hooks,
+    gated on `fetchEnabled && selectedReport === '...'`)
+  - Filter UI: a compact conditional block that renders Start/End
+    date inputs for the 3 range-based reports and an extra Status
+    dropdown for cash-recon. Advance balances needs no filters.
+  - 4 new render blocks (summary cards + table + CSV export)
+    inserted before the `!fetchEnabled` empty state
+
+No standalone page, no new sidebar route, no new breadcrumb entry.
+`Reports.tsx` growth: +~400 lines (all new render blocks + queries).
+Existing 8 report types untouched.
+
+### Pre-change checks
+
+| Check                      | Command                                                              | Result       |
+| -------------------------- | -------------------------------------------------------------------- | ------------ |
+| Backend typecheck          | `cd apps/backend && npx tsc --noEmit`                                | PASS         |
+| Web typecheck              | `cd apps/web && npx tsc --noEmit`                                    | PASS         |
+| Regression suites (pre)    | `npx jest --testPathPattern='expenses\|cash-reconciliation\|pso-topup\|customer-advance\|cash-ledger\|credit'` | 7 suites, 102/102 |
+
+### Post-change checks
+
+| Check                      | Command                                                              | Result       |
+| -------------------------- | -------------------------------------------------------------------- | ------------ |
+| Backend typecheck          | `cd apps/backend && npx tsc --noEmit`                                | PASS (exit 0) |
+| Web typecheck              | `cd apps/web && npx tsc --noEmit`                                    | PASS (exit 0) |
+| Regression suites (post)   | same targeted jest pattern                                           | 7 suites, 102/102 (no regression) |
+
+**Delta: zero regression.**
+
+### End-to-end validation (deferred to post-deploy smoke)
+
+The 4 new endpoints are deterministic thin aggregators — no writes,
+no side effects — so they are safe to hit against prod immediately.
+After deploy:
+
+```bash
+JWT=...
+API=https://kuwaitpos.duckdns.org
+
+curl -sk -H "Authorization: Bearer $JWT" \
+  "$API/api/reports/expenses?startDate=2026-04-01&endDate=2026-04-30" | jq '.report.grandTotal, .report.entryCount'
+
+curl -sk -H "Authorization: Bearer $JWT" \
+  "$API/api/reports/customer-advance-balances" | jq '.report.totalCustomers, .report.totalAdvanceHeld'
+
+curl -sk -H "Authorization: Bearer $JWT" \
+  "$API/api/reports/pso-topups-summary?startDate=2026-04-01&endDate=2026-04-30" | jq '.report.grandTotal, .report.topupCount'
+
+curl -sk -H "Authorization: Bearer $JWT" \
+  "$API/api/reports/cash-recon-history?startDate=2026-04-01&endDate=2026-04-30&status=closed" | jq '.report.totalReconciliations, .report.netVariance'
+```
+
+Expected: each returns 200 with a well-shaped `report` payload.
+Browser smoke: pick each new report type from the dropdown → set
+dates → Generate → confirm summary cards + table render and CSV
+export downloads without errors.
+
+### What changed / what did NOT change
+
+- **Changed:** reports backend service/controller/routes + frontend
+  api client + single-file edits to `Reports.tsx`.
+- **Did NOT change:** any sales/credit/advance/expense/topup/recon
+  service, schema, migration, or UI component; any handler, queue
+  consumer, or QB flow; any existing report type's query or render
+  block.

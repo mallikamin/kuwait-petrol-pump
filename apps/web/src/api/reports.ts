@@ -139,4 +139,49 @@ export const reportsApi = {
     const response = await apiClient.get('/api/reports/product-wise-summary', { params });
     return response.data.report || response.data;
   },
+
+  // ──────────────────────────────────────────────────────────────
+  // Phase 2-5 reports
+  // ──────────────────────────────────────────────────────────────
+
+  getExpensesReport: async (
+    startDate: string,
+    endDate: string,
+    branchId?: string,
+    expenseAccountId?: string,
+  ): Promise<any> => {
+    const params: any = { startDate, endDate };
+    if (branchId) params.branchId = branchId;
+    if (expenseAccountId) params.expenseAccountId = expenseAccountId;
+    const response = await apiClient.get('/api/reports/expenses', { params });
+    return response.data.report || response.data;
+  },
+
+  getCustomerAdvanceBalances: async (): Promise<any> => {
+    const response = await apiClient.get('/api/reports/customer-advance-balances');
+    return response.data.report || response.data;
+  },
+
+  getPsoTopupsSummary: async (
+    startDate: string,
+    endDate: string,
+    branchId?: string,
+  ): Promise<any> => {
+    const params: any = { startDate, endDate };
+    if (branchId) params.branchId = branchId;
+    const response = await apiClient.get('/api/reports/pso-topups-summary', { params });
+    return response.data.report || response.data;
+  },
+
+  getCashReconHistory: async (
+    startDate: string,
+    endDate: string,
+    branchId?: string,
+    status: 'open' | 'closed' | 'all' = 'closed',
+  ): Promise<any> => {
+    const params: any = { startDate, endDate, status };
+    if (branchId) params.branchId = branchId;
+    const response = await apiClient.get('/api/reports/cash-recon-history', { params });
+    return response.data.report || response.data;
+  },
 };
