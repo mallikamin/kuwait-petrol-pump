@@ -1958,7 +1958,10 @@ export class ReportsService {
         SUM(CASE WHEN cam.direction = 'IN' THEN cam.amount ELSE -cam.amount END),
         0
       ) <> 0
-      ORDER BY balance DESC
+      ORDER BY COALESCE(
+        SUM(CASE WHEN cam.direction = 'IN' THEN cam.amount ELSE -cam.amount END),
+        0
+      ) DESC
     `;
 
     const customers = rows.map((r) => ({

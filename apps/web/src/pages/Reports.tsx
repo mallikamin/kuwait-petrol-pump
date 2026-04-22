@@ -23,7 +23,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { FileText, Download, Printer, Loader2, Calendar, Settings } from 'lucide-react';
 import { toast } from 'sonner';
-import { reportsApi, apiClient, productsApi } from '@/api';
+import { reportsApi, apiClient, productsApi, branchesApi, expensesApi } from '@/api';
 import { useAuthStore } from '@/store/auth';
 import { formatCurrency } from '@/utils/format';
 import { ProductSelector, ALL_PRODUCTS_VALUE } from '@/components/ui/product-selector';
@@ -197,6 +197,14 @@ export function Reports() {
   // Phase 2-5 report filters. All four use startDate/endDate from the
   // shared range state — no per-report filter-mode dropdown needed.
   const [cashReconStatus, setCashReconStatus] = useState<'open' | 'closed' | 'all'>('closed');
+  // Per-report branch + expense-account filters. 'ALL' sentinel = no filter
+  // (backend omits the param).
+  const ALL_BRANCHES = 'ALL';
+  const ALL_ACCOUNTS = 'ALL';
+  const [expensesBranchId, setExpensesBranchId] = useState<string>(ALL_BRANCHES);
+  const [expensesAccountId, setExpensesAccountId] = useState<string>(ALL_ACCOUNTS);
+  const [psoTopupsBranchId, setPsoTopupsBranchId] = useState<string>(ALL_BRANCHES);
+  const [cashReconBranchId, setCashReconBranchId] = useState<string>(ALL_BRANCHES);
 
   // Daily Sales (supports no-filter, single date, and date range)
   const { data: dailySales, isLoading: loadingDaily, isError: errorDaily } = useQuery({
@@ -418,8 +426,14 @@ export function Reports() {
   // Phase 2-5 report queries. All use the shared startDate/endDate range
   // except advance balances which is a point-in-time snapshot.
   const { data: expensesReport, isLoading: loadingExpenses, isError: errorExpenses } = useQuery({
-    queryKey: ['report-expenses', startDate, endDate],
-    queryFn: () => reportsApi.getExpensesReport(startDate, endDate),
+    queryKey: ['report-expenses', startDate, endDate, expensesBranchId, expensesAccountId],
+    queryFn: () =>
+      reportsApi.getExpensesReport(
+        startDate,
+        endDate,
+        expensesBranchId !== ALL_BRANCHES ? expensesBranchId : undefined,
+        expensesAccountId !== ALL_ACCOUNTS ? expensesAccountId : undefined,
+      ),
     enabled: fetchEnabled && selectedReport === 'expenses',
     staleTime: 0,
     gcTime: 0,
@@ -436,8 +450,13 @@ export function Reports() {
   });
 
   const { data: psoTopupsSummary, isLoading: loadingPsoTopups, isError: errorPsoTopups } = useQuery({
-    queryKey: ['report-pso-topups', startDate, endDate],
-    queryFn: () => reportsApi.getPsoTopupsSummary(startDate, endDate),
+    queryKey: ['report-pso-topups', startDate, endDate, psoTopupsBranchId],
+    queryFn: () =>
+      reportsApi.getPsoTopupsSummary(
+        startDate,
+        endDate,
+        psoTopupsBranchId !== ALL_BRANCHES ? psoTopupsBranchId : undefined,
+      ),
     enabled: fetchEnabled && selectedReport === 'pso-topups-summary',
     staleTime: 0,
     gcTime: 0,
@@ -445,12 +464,36 @@ export function Reports() {
   });
 
   const { data: cashReconHistory, isLoading: loadingCashRecon, isError: errorCashRecon } = useQuery({
-    queryKey: ['report-cash-recon', startDate, endDate, cashReconStatus],
-    queryFn: () => reportsApi.getCashReconHistory(startDate, endDate, undefined, cashReconStatus),
+    queryKey: ['report-cash-recon', startDate, endDate, cashReconStatus, cashReconBranchId],
+    queryFn: () =>
+      reportsApi.getCashReconHistory(
+        startDate,
+        endDate,
+        cashReconBranchId !== ALL_BRANCHES ? cashReconBranchId : undefined,
+        cashReconStatus,
+      ),
     enabled: fetchEnabled && selectedReport === 'cash-recon-history',
     staleTime: 0,
     gcTime: 0,
     refetchOnWindowFocus: false,
+  });
+
+  // Lookups for Phase 2-5 filter dropdowns. Loaded on demand when the
+  // filter pane is visible for a Phase 2-5 report.
+  const { data: branchesDataForReports } = useQuery({
+    queryKey: ['reports-branches-list'],
+    queryFn: () => branchesApi.getAll({ size: 100 }).then((r) => r.items),
+    enabled:
+      selectedReport === 'expenses' ||
+      selectedReport === 'pso-topups-summary' ||
+      selectedReport === 'cash-recon-history',
+    staleTime: 5 * 60 * 1000,
+  });
+  const { data: expenseAccountsList } = useQuery({
+    queryKey: ['reports-expense-accounts-list'],
+    queryFn: () => expensesApi.listAccounts(false),
+    enabled: selectedReport === 'expenses',
+    staleTime: 5 * 60 * 1000,
   });
 
   // Get customers list for dropdown (ledger, customer-wise, and vehicle-wise reports)
@@ -1423,23 +1466,101 @@ export function Reports() {
               </>
             )}
 
-            {selectedReport === 'cash-recon-history' && (
+            {selectedReport === 'expenses' && (
+              <>
+                <div className="space-y-2">
+                  <Label>Branch</Label>
+                  <Select
+                    value={expensesBranchId}
+                    onValueChange={(v) => { setExpensesBranchId(v); setFetchEnabled(false); }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL_BRANCHES}>All Branches</SelectItem>
+                      {(branchesDataForReports || []).map((b: any) => (
+                        <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Expense Account</Label>
+                  <Select
+                    value={expensesAccountId}
+                    onValueChange={(v) => { setExpensesAccountId(v); setFetchEnabled(false); }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL_ACCOUNTS}>All Accounts</SelectItem>
+                      {(expenseAccountsList || []).map((a: any) => (
+                        <SelectItem key={a.id} value={a.id}>{a.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
+            )}
+
+            {selectedReport === 'pso-topups-summary' && (
               <div className="space-y-2">
-                <Label>Status</Label>
+                <Label>Branch</Label>
                 <Select
-                  value={cashReconStatus}
-                  onValueChange={(v) => { setCashReconStatus(v as 'open' | 'closed' | 'all'); setFetchEnabled(false); }}
+                  value={psoTopupsBranchId}
+                  onValueChange={(v) => { setPsoTopupsBranchId(v); setFetchEnabled(false); }}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="closed">Closed</SelectItem>
-                    <SelectItem value="open">Open</SelectItem>
-                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value={ALL_BRANCHES}>All Branches</SelectItem>
+                    {(branchesDataForReports || []).map((b: any) => (
+                      <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
+            )}
+
+            {selectedReport === 'cash-recon-history' && (
+              <>
+                <div className="space-y-2">
+                  <Label>Branch</Label>
+                  <Select
+                    value={cashReconBranchId}
+                    onValueChange={(v) => { setCashReconBranchId(v); setFetchEnabled(false); }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL_BRANCHES}>All Branches</SelectItem>
+                      {(branchesDataForReports || []).map((b: any) => (
+                        <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Status</Label>
+                  <Select
+                    value={cashReconStatus}
+                    onValueChange={(v) => { setCashReconStatus(v as 'open' | 'closed' | 'all'); setFetchEnabled(false); }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="closed">Closed</SelectItem>
+                      <SelectItem value="open">Open</SelectItem>
+                      <SelectItem value="all">All</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
             )}
 
             <div className="flex items-end">
