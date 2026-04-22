@@ -35,10 +35,12 @@ export interface ReceiptAllocation {
   createdAt: string;
 }
 
+export type LedgerEntryType = 'INVOICE' | 'RECEIPT' | 'ADVANCE_DEPOSIT' | 'ADVANCE_HANDOUT';
+
 export interface LedgerEntry {
   id: string;
   date: string;
-  type: 'INVOICE' | 'RECEIPT';
+  type: LedgerEntryType;
   sourceType: string;
   description: string;
   vehicleNumber?: string;
@@ -219,7 +221,7 @@ export const creditApi = {
       limit?: number;
       offset?: number;
       vehicleNumber?: string;
-      entryType?: 'INVOICE' | 'RECEIPT';
+      entryType?: LedgerEntryType;
       branchId?: string;
     }
   ): Promise<LedgerResponse> => {

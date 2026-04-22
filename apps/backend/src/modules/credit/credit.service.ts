@@ -81,10 +81,12 @@ export interface CreditCheckResult {
   message: string;
 }
 
+export type LedgerEntryType = 'INVOICE' | 'RECEIPT' | 'ADVANCE_DEPOSIT' | 'ADVANCE_HANDOUT';
+
 export interface LedgerEntry {
   id: string;
   date: Date;
-  type: 'INVOICE' | 'RECEIPT';
+  type: LedgerEntryType;
   sourceType: string;
   description: string;
   vehicleNumber: string | null;
@@ -1073,7 +1075,7 @@ export class CreditService {
       limit?: number;
       offset?: number;
       vehicleNumber?: string;
-      entryType?: 'INVOICE' | 'RECEIPT';
+      entryType?: LedgerEntryType;
       branchId?: string;
     }
   ): Promise<LedgerResponse> {
@@ -1122,6 +1124,25 @@ export class CreditService {
     let openingBalance = 0;
 
     if (filters?.startDate) {
+      // Advance movements only join the opening balance when no vehicle
+      // filter is active (they are not tied to a vehicle).
+      const priorAdvances = filters?.vehicleNumber
+        ? Prisma.empty
+        : Prisma.sql`
+          UNION ALL
+
+          -- CustomerAdvanceMovements before startDate (non-voided).
+          -- IN  (deposit) reduces receivable  → credit_amount
+          -- OUT (handout) increases receivable → debit_amount
+          SELECT cam.business_date::timestamp AS entry_date,
+                 CASE WHEN cam.direction = 'OUT' THEN cam.amount ELSE 0 END AS debit_amount,
+                 CASE WHEN cam.direction = 'IN'  THEN cam.amount ELSE 0 END AS credit_amount
+          FROM customer_advance_movements cam
+          WHERE cam.customer_id = ${customerId}::uuid
+            AND cam.voided_at IS NULL
+            AND cam.business_date < ${filters.startDate}
+        `;
+
       // Calculate opening balance (all entries before startDate)
       const openingRows = await prisma.$queryRaw<Array<{ balance: string }>>`
         SELECT COALESCE(SUM(debit_amount - credit_amount), 0) AS balance
@@ -1150,6 +1171,8 @@ export class CreditService {
           WHERE cr.customer_id = ${customerId}::uuid
             AND cr.deleted_at IS NULL
             AND cr.receipt_datetime < ${filters.startDate}
+
+          ${priorAdvances}
         ) AS prior_entries
       `;
 
@@ -1161,6 +1184,48 @@ export class CreditService {
     if (filters?.startDate) whereConditions.push(`bt.transaction_datetime >= '${filters.startDate.toISOString()}'`);
     if (filters?.endDate) whereConditions.push(`bt.transaction_datetime <= '${filters.endDate.toISOString()}'`);
     if (filters?.vehicleNumber) whereConditions.push(`bt.vehicle_number = '${filters.vehicleNumber}'`);
+
+    // Advance movements are tied to a customer, not a vehicle — they are
+    // only merged into the ledger timeline when no vehicle filter is set.
+    const advanceUnion = filters?.vehicleNumber
+      ? Prisma.empty
+      : Prisma.sql`
+        UNION ALL
+
+        -- Source D: CustomerAdvanceMovements (non-voided)
+        --   IN  (deposit)   → credit_amount (reduces receivable, like a receipt)
+        --   OUT (handout)   → debit_amount  (increases receivable, like an invoice)
+        SELECT
+          cam.id::text,
+          cam.business_date::timestamp AS entry_date,
+          CASE WHEN cam.direction = 'IN' THEN 'ADVANCE_DEPOSIT' ELSE 'ADVANCE_HANDOUT' END AS entry_type,
+          'CUSTOMER_ADVANCE' AS source_type,
+          CASE WHEN cam.direction = 'OUT' THEN cam.amount ELSE 0 END AS debit_amount,
+          CASE WHEN cam.direction = 'IN'  THEN cam.amount ELSE 0 END AS credit_amount,
+          NULL AS vehicle_number,
+          cam.reference_number AS slip_number,
+          NULL AS receipt_number,
+          CASE
+            WHEN cam.kind = 'DEPOSIT_CASH'        THEN 'Advance deposit (cash)'
+            WHEN cam.kind = 'DEPOSIT_IBFT'        THEN 'Advance deposit (IBFT)'
+            WHEN cam.kind = 'DEPOSIT_BANK_CARD'   THEN 'Advance deposit (bank card)'
+            WHEN cam.kind = 'DEPOSIT_PSO_CARD'    THEN 'Advance deposit (PSO card)'
+            WHEN cam.kind = 'CASH_HANDOUT'        THEN 'Driver cash handout'
+            WHEN cam.kind = 'FUEL_OFFSET'         THEN 'Fuel offset against advance'
+            WHEN cam.kind = 'MANUAL_ADJUSTMENT_IN'  THEN 'Manual adjustment (IN)'
+            WHEN cam.kind = 'MANUAL_ADJUSTMENT_OUT' THEN 'Manual adjustment (OUT)'
+            ELSE cam.kind
+          END || COALESCE(' — ' || NULLIF(cam.memo, ''), '') AS description,
+          LOWER(cam.kind) AS payment_method,
+          NULL AS product_type,
+          cam.created_by::text,
+          cam.created_at
+        FROM customer_advance_movements cam
+        WHERE cam.customer_id = ${customerId}::uuid
+          AND cam.voided_at IS NULL
+          ${filters?.startDate ? Prisma.sql`AND cam.business_date >= ${filters.startDate}` : Prisma.empty}
+          ${filters?.endDate ? Prisma.sql`AND cam.business_date <= ${filters.endDate}` : Prisma.empty}
+      `;
 
     const rawEntries = await prisma.$queryRaw<
       Array<{
@@ -1275,6 +1340,8 @@ export class CreditService {
           AND cr.deleted_at IS NULL
           ${filters?.startDate ? Prisma.sql`AND cr.receipt_datetime >= ${filters.startDate}` : Prisma.empty}
           ${filters?.endDate ? Prisma.sql`AND cr.receipt_datetime <= ${filters.endDate}` : Prisma.empty}
+
+        ${advanceUnion}
       ) AS ledger
       ${filters?.entryType ? Prisma.sql`WHERE entry_type = ${filters.entryType}` : Prisma.empty}
       ORDER BY entry_date ASC, created_at ASC, source_type ASC, id ASC
@@ -1291,7 +1358,7 @@ export class CreditService {
       return {
         id: row.id,
         date: row.entry_date,
-        type: row.entry_type as 'INVOICE' | 'RECEIPT',
+        type: row.entry_type as LedgerEntryType,
         sourceType: row.source_type,
         description: row.description,
         vehicleNumber: row.vehicle_number,

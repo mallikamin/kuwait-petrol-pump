@@ -773,12 +773,39 @@ export function Credit() {
                 </tr>
               </thead>
               <tbody>
-                {ledgerData.entries.map((entry) => (
-                  <tr key={entry.id} className="border-b hover:bg-muted/50">
+                {ledgerData.entries.map((entry) => {
+                  const isAdvance =
+                    entry.type === 'ADVANCE_DEPOSIT' || entry.type === 'ADVANCE_HANDOUT';
+                  const badgeVariant =
+                    entry.type === 'INVOICE'
+                      ? 'default'
+                      : entry.type === 'RECEIPT'
+                      ? 'secondary'
+                      : 'outline';
+                  const badgeLabel =
+                    entry.type === 'ADVANCE_DEPOSIT'
+                      ? 'ADV IN'
+                      : entry.type === 'ADVANCE_HANDOUT'
+                      ? 'ADV OUT'
+                      : entry.type;
+                  return (
+                  <tr
+                    key={entry.id}
+                    className={cn(
+                      'border-b hover:bg-muted/50',
+                      isAdvance && 'bg-amber-50/40'
+                    )}
+                  >
                     <td className="px-4 py-2">{format(new Date(entry.date), 'MMM dd, yyyy')}</td>
                     <td className="px-4 py-2">
-                      <Badge variant={entry.type === 'INVOICE' ? 'default' : 'secondary'} className="text-xs">
-                        {entry.type}
+                      <Badge
+                        variant={badgeVariant}
+                        className={cn(
+                          'text-xs',
+                          isAdvance && 'border-amber-500 text-amber-700'
+                        )}
+                      >
+                        {badgeLabel}
                       </Badge>
                     </td>
                     <td className="px-4 py-2">{entry.description}</td>
@@ -805,7 +832,8 @@ export function Credit() {
                       {fmtPKR(entry.balance)}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
