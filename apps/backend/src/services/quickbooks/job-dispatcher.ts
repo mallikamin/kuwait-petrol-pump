@@ -22,6 +22,7 @@ import { handlePurchaseCreate, PurchasePayload } from './handlers/purchase.handl
 import { handleBillPaymentCreate, BillPaymentPayload } from './handlers/bill-payment.handler';
 import { handleReceivePaymentCreate, ReceivePaymentPayload } from './handlers/receive-payment.handler';
 import { handleJournalEntryCreate, JournalEntryPayload } from './handlers/journal-entry.handler';
+import { handleCashExpenseCreate, CashExpensePayload } from './handlers/cash-expense.handler';
 
 export interface JobResult {
   success: boolean;
@@ -53,6 +54,13 @@ export async function dispatch(job: QBSyncQueue): Promise<JobResult> {
   if (job.entityType === 'inventory_adjustment' && job.jobType === 'create_journal_entry') {
     const payload = parsePayload<JournalEntryPayload>(job.payload);
     return await handleJournalEntryCreate(job, payload);
+  }
+
+  // Cash expenses (petty cash paid from the drawer against an expense
+  // account). Posts QB Purchase with AccountBasedExpenseLineDetail.
+  if (job.entityType === 'expense' && job.jobType === 'create_cash_expense') {
+    const payload = parsePayload<CashExpensePayload>(job.payload);
+    return await handleCashExpenseCreate(job, payload);
   }
 
   // Vendors / Purchases / Bill payments
