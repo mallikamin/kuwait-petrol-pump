@@ -98,7 +98,7 @@ export const getCustomerLedgerQuerySchema = z.object({
     .transform((val) => parseInt(val, 10))
     .default('0'),
   vehicleNumber: z.string().optional(),
-  entryType: z.enum(['INVOICE', 'RECEIPT']).optional(),
+  entryType: z.enum(['INVOICE', 'RECEIPT', 'ADVANCE_DEPOSIT', 'ADVANCE_HANDOUT']).optional(),
   branchId: z.string().uuid().optional(),
 });
 
