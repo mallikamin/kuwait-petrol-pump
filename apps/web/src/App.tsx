@@ -25,6 +25,7 @@ import { Credit } from '@/pages/Credit';
 import { Expenses } from '@/pages/Expenses';
 import { CashReconciliation } from '@/pages/CashReconciliation';
 import { PsoTopups } from '@/pages/PsoTopups';
+import { CustomerAdvance } from '@/pages/CustomerAdvance';
 import { NotFound } from '@/pages/NotFound';
 import { useAuthStore } from '@/store/auth';
 import { useThemeStore } from '@/store/theme';
@@ -92,6 +93,7 @@ function App() {
             <Route path="expenses" element={<Expenses />} />
             <Route path="cash-reconciliation" element={<CashReconciliation />} />
             <Route path="pso-topups" element={<PsoTopups />} />
+            <Route path="customer-advance" element={<CustomerAdvance />} />
             <Route path="reports" element={<Reports />} />
             <Route path="quickbooks" element={<QuickBooks />} />
             <Route path="users" element={<Users />} />
