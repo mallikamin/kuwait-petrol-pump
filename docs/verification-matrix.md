@@ -82,7 +82,87 @@ handling.
 
 ## Task 2 — Unified per-customer ledger
 
-_Pending — will be filled in when Task 1 merges._
+### Scope
+
+Merge `customer_advance_movements` (non-voided) into the existing
+per-customer ledger view as two new entry types — `ADVANCE_DEPOSIT`
+(IN → credit) and `ADVANCE_HANDOUT` (OUT → debit) — interleaved
+chronologically with INVOICE / RECEIPT. Credit-sale code path
+untouched (client directive: *"no need to change that area"*).
+
+### Files changed
+
+- `apps/backend/src/modules/credit/credit.service.ts`
+  - new exported `LedgerEntryType` union
+  - opening-balance UNION extended with `customer_advance_movements`
+    (skipped when `vehicleNumber` filter is set)
+  - main ledger UNION extended with advance movements (same guard)
+  - row mapper uses `LedgerEntryType` cast
+- `apps/backend/src/modules/credit/credit.schema.ts`
+  - `entryType` enum extended to include the two new values
+- `apps/web/src/api/credit.ts`
+  - exported `LedgerEntryType`; `LedgerEntry.type` + `entryType` filter extended
+- `apps/web/src/pages/Credit.tsx`
+  - new row renderer branches: distinct badge (outline + amber border)
+    and row background tint for advance movements; label collapsed to
+    `ADV IN` / `ADV OUT` for compact display
+
+### Pre-change checks
+
+| Check                      | Command                                       | Result       |
+| -------------------------- | --------------------------------------------- | ------------ |
+| Backend typecheck          | `cd apps/backend && npx tsc --noEmit`         | PASS         |
+| Web typecheck              | `cd apps/web && npx tsc --noEmit`             | PASS         |
+| credit module jest         | `npx jest --testPathPattern='credit'`         | 31/31        |
+
+### Post-change checks
+
+| Check                      | Command                                       | Result       |
+| -------------------------- | --------------------------------------------- | ------------ |
+| Backend typecheck          | `cd apps/backend && npx tsc --noEmit`         | PASS (exit 0) |
+| Web typecheck              | `cd apps/web && npx tsc --noEmit`             | PASS (exit 0) |
+| credit module jest         | `npx jest --testPathPattern='credit'`         | 31/31 (no regression) |
+
+**Delta: zero.** No pre-existing test failed or changed behavior.
+
+### What changed / what did NOT change
+
+- **Changed:** ledger read path (`getCustomerLedger` SQL + type
+  surface), Credit.tsx row renderer.
+- **Did NOT change:** any sales-creation path (fuel sales, backdated
+  transactions, credit invoice logic), any receipt-creation path, any
+  balance-calculation function other than the display-time running
+  total (same `debit - credit` accumulator), any advance movement
+  creation/void path (`customer-advance.service.ts` untouched).
+
+### Running-balance math
+
+| Entry                   | debit | credit | Effect on running balance |
+| ----------------------- | ----- | ------ | ------------------------- |
+| INVOICE (existing)      | > 0   | 0      | += debit                  |
+| RECEIPT (existing)      | 0     | > 0    | -= credit                 |
+| ADVANCE_DEPOSIT (new)   | 0     | amount | -= amount (reduces AR)    |
+| ADVANCE_HANDOUT (new)   | amount | 0     | += amount (increases AR)  |
+
+### End-to-end validation (deferred to deploy-time smoke)
+
+Requires a seeded customer with an advance deposit + credit invoice.
+After Task 2 deploys, verify via curl:
+
+```bash
+JWT=$(curl -sk -X POST https://kuwaitpos.duckdns.org/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"AdminPass123"}' | jq -r .token)
+
+curl -sk -H "Authorization: Bearer $JWT" \
+  "https://kuwaitpos.duckdns.org/api/credit/customers/<customerId>/ledger?limit=50" \
+  | jq '.data.entries | map({date, type, description, debit, credit, balance})'
+```
+
+Expected: chronologically interleaved INVOICE / RECEIPT /
+ADVANCE_DEPOSIT / ADVANCE_HANDOUT entries with strictly consistent
+running balance. Also verify `entryType=ADVANCE_DEPOSIT` filter
+returns only deposits.
 
 ---
 
