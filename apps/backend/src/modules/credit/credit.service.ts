@@ -1,6 +1,7 @@
 import { prisma } from '../../config/database';
 import { Prisma } from '@prisma/client';
 import { AppError } from '../../middleware/error.middleware';
+import { CashLedgerService } from '../cash-ledger/cash-ledger.service';
 
 /**
  * QB ReceivePayment enqueue — maps POS paymentMethod → receive-payment handler's
@@ -710,6 +711,22 @@ export class CreditService {
         amount: Number(a.allocatedAmount),
       })),
     });
+
+    // Cash ledger IN for cash receipts only. Cheque/bank_transfer/online/
+    // pso_card settle through bank or clearing channels, not the drawer.
+    if (data.paymentMethod === 'cash') {
+      await CashLedgerService.tryPost({
+        organizationId,
+        branchId: data.branchId,
+        businessDate: data.receiptDatetime,
+        direction: 'IN',
+        source: 'CREDIT_RECEIPT',
+        sourceId: result.receipt.id,
+        amount: data.amount,
+        memo: `Credit receipt cash collection ${result.receipt.receiptNumber || result.receipt.id.slice(0, 8)}`,
+        createdBy: userId,
+      });
+    }
 
     return result.receipt;
   }

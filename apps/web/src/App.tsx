@@ -22,6 +22,10 @@ import { PurchaseOrders } from '@/pages/PurchaseOrders';
 import { BackdatedEntries } from '@/pages/BackdatedEntries';
 import { BackdatedEntries2 } from '@/pages/BackdatedEntries2';
 import { Credit } from '@/pages/Credit';
+import { Expenses } from '@/pages/Expenses';
+import { CashReconciliation } from '@/pages/CashReconciliation';
+import { PsoTopups } from '@/pages/PsoTopups';
+import { CustomerAdvance } from '@/pages/CustomerAdvance';
 import { NotFound } from '@/pages/NotFound';
 import { useAuthStore } from '@/store/auth';
 import { useThemeStore } from '@/store/theme';
@@ -86,6 +90,10 @@ function App() {
             <Route path="purchase-orders" element={<PurchaseOrders />} />
             <Route path="reconciliation" element={<Reconciliation />} />
             <Route path="receipts" element={<Credit />} />
+            <Route path="expenses" element={<Expenses />} />
+            <Route path="cash-reconciliation" element={<CashReconciliation />} />
+            <Route path="pso-topups" element={<PsoTopups />} />
+            <Route path="customer-advance" element={<CustomerAdvance />} />
             <Route path="reports" element={<Reports />} />
             <Route path="quickbooks" element={<QuickBooks />} />
             <Route path="users" element={<Users />} />

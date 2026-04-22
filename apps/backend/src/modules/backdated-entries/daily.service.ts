@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { AppError } from '../../middleware/error.middleware';
 import { BackdatedMeterReadingsDailyService } from './meter-readings-daily.service';
 import { toBranchStartOfDay, toBranchEndOfDay, normalizeBusinessDateUTC } from '../../utils/timezone';
+import { CashLedgerService } from '../cash-ledger/cash-ledger.service';
 
 /**
  * DailyBackdatedEntriesService
@@ -1664,6 +1665,25 @@ export class DailyBackdatedEntriesService {
       const sale = await prisma.sale.create({ data: saleData });
       createdSales.push(sale.id);
       saleIdByTxnId.set(txn.id, sale.id);
+
+      // Cash ledger IN: only when the backdated txn was tendered as cash.
+      // Other methods (credit_card / bank_card / pso_card / credit_customer)
+      // settle through card/receivable channels and must not hit the drawer
+      // ledger.
+      if (txn.paymentMethod === 'cash') {
+        await CashLedgerService.tryPost({
+          organizationId,
+          branchId: txn._entry.branchId,
+          businessDate: txn.transactionDateTime,
+          shiftInstanceId,
+          direction: 'IN',
+          source: 'SALE',
+          sourceId: sale.id,
+          amount: Number(txn.lineTotal),
+          memo: `Cash backdated sale ${sale.id.slice(0, 8)} (txn ${txn.id.slice(0, 8)})`,
+          createdBy: userId || txn._entry.createdBy || null,
+        });
+      }
     }
 
     console.log(`[Finalize] Created ${createdSales.length} sale records from ${allTransactions.length} backdated transactions`);

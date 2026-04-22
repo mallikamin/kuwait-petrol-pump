@@ -22,6 +22,14 @@ import { handlePurchaseCreate, PurchasePayload } from './handlers/purchase.handl
 import { handleBillPaymentCreate, BillPaymentPayload } from './handlers/bill-payment.handler';
 import { handleReceivePaymentCreate, ReceivePaymentPayload } from './handlers/receive-payment.handler';
 import { handleJournalEntryCreate, JournalEntryPayload } from './handlers/journal-entry.handler';
+import { handleCashExpenseCreate, CashExpensePayload } from './handlers/cash-expense.handler';
+import { handlePsoTopupJournal, PsoTopupPayload } from './handlers/pso-topup.handler';
+import {
+  handleAdvanceDepositJournal,
+  handleAdvanceHandoutJournal,
+  AdvanceDepositPayload,
+  AdvanceHandoutPayload,
+} from './handlers/customer-advance.handler';
 
 export interface JobResult {
   success: boolean;
@@ -53,6 +61,30 @@ export async function dispatch(job: QBSyncQueue): Promise<JobResult> {
   if (job.entityType === 'inventory_adjustment' && job.jobType === 'create_journal_entry') {
     const payload = parsePayload<JournalEntryPayload>(job.payload);
     return await handleJournalEntryCreate(job, payload);
+  }
+
+  // Cash expenses (petty cash paid from the drawer against an expense
+  // account). Posts QB Purchase with AccountBasedExpenseLineDetail.
+  if (job.entityType === 'expense' && job.jobType === 'create_cash_expense') {
+    const payload = parsePayload<CashExpensePayload>(job.payload);
+    return await handleCashExpenseCreate(job, payload);
+  }
+
+  // Cash-to-PSO-Card top-up: DR Cash / CR A/P (Entity = PSO vendor).
+  if (job.entityType === 'pso_topup' && job.jobType === 'create_pso_topup_journal') {
+    const payload = parsePayload<PsoTopupPayload>(job.payload);
+    return await handlePsoTopupJournal(job, payload);
+  }
+
+  // Customer advance: DR asset / CR Customer Advance liability.
+  if (job.entityType === 'customer_advance' && job.jobType === 'create_advance_deposit_journal') {
+    const payload = parsePayload<AdvanceDepositPayload>(job.payload);
+    return await handleAdvanceDepositJournal(job, payload);
+  }
+  // Driver cash handout: DR Customer Advance / CR Cash.
+  if (job.entityType === 'customer_advance' && job.jobType === 'create_advance_handout_journal') {
+    const payload = parsePayload<AdvanceHandoutPayload>(job.payload);
+    return await handleAdvanceHandoutJournal(job, payload);
   }
 
   // Vendors / Purchases / Bill payments

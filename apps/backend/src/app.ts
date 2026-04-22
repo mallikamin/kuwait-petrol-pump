@@ -30,6 +30,11 @@ import backdatedMeterReadingsRoutes from './modules/backdated-entries/backdated-
 import creditRoutes from './modules/credit/credit.routes';
 import monthlyGainLossRoutes from './modules/inventory/monthly-gain-loss.routes';
 import inventoryBootstrapRoutes from './modules/inventory/bootstrap.routes';
+import cashLedgerRoutes from './modules/cash-ledger/cash-ledger.routes';
+import expensesRoutes from './modules/expenses/expenses.routes';
+import cashReconciliationRoutes from './modules/cash-reconciliation/cash-reconciliation.routes';
+import psoTopupRoutes from './modules/pso-topup/pso-topup.routes';
+import customerAdvanceRoutes from './modules/customer-advance/customer-advance.routes';
 
 // Validate QB config on startup (P0: fail fast if missing)
 validateQuickBooksConfig();
@@ -112,6 +117,11 @@ export function createApp() {
   app.use('/api/credit', creditRoutes); // Credit customer receipts & ledger
   app.use('/api/inventory/monthly-gain-loss', monthlyGainLossRoutes); // Monthly inventory gain/loss entries
   app.use('/api/inventory/bootstrap', inventoryBootstrapRoutes); // Opening-stock bootstrap editor
+  app.use('/api/cash-ledger', cashLedgerRoutes); // Cash ledger (EOD reconciliation foundation)
+  app.use('/api/expenses', expensesRoutes); // Expense module (cash outflows)
+  app.use('/api/cash-reconciliation', cashReconciliationRoutes); // EOD cash reconciliation
+  app.use('/api/pso-topups', psoTopupRoutes); // Cash-to-PSO-Card top-ups
+  app.use('/api/customer-advance', customerAdvanceRoutes); // Customer advance account
 
   app.use('/api/users', usersRoutes);
 

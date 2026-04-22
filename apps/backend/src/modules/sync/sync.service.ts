@@ -16,6 +16,7 @@ import {
 } from './sync.types';
 import { TenantValidator } from './tenant-validator';
 import { enqueueQbSaleSync } from '../../services/quickbooks/enqueue-sale';
+import { CashLedgerService } from '../cash-ledger/cash-ledger.service';
 
 const prisma = new PrismaClient();
 
@@ -115,6 +116,23 @@ export class SyncService {
         // QB enqueue outside the transaction: sale is persisted; a transient
         // enqueue failure must not roll back a successful offline sync.
         await this.enqueueSaleToQb(createdSale, queuedSale, organizationId);
+
+        // Cash ledger IN for cash sales synced from offline queue. Keep this
+        // best-effort (tryPost) so ledger issues don't fail the sync.
+        if (queuedSale.paymentMethod === 'cash') {
+          await CashLedgerService.tryPost({
+            organizationId,
+            branchId: queuedSale.branchId,
+            businessDate: createdSale.saleDate,
+            shiftInstanceId: queuedSale.shiftInstanceId || null,
+            direction: 'IN',
+            source: 'SALE',
+            sourceId: createdSale.id,
+            amount: Number(queuedSale.totalAmount),
+            memo: `Cash sale (offline sync) ${createdSale.id.slice(0, 8)}`,
+            createdBy: queuedSale.cashierId || null,
+          });
+        }
 
         result.synced++;
       } catch (error) {

@@ -18,6 +18,8 @@ import {
   ShoppingCart as ShoppingBag,
   CalendarClock,
   Receipt,
+  Banknote,
+  Wallet,
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { useAuthStore } from '@/store/auth';
@@ -47,6 +49,10 @@ const navItems: NavItem[] = [
   { title: 'Purchase Orders', href: '/purchase-orders', icon: <ShoppingBag className="h-5 w-5" />, roles: ['admin', 'manager', 'accountant'] },
   { title: 'Reconciliation', href: '/reconciliation', icon: <Calculator className="h-5 w-5" /> },
   { title: 'Receipts', href: '/receipts', icon: <Receipt className="h-5 w-5" />, roles: ['admin', 'accountant'] },
+  { title: 'Expenses', href: '/expenses', icon: <Banknote className="h-5 w-5" /> },
+  { title: 'Cash Reconciliation', href: '/cash-reconciliation', icon: <Calculator className="h-5 w-5" />, roles: ['admin', 'manager', 'accountant'] },
+  { title: 'PSO Top-Ups', href: '/pso-topups', icon: <CreditCard className="h-5 w-5" /> },
+  { title: 'Customer Advances', href: '/customer-advance', icon: <Wallet className="h-5 w-5" />, roles: ['admin', 'manager', 'accountant', 'cashier'] },
   { title: 'Reports', href: '/reports', icon: <FileText className="h-5 w-5" /> },
   { title: 'QuickBooks', href: '/quickbooks', icon: <Link2 className="h-5 w-5" />, roles: ['admin', 'manager', 'accountant'] },
   { title: 'Users', href: '/users', icon: <Settings className="h-5 w-5" />, roles: ['admin', 'accountant'] },
