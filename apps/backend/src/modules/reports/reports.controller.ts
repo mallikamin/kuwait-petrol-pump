@@ -111,6 +111,60 @@ const productWiseSummaryQuerySchema = z.object({
   { message: 'If providing date range, both startDate and endDate required' }
 );
 
+// ============================================================
+// Phase 2-5 report schemas
+// ============================================================
+
+const expensesReportQuerySchema = z
+  .object({
+    startDate: z.string(),
+    endDate: z.string(),
+    branchId: z.string().uuid().optional(),
+    expenseAccountId: z.string().uuid().optional(),
+  })
+  .refine(
+    (data) => !!(data.startDate && data.endDate),
+    { message: 'Both startDate and endDate required' },
+  );
+
+const psoTopupsSummaryQuerySchema = z
+  .object({
+    startDate: z.string(),
+    endDate: z.string(),
+    branchId: z.string().uuid().optional(),
+  })
+  .refine(
+    (data) => !!(data.startDate && data.endDate),
+    { message: 'Both startDate and endDate required' },
+  );
+
+const cashReconHistoryQuerySchema = z
+  .object({
+    startDate: z.string(),
+    endDate: z.string(),
+    branchId: z.string().uuid().optional(),
+    status: z.enum(['open', 'closed', 'all']).optional(),
+  })
+  .refine(
+    (data) => !!(data.startDate && data.endDate),
+    { message: 'Both startDate and endDate required' },
+  );
+
+function parseDateRange(startDate: string, endDate: string): { start: Date; end: Date } {
+  const start = new Date(startDate);
+  start.setUTCHours(0, 0, 0, 0);
+  const end = new Date(endDate);
+  end.setUTCHours(23, 59, 59, 999);
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+    throw new Error('Invalid date range');
+  }
+  return { start, end };
+}
+
+function requireReportRole(role: string): boolean {
+  return ['admin', 'manager', 'accountant', 'operator'].includes(role);
+}
+
 export class ReportsController {
   private reportsService: ReportsService;
 
@@ -576,6 +630,99 @@ export class ReportsController {
         report,
         message: 'Product-wise summary report retrieved successfully',
       });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * GET /api/reports/expenses
+   * Per-account totals for the period with optional branch / account filters.
+   */
+  getExpensesReport = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+      if (!requireReportRole(req.user.role)) {
+        return res.status(403).json({ error: 'Insufficient permissions' });
+      }
+      const query = expensesReportQuerySchema.parse(req.query);
+      const { start, end } = parseDateRange(query.startDate, query.endDate);
+      const report = await this.reportsService.getExpensesReport(
+        req.user.organizationId,
+        start,
+        end,
+        query.branchId,
+        query.expenseAccountId,
+      );
+      res.json({ report, message: 'Expenses report retrieved successfully' });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * GET /api/reports/customer-advance-balances
+   * All customers with a non-zero advance balance.
+   */
+  getCustomerAdvanceBalances = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+      if (!requireReportRole(req.user.role)) {
+        return res.status(403).json({ error: 'Insufficient permissions' });
+      }
+      const report = await this.reportsService.getCustomerAdvanceBalances(
+        req.user.organizationId,
+      );
+      res.json({ report, message: 'Customer advance balances retrieved successfully' });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * GET /api/reports/pso-topups-summary
+   * Period total + breakdown by customer for PSO top-ups.
+   */
+  getPsoTopupsSummary = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+      if (!requireReportRole(req.user.role)) {
+        return res.status(403).json({ error: 'Insufficient permissions' });
+      }
+      const query = psoTopupsSummaryQuerySchema.parse(req.query);
+      const { start, end } = parseDateRange(query.startDate, query.endDate);
+      const report = await this.reportsService.getPsoTopupsSummary(
+        req.user.organizationId,
+        start,
+        end,
+        query.branchId,
+      );
+      res.json({ report, message: 'PSO top-ups summary retrieved successfully' });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * GET /api/reports/cash-recon-history
+   * Reconciliations in the period with variance.
+   */
+  getCashReconHistory = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+      if (!requireReportRole(req.user.role)) {
+        return res.status(403).json({ error: 'Insufficient permissions' });
+      }
+      const query = cashReconHistoryQuerySchema.parse(req.query);
+      const { start, end } = parseDateRange(query.startDate, query.endDate);
+      const report = await this.reportsService.getCashReconHistory(
+        req.user.organizationId,
+        start,
+        end,
+        query.branchId,
+        query.status || 'closed',
+      );
+      res.json({ report, message: 'Cash recon history retrieved successfully' });
     } catch (error) {
       next(error);
     }

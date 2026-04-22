@@ -1840,4 +1840,291 @@ export class ReportsService {
       })),
     };
   }
+
+  /**
+   * GET /api/reports/expenses
+   * Per-account totals for the period with optional branch / account
+   * filters. Thin aggregation — honours voidedAt=null so the totals
+   * match what the cash ledger actually booked.
+   */
+  async getExpensesReport(
+    organizationId: string,
+    startDate: Date,
+    endDate: Date,
+    branchId?: string,
+    expenseAccountId?: string,
+  ) {
+    if (branchId) {
+      const branch = await prisma.branch.findFirst({ where: { id: branchId, organizationId } });
+      if (!branch) throw new AppError(404, 'Branch not found');
+    }
+
+    const where: any = {
+      organizationId,
+      voidedAt: null,
+      businessDate: { gte: startDate, lte: endDate },
+      ...(branchId ? { branchId } : {}),
+      ...(expenseAccountId ? { expenseAccountId } : {}),
+    };
+
+    const rows = await prisma.expenseEntry.findMany({
+      where,
+      include: {
+        expenseAccount: { select: { id: true, label: true, qbAccountName: true } },
+        branch: { select: { id: true, name: true } },
+      },
+      orderBy: [{ businessDate: 'asc' }, { createdAt: 'asc' }],
+    });
+
+    // Per-account totals
+    const byAccount = new Map<string, { accountId: string; label: string; qbAccountName: string | null; total: number; count: number }>();
+    let grandTotal = 0;
+    for (const r of rows) {
+      const amt = Number(r.amount);
+      grandTotal += amt;
+      const key = r.expenseAccount.id;
+      const prev = byAccount.get(key);
+      if (prev) {
+        prev.total += amt;
+        prev.count += 1;
+      } else {
+        byAccount.set(key, {
+          accountId: r.expenseAccount.id,
+          label: r.expenseAccount.label,
+          qbAccountName: r.expenseAccount.qbAccountName,
+          total: amt,
+          count: 1,
+        });
+      }
+    }
+
+    return {
+      filters: {
+        startDate: startDate.toISOString().slice(0, 10),
+        endDate: endDate.toISOString().slice(0, 10),
+        branchId: branchId || null,
+        expenseAccountId: expenseAccountId || null,
+      },
+      grandTotal,
+      entryCount: rows.length,
+      byAccount: Array.from(byAccount.values()).sort((a, b) => b.total - a.total),
+      rows: rows.map((r) => ({
+        id: r.id,
+        businessDate: r.businessDate,
+        branchName: r.branch.name,
+        accountLabel: r.expenseAccount.label,
+        qbAccountName: r.expenseAccount.qbAccountName,
+        amount: Number(r.amount),
+        memo: r.memo,
+      })),
+    };
+  }
+
+  /**
+   * GET /api/reports/customer-advance-balances
+   * All customers with a non-zero advance balance (IN − OUT over
+   * non-voided movements). Sortable at DB level by net balance
+   * descending; frontend can resort if needed.
+   */
+  async getCustomerAdvanceBalances(organizationId: string) {
+    const rows = await prisma.$queryRaw<
+      Array<{
+        customer_id: string;
+        customer_name: string;
+        customer_phone: string | null;
+        in_total: string;
+        out_total: string;
+        balance: string;
+        last_movement_at: Date;
+      }>
+    >`
+      SELECT
+        cam.customer_id::text,
+        c.name AS customer_name,
+        c.phone AS customer_phone,
+        COALESCE(SUM(CASE WHEN cam.direction = 'IN'  THEN cam.amount ELSE 0 END), 0)::text AS in_total,
+        COALESCE(SUM(CASE WHEN cam.direction = 'OUT' THEN cam.amount ELSE 0 END), 0)::text AS out_total,
+        COALESCE(
+          SUM(CASE WHEN cam.direction = 'IN'  THEN cam.amount ELSE -cam.amount END),
+          0
+        )::text AS balance,
+        MAX(cam.created_at) AS last_movement_at
+      FROM customer_advance_movements cam
+      JOIN customers c ON c.id = cam.customer_id
+      WHERE cam.organization_id = ${organizationId}::uuid
+        AND cam.voided_at IS NULL
+      GROUP BY cam.customer_id, c.name, c.phone
+      HAVING COALESCE(
+        SUM(CASE WHEN cam.direction = 'IN' THEN cam.amount ELSE -cam.amount END),
+        0
+      ) <> 0
+      ORDER BY balance DESC
+    `;
+
+    const customers = rows.map((r) => ({
+      customerId: r.customer_id,
+      customerName: r.customer_name,
+      customerPhone: r.customer_phone,
+      inTotal: parseFloat(r.in_total),
+      outTotal: parseFloat(r.out_total),
+      balance: parseFloat(r.balance),
+      lastMovementAt: r.last_movement_at,
+    }));
+
+    const totalAdvanceHeld = customers.reduce((s, c) => s + (c.balance > 0 ? c.balance : 0), 0);
+    const totalOverdrawn = customers.reduce((s, c) => s + (c.balance < 0 ? c.balance : 0), 0);
+
+    return {
+      totalCustomers: customers.length,
+      totalAdvanceHeld,
+      totalOverdrawn,
+      customers,
+    };
+  }
+
+  /**
+   * GET /api/reports/pso-topups-summary
+   * Period total + breakdown by customer for PSO card top-ups
+   * (non-voided). Honours optional branch filter.
+   */
+  async getPsoTopupsSummary(
+    organizationId: string,
+    startDate: Date,
+    endDate: Date,
+    branchId?: string,
+  ) {
+    if (branchId) {
+      const branch = await prisma.branch.findFirst({ where: { id: branchId, organizationId } });
+      if (!branch) throw new AppError(404, 'Branch not found');
+    }
+
+    const where: any = {
+      organizationId,
+      voidedAt: null,
+      businessDate: { gte: startDate, lte: endDate },
+      ...(branchId ? { branchId } : {}),
+    };
+
+    const rows = await prisma.psoTopup.findMany({
+      where,
+      include: {
+        customer: { select: { id: true, name: true, phone: true } },
+        branch: { select: { id: true, name: true } },
+      },
+      orderBy: [{ businessDate: 'asc' }, { createdAt: 'asc' }],
+    });
+
+    let grandTotal = 0;
+    const byCustomer = new Map<string, { customerId: string | null; customerName: string; total: number; count: number }>();
+    for (const r of rows) {
+      const amt = Number(r.amount);
+      grandTotal += amt;
+      const key = r.customerId || '__anonymous__';
+      const name = r.customer?.name || 'Anonymous (no customer)';
+      const prev = byCustomer.get(key);
+      if (prev) {
+        prev.total += amt;
+        prev.count += 1;
+      } else {
+        byCustomer.set(key, {
+          customerId: r.customerId,
+          customerName: name,
+          total: amt,
+          count: 1,
+        });
+      }
+    }
+
+    return {
+      filters: {
+        startDate: startDate.toISOString().slice(0, 10),
+        endDate: endDate.toISOString().slice(0, 10),
+        branchId: branchId || null,
+      },
+      grandTotal,
+      topupCount: rows.length,
+      byCustomer: Array.from(byCustomer.values()).sort((a, b) => b.total - a.total),
+      rows: rows.map((r) => ({
+        id: r.id,
+        businessDate: r.businessDate,
+        branchName: r.branch.name,
+        customerName: r.customer?.name || 'Anonymous',
+        psoCardLast4: r.psoCardLast4,
+        amount: Number(r.amount),
+        memo: r.memo,
+      })),
+    };
+  }
+
+  /**
+   * GET /api/reports/cash-recon-history
+   * List of reconciliations in the period with variance. Status filter
+   * defaults to 'closed' (the useful view for audit); callers can pass
+   * 'open' / 'all' for WIP review.
+   */
+  async getCashReconHistory(
+    organizationId: string,
+    startDate: Date,
+    endDate: Date,
+    branchId?: string,
+    status: 'closed' | 'open' | 'all' = 'closed',
+  ) {
+    if (branchId) {
+      const branch = await prisma.branch.findFirst({ where: { id: branchId, organizationId } });
+      if (!branch) throw new AppError(404, 'Branch not found');
+    }
+
+    const where: any = {
+      organizationId,
+      businessDate: { gte: startDate, lte: endDate },
+      ...(branchId ? { branchId } : {}),
+      ...(status === 'all' ? {} : { status }),
+    };
+
+    const rows = await prisma.cashReconciliation.findMany({
+      where,
+      include: {
+        branch: { select: { id: true, name: true } },
+        submittedByUser: { select: { id: true, fullName: true, username: true } },
+        closedByUser: { select: { id: true, fullName: true, username: true } },
+      },
+      orderBy: [{ businessDate: 'desc' }],
+    });
+
+    let totalOver = 0;
+    let totalShort = 0;
+    for (const r of rows) {
+      const v = Number(r.variance);
+      if (v > 0) totalOver += v;
+      else if (v < 0) totalShort += v;
+    }
+
+    return {
+      filters: {
+        startDate: startDate.toISOString().slice(0, 10),
+        endDate: endDate.toISOString().slice(0, 10),
+        branchId: branchId || null,
+        status,
+      },
+      totalReconciliations: rows.length,
+      totalOver,
+      totalShort,
+      netVariance: totalOver + totalShort,
+      rows: rows.map((r) => ({
+        id: r.id,
+        branchId: r.branchId,
+        branchName: r.branch.name,
+        businessDate: r.businessDate,
+        status: r.status,
+        expectedCash: Number(r.expectedCash),
+        physicalCash: Number(r.physicalCash),
+        variance: Number(r.variance),
+        notes: r.notes,
+        submittedBy: r.submittedByUser?.username || null,
+        submittedAt: r.submittedAt,
+        closedBy: r.closedByUser?.username || null,
+        closedAt: r.closedAt,
+      })),
+    };
+  }
 }

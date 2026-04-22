@@ -32,4 +32,10 @@ router.get('/customer-wise-sales', reportsController.getCustomerWiseSalesReport)
 // Product-wise summary report endpoint
 router.get('/product-wise-summary', reportsController.getProductWiseSummaryReport);
 
+// Phase 2-5 reports — see docs/verification-matrix.md § Task 4
+router.get('/expenses', reportsController.getExpensesReport);
+router.get('/customer-advance-balances', reportsController.getCustomerAdvanceBalances);
+router.get('/pso-topups-summary', reportsController.getPsoTopupsSummary);
+router.get('/cash-recon-history', reportsController.getCashReconHistory);
+
 export default router;

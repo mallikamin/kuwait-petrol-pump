@@ -46,7 +46,11 @@ type ReportType =
   | 'fuel-price-history'
   | 'customer-wise-sales'
   | 'vehicle-wise-report'
-  | 'product-wise-summary';
+  | 'product-wise-summary'
+  | 'expenses'
+  | 'customer-advance-balances'
+  | 'pso-topups-summary'
+  | 'cash-recon-history';
 const WALK_IN_LEDGER_ID = '__walkin__';
 
 function formatDate(date: string | Date): string {
@@ -190,6 +194,9 @@ export function Reports() {
   const [inventoryCategory, setInventoryCategory] = useState<'all' | 'total_fuel' | 'HSD' | 'PMG' | 'non_fuel'>('all');
   const [inventoryProductId, setInventoryProductId] = useState<string>(ALL_PRODUCTS_VALUE);
   const [bootstrapEditorOpen, setBootstrapEditorOpen] = useState(false);
+  // Phase 2-5 report filters. All four use startDate/endDate from the
+  // shared range state — no per-report filter-mode dropdown needed.
+  const [cashReconStatus, setCashReconStatus] = useState<'open' | 'closed' | 'all'>('closed');
 
   // Daily Sales (supports no-filter, single date, and date range)
   const { data: dailySales, isLoading: loadingDaily, isError: errorDaily } = useQuery({
@@ -408,6 +415,44 @@ export function Reports() {
     refetchOnWindowFocus: false,
   });
 
+  // Phase 2-5 report queries. All use the shared startDate/endDate range
+  // except advance balances which is a point-in-time snapshot.
+  const { data: expensesReport, isLoading: loadingExpenses, isError: errorExpenses } = useQuery({
+    queryKey: ['report-expenses', startDate, endDate],
+    queryFn: () => reportsApi.getExpensesReport(startDate, endDate),
+    enabled: fetchEnabled && selectedReport === 'expenses',
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
+  });
+
+  const { data: advanceBalances, isLoading: loadingAdvanceBalances, isError: errorAdvanceBalances } = useQuery({
+    queryKey: ['report-advance-balances'],
+    queryFn: () => reportsApi.getCustomerAdvanceBalances(),
+    enabled: fetchEnabled && selectedReport === 'customer-advance-balances',
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
+  });
+
+  const { data: psoTopupsSummary, isLoading: loadingPsoTopups, isError: errorPsoTopups } = useQuery({
+    queryKey: ['report-pso-topups', startDate, endDate],
+    queryFn: () => reportsApi.getPsoTopupsSummary(startDate, endDate),
+    enabled: fetchEnabled && selectedReport === 'pso-topups-summary',
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
+  });
+
+  const { data: cashReconHistory, isLoading: loadingCashRecon, isError: errorCashRecon } = useQuery({
+    queryKey: ['report-cash-recon', startDate, endDate, cashReconStatus],
+    queryFn: () => reportsApi.getCashReconHistory(startDate, endDate, undefined, cashReconStatus),
+    enabled: fetchEnabled && selectedReport === 'cash-recon-history',
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
+  });
+
   // Get customers list for dropdown (ledger, customer-wise, and vehicle-wise reports)
   const [customerSearch, setCustomerSearch] = useState('');
   const { data: customersData } = useQuery({
@@ -479,7 +524,11 @@ export function Reports() {
     loadingFuelPrice ||
     loadingCustomerWise ||
     loadingVehicleWise ||
-    loadingProductWise;
+    loadingProductWise ||
+    loadingExpenses ||
+    loadingAdvanceBalances ||
+    loadingPsoTopups ||
+    loadingCashRecon;
   const isError =
     errorDaily ||
     errorInventory ||
@@ -488,7 +537,11 @@ export function Reports() {
     errorFuelPrice ||
     errorCustomerWise ||
     errorVehicleWise ||
-    errorProductWise;
+    errorProductWise ||
+    errorExpenses ||
+    errorAdvanceBalances ||
+    errorPsoTopups ||
+    errorCashRecon;
 
   const handleGenerate = () => {
     setFetchEnabled(true);
@@ -855,6 +908,10 @@ export function Reports() {
                   <SelectItem value="customer-wise-sales">Customer-Wise Sales</SelectItem>
                   <SelectItem value="vehicle-wise-report">Vehicle-Wise Report</SelectItem>
                   <SelectItem value="product-wise-summary">Product-Wise Summary</SelectItem>
+                  <SelectItem value="expenses">Expenses Report</SelectItem>
+                  <SelectItem value="customer-advance-balances">Customer Advance Balances</SelectItem>
+                  <SelectItem value="pso-topups-summary">PSO Top-Ups Summary</SelectItem>
+                  <SelectItem value="cash-recon-history">Cash Reconciliation History</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -1339,6 +1396,50 @@ export function Reports() {
                   </>
                 )}
               </>
+            )}
+
+            {/* Phase 2-5 report filters (expenses / pso-topups / cash-recon share
+                a simple start-end range; advance balances is point-in-time). */}
+            {(selectedReport === 'expenses' ||
+              selectedReport === 'pso-topups-summary' ||
+              selectedReport === 'cash-recon-history') && (
+              <>
+                <div className="space-y-2">
+                  <Label>Start Date</Label>
+                  <Input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => { setStartDate(e.target.value); setFetchEnabled(false); }}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>End Date</Label>
+                  <Input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => { setEndDate(e.target.value); setFetchEnabled(false); }}
+                  />
+                </div>
+              </>
+            )}
+
+            {selectedReport === 'cash-recon-history' && (
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <Select
+                  value={cashReconStatus}
+                  onValueChange={(v) => { setCashReconStatus(v as 'open' | 'closed' | 'all'); setFetchEnabled(false); }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="closed">Closed</SelectItem>
+                    <SelectItem value="open">Open</SelectItem>
+                    <SelectItem value="all">All</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             )}
 
             <div className="flex items-end">
@@ -2663,6 +2764,403 @@ export function Reports() {
               </>
             );
           })()}
+        </div>
+      )}
+
+      {/* EXPENSES REPORT */}
+      {selectedReport === 'expenses' && expensesReport && !isLoading && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-semibold">
+              Expenses - {formatDate(startDate)} to {formatDate(endDate)}
+            </h2>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const headers = ['Date', 'Branch', 'Account', 'QB Account Name', 'Amount', 'Memo'];
+                const rows: (string | number)[][] = expensesReport.rows.map((r: any) => [
+                  new Date(r.businessDate).toISOString().slice(0, 10),
+                  r.branchName,
+                  r.accountLabel,
+                  r.qbAccountName || '',
+                  Number(r.amount),
+                  r.memo || '',
+                ]);
+                rows.push(['TOTAL', '', '', '', Number(expensesReport.grandTotal), '']);
+                downloadCSV(
+                  `expenses-${startDate}-to-${endDate}.csv`,
+                  toCSV(headers, rows),
+                );
+              }}
+            >
+              <Download className="mr-2 h-4 w-4" /> CSV
+            </Button>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground">Grand Total</p>
+                <p className="text-2xl font-bold">{formatCurrency(expensesReport.grandTotal)}</p>
+                <p className="text-xs text-muted-foreground">{expensesReport.entryCount} entries</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground">Accounts Used</p>
+                <p className="text-2xl font-bold">{expensesReport.byAccount.length}</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader><CardTitle className="text-base">Per-Account Totals</CardTitle></CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Account</TableHead>
+                    <TableHead>QB Account Name</TableHead>
+                    <TableHead className="text-right">Entries</TableHead>
+                    <TableHead className="text-right">Total</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {expensesReport.byAccount.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center text-muted-foreground py-4">
+                        No expenses recorded in this period.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    expensesReport.byAccount.map((a: any) => (
+                      <TableRow key={a.accountId}>
+                        <TableCell>{a.label}</TableCell>
+                        <TableCell className="text-xs font-mono text-muted-foreground">
+                          {a.qbAccountName || '-'}
+                        </TableCell>
+                        <TableCell className="text-right">{a.count}</TableCell>
+                        <TableCell className="text-right font-semibold">
+                          {formatCurrency(a.total)}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* CUSTOMER ADVANCE BALANCES REPORT */}
+      {selectedReport === 'customer-advance-balances' && advanceBalances && !isLoading && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-semibold">Customer Advance Balances</h2>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const headers = ['Customer', 'Phone', 'In Total', 'Out Total', 'Balance', 'Last Movement'];
+                const rows: (string | number)[][] = advanceBalances.customers.map((c: any) => [
+                  c.customerName,
+                  c.customerPhone || '',
+                  Number(c.inTotal),
+                  Number(c.outTotal),
+                  Number(c.balance),
+                  new Date(c.lastMovementAt).toISOString().slice(0, 10),
+                ]);
+                downloadCSV(
+                  `advance-balances-${new Date().toISOString().slice(0, 10)}.csv`,
+                  toCSV(headers, rows),
+                );
+              }}
+            >
+              <Download className="mr-2 h-4 w-4" /> CSV
+            </Button>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground">Customers with Balance</p>
+                <p className="text-2xl font-bold">{advanceBalances.totalCustomers}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground">Total Advance Held</p>
+                <p className="text-2xl font-bold">{formatCurrency(advanceBalances.totalAdvanceHeld)}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground">Overdrawn</p>
+                <p className="text-2xl font-bold">{formatCurrency(advanceBalances.totalOverdrawn)}</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardContent className="pt-6">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Customer</TableHead>
+                    <TableHead>Phone</TableHead>
+                    <TableHead className="text-right">In</TableHead>
+                    <TableHead className="text-right">Out</TableHead>
+                    <TableHead className="text-right">Balance</TableHead>
+                    <TableHead>Last Movement</TableHead>
+                    <TableHead></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {advanceBalances.customers.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center text-muted-foreground py-4">
+                        No customers with non-zero advance balances.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    advanceBalances.customers.map((c: any) => (
+                      <TableRow key={c.customerId}>
+                        <TableCell>{c.customerName}</TableCell>
+                        <TableCell className="text-muted-foreground">{c.customerPhone || '-'}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(c.inTotal)}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(c.outTotal)}</TableCell>
+                        <TableCell className={`text-right font-semibold ${c.balance > 0 ? 'text-green-700' : 'text-red-600'}`}>
+                          {formatCurrency(c.balance)}
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          {formatDate(c.lastMovementAt)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <a
+                            href={`/customer-advance?customerId=${c.customerId}`}
+                            className="text-xs text-primary underline-offset-2 hover:underline"
+                          >
+                            Open →
+                          </a>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* PSO TOP-UPS SUMMARY */}
+      {selectedReport === 'pso-topups-summary' && psoTopupsSummary && !isLoading && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-semibold">
+              PSO Top-Ups - {formatDate(startDate)} to {formatDate(endDate)}
+            </h2>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const headers = ['Date', 'Branch', 'Customer', 'Card Last 4', 'Amount', 'Memo'];
+                const rows: (string | number)[][] = psoTopupsSummary.rows.map((r: any) => [
+                  new Date(r.businessDate).toISOString().slice(0, 10),
+                  r.branchName,
+                  r.customerName,
+                  r.psoCardLast4 || '',
+                  Number(r.amount),
+                  r.memo || '',
+                ]);
+                rows.push(['TOTAL', '', '', '', Number(psoTopupsSummary.grandTotal), '']);
+                downloadCSV(
+                  `pso-topups-${startDate}-to-${endDate}.csv`,
+                  toCSV(headers, rows),
+                );
+              }}
+            >
+              <Download className="mr-2 h-4 w-4" /> CSV
+            </Button>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground">Grand Total</p>
+                <p className="text-2xl font-bold">{formatCurrency(psoTopupsSummary.grandTotal)}</p>
+                <p className="text-xs text-muted-foreground">{psoTopupsSummary.topupCount} top-ups</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground">Customers Loaded</p>
+                <p className="text-2xl font-bold">{psoTopupsSummary.byCustomer.length}</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader><CardTitle className="text-base">By Customer</CardTitle></CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Customer</TableHead>
+                    <TableHead className="text-right">Top-Ups</TableHead>
+                    <TableHead className="text-right">Total</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {psoTopupsSummary.byCustomer.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={3} className="text-center text-muted-foreground py-4">
+                        No PSO top-ups in this period.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    psoTopupsSummary.byCustomer.map((c: any, idx: number) => (
+                      <TableRow key={c.customerId || `anon-${idx}`}>
+                        <TableCell>{c.customerName}</TableCell>
+                        <TableCell className="text-right">{c.count}</TableCell>
+                        <TableCell className="text-right font-semibold">
+                          {formatCurrency(c.total)}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* CASH RECONCILIATION HISTORY */}
+      {selectedReport === 'cash-recon-history' && cashReconHistory && !isLoading && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-semibold">
+              Cash Reconciliation - {formatDate(startDate)} to {formatDate(endDate)} ({cashReconStatus})
+            </h2>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const headers = ['Date', 'Branch', 'Status', 'Expected', 'Physical', 'Variance', 'Submitted By', 'Closed By', 'Notes'];
+                const rows: (string | number)[][] = cashReconHistory.rows.map((r: any) => [
+                  new Date(r.businessDate).toISOString().slice(0, 10),
+                  r.branchName,
+                  r.status,
+                  Number(r.expectedCash),
+                  Number(r.physicalCash),
+                  Number(r.variance),
+                  r.submittedBy || '',
+                  r.closedBy || '',
+                  r.notes || '',
+                ]);
+                downloadCSV(
+                  `cash-recon-${startDate}-to-${endDate}.csv`,
+                  toCSV(headers, rows),
+                );
+              }}
+            >
+              <Download className="mr-2 h-4 w-4" /> CSV
+            </Button>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-4">
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground">Days</p>
+                <p className="text-2xl font-bold">{cashReconHistory.totalReconciliations}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground">Total Over</p>
+                <p className="text-2xl font-bold text-green-700">
+                  {formatCurrency(cashReconHistory.totalOver)}
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground">Total Short</p>
+                <p className="text-2xl font-bold text-red-600">
+                  {formatCurrency(cashReconHistory.totalShort)}
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground">Net Variance</p>
+                <p className="text-2xl font-bold">
+                  {formatCurrency(cashReconHistory.netVariance)}
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardContent className="pt-6">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Branch</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Expected</TableHead>
+                    <TableHead className="text-right">Physical</TableHead>
+                    <TableHead className="text-right">Variance</TableHead>
+                    <TableHead></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {cashReconHistory.rows.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center text-muted-foreground py-4">
+                        No reconciliations in this period.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    cashReconHistory.rows.map((r: any) => {
+                      const dateStr = new Date(r.businessDate).toISOString().slice(0, 10);
+                      const varianceColor =
+                        r.variance > 0.005 ? 'text-green-700' :
+                        r.variance < -0.005 ? 'text-red-600' : 'text-muted-foreground';
+                      return (
+                        <TableRow key={r.id}>
+                          <TableCell>{dateStr}</TableCell>
+                          <TableCell>{r.branchName}</TableCell>
+                          <TableCell>
+                            <Badge variant={r.status === 'closed' ? 'secondary' : 'outline'}>
+                              {r.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right">{formatCurrency(r.expectedCash)}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(r.physicalCash)}</TableCell>
+                          <TableCell className={`text-right font-semibold ${varianceColor}`}>
+                            {formatCurrency(r.variance)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <a
+                              href={`/cash-reconciliation?branchId=${r.branchId}&businessDate=${dateStr}`}
+                              className="text-xs text-primary underline-offset-2 hover:underline"
+                            >
+                              Open →
+                            </a>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
         </div>
       )}
 
