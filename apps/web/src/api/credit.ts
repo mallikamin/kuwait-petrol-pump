@@ -12,7 +12,7 @@ export interface Receipt {
   receiptNumber: string;
   receiptDatetime: string;
   amount: number;
-  paymentMethod: 'cash' | 'cheque' | 'bank_transfer' | 'online';
+  paymentMethod: 'cash' | 'cheque' | 'bank_transfer' | 'online' | 'pso_card';
   bankId?: string;
   bankName?: string;
   referenceNumber?: string;
@@ -141,7 +141,7 @@ export const creditApi = {
     branchId: string;
     receiptDatetime: string;
     amount: number;
-    paymentMethod: 'cash' | 'cheque' | 'bank_transfer' | 'online';
+    paymentMethod: 'cash' | 'cheque' | 'bank_transfer' | 'online' | 'pso_card';
     bankId?: string;
     referenceNumber?: string;
     notes?: string;
@@ -163,7 +163,7 @@ export const creditApi = {
       branchId: string;
       receiptDatetime: string;
       amount: number;
-      paymentMethod: 'cash' | 'cheque' | 'bank_transfer' | 'online';
+      paymentMethod: 'cash' | 'cheque' | 'bank_transfer' | 'online' | 'pso_card';
       bankId?: string;
       referenceNumber?: string;
       notes?: string;
