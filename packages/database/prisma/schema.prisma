@@ -44,6 +44,7 @@ model Organization {
   cashLedgerEntries        CashLedgerEntry[]
   expenseAccounts          ExpenseAccount[]
   expenseEntries           ExpenseEntry[]
+  cashReconciliations      CashReconciliation[]
 
   @@map("organizations")
 }
@@ -78,6 +79,7 @@ model Branch {
   inventoryBootstrap       InventoryBootstrap[]
   cashLedgerEntries        CashLedgerEntry[]
   expenseEntries           ExpenseEntry[]
+  cashReconciliations      CashReconciliation[]
 
   @@map("branches")
 }
@@ -211,6 +213,8 @@ model User {
   reversedCashLedgerEntries       CashLedgerEntry[]       @relation("CashLedgerReversedBy")
   createdExpenseEntries           ExpenseEntry[]          @relation("ExpenseCreatedBy")
   voidedExpenseEntries            ExpenseEntry[]          @relation("ExpenseVoidedBy")
+  submittedCashRecons             CashReconciliation[]    @relation("CashReconSubmittedBy")
+  closedCashRecons                CashReconciliation[]    @relation("CashReconClosedBy")
 
   @@unique([organizationId, username], name: "unique_org_username") // Multi-tenant safety
   @@index([organizationId], name: "idx_users_org")
@@ -1383,6 +1387,39 @@ model MonthlyInventoryGainLoss {
 ///                        + gainLoss[bootstrap_date, period_start)
 /// and closing = opening + period activity. Exactly one of productId or
 /// fuelTypeId is set per row (enforced by DB CHECK).
+/// Cash Reconciliation — end-of-day drawer count against the cash ledger.
+/// One row per (branchId, businessDate). Once closed, variance is posted
+/// to the cash ledger as source=COUNTER_VARIANCE so the day totals reflect
+/// the supervisor's true count.
+model CashReconciliation {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId      String    @map("organization_id") @db.Uuid
+  branchId            String    @map("branch_id") @db.Uuid
+  businessDate        DateTime  @map("business_date") @db.Date
+  expectedCash        Decimal   @map("expected_cash") @db.Decimal(12, 2)
+  physicalCash        Decimal   @map("physical_cash") @db.Decimal(12, 2)
+  variance            Decimal   @db.Decimal(12, 2)  // physical - expected
+  status              String    @default("open") @db.VarChar(20) // 'open' | 'closed'
+  notes               String?   @db.Text
+  submittedBy         String?   @map("submitted_by") @db.Uuid
+  submittedAt         DateTime? @map("submitted_at") @db.Timestamptz
+  closedBy            String?   @map("closed_by") @db.Uuid
+  closedAt            DateTime? @map("closed_at") @db.Timestamptz
+  varianceLedgerId    String?   @map("variance_ledger_id") @db.Uuid
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  branch          Branch       @relation(fields: [branchId], references: [id])
+  submittedByUser User?        @relation(fields: [submittedBy], references: [id], name: "CashReconSubmittedBy")
+  closedByUser    User?        @relation(fields: [closedBy], references: [id], name: "CashReconClosedBy")
+
+  @@unique([branchId, businessDate], name: "unique_recon_branch_date")
+  @@index([organizationId, businessDate], name: "idx_recon_org_date")
+  @@index([status, businessDate], name: "idx_recon_status_date")
+  @@map("cash_reconciliations")
+}
+
 /// Expense Account — catalog of approved cash-out account labels mapped
 /// to QB expense accounts. Seeded with the 17 accounts from the POS spec;
 /// more can be added by admins without touching code.
