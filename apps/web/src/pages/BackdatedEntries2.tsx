@@ -339,8 +339,16 @@ export function BackdatedEntries2() {
   // ── Mutations ──────────────────────────────────────────────────────────────
   const getCreditValidationError = (txn: Transaction): string | null => {
     if (txn.paymentMethod !== 'credit_customer') return null;
-    if (!txn.customerId?.trim() || !txn.vehicleNumber?.trim() || !txn.slipNumber?.trim())
-      return `Credit customer requires customer, vehicle#, and slip# (row with ${txn.quantity}L)`;
+    // Vehicle# + Slip# are only required for fuel rows (HSD/PMG). Non-fuel
+    // credit sales often lack a vehicle/slip (e.g. oil/accessories over the
+    // counter), so only enforce customer on those.
+    const isFuelRow = txn.fuelCode === 'HSD' || txn.fuelCode === 'PMG';
+    if (!txn.customerId?.trim()) {
+      return `Credit customer requires customer (row with ${txn.quantity}L)`;
+    }
+    if (isFuelRow && (!txn.vehicleNumber?.trim() || !txn.slipNumber?.trim())) {
+      return `Credit fuel sale requires vehicle# and slip# (row with ${txn.quantity}L)`;
+    }
     return null;
   };
 
@@ -553,10 +561,14 @@ export function BackdatedEntries2() {
   };
 
   const updateTransaction = (index: number, field: keyof Transaction, value: any) => {
-    // Hard guard: price is master-driven only. A direct write to unitPrice
-    // (even accidental) is a no-op — the effect/normalization and the
-    // fuelCode/productName branches below are the only legitimate writers.
-    if (field === 'unitPrice') return;
+    // Price rule: fuel rows (HSD/PMG) stay master-driven and cannot be edited
+    // directly. Non-fuel rows (fuelCode='OTHER' or empty/new rows) allow
+    // manual price override so operators can match the actual sold price on
+    // oil/accessories/etc. that differs from the product-master default.
+    if (field === 'unitPrice') {
+      const currentFuelCode = transactions[index]?.fuelCode;
+      if (currentFuelCode === 'HSD' || currentFuelCode === 'PMG') return;
+    }
     setTransactions(prev => {
       const updated = [...prev];
       updated[index] = { ...updated[index], [field]: value };
@@ -579,8 +591,9 @@ export function BackdatedEntries2() {
       if (field === 'productName' && updated[index].fuelCode === 'OTHER') {
         updated[index].unitPrice = derivePriceFor('OTHER', value) || '0';
       }
-      // Auto-calc line total (quantity × current master-driven unitPrice).
-      if (field === 'quantity' || field === 'fuelCode' || field === 'productName') {
+      // Auto-calc line total (quantity × current unitPrice). `unitPrice` is
+      // included so non-fuel manual price edits reflow the total.
+      if (field === 'quantity' || field === 'fuelCode' || field === 'productName' || field === 'unitPrice') {
         updated[index].lineTotal = (toNumber(updated[index].quantity) * toNumber(updated[index].unitPrice)).toFixed(2);
       }
       // Auto-fill customer name
@@ -1098,16 +1111,30 @@ export function BackdatedEntries2() {
                                     className="h-8 text-xs text-right font-mono" placeholder="0" />
                                 </td>
                                 <td className="px-2 py-1">
-                                  <Input
-                                    type="number"
-                                    value={derivePriceFor(txn.fuelCode, txn.productName) || '0'}
-                                    readOnly
-                                    tabIndex={-1}
-                                    aria-readonly="true"
-                                    title="Price is set by Fuel Prices / Product master and cannot be edited here"
-                                    className="h-8 text-xs text-right font-mono bg-muted/40 cursor-not-allowed"
-                                    placeholder="0"
-                                  />
+                                  {(() => {
+                                    const isFuelRow = txn.fuelCode === 'HSD' || txn.fuelCode === 'PMG';
+                                    const displayValue = isFuelRow
+                                      ? (derivePriceFor(txn.fuelCode, txn.productName) || '0')
+                                      : (txn.unitPrice || '');
+                                    return (
+                                      <Input
+                                        type="number"
+                                        value={displayValue}
+                                        onChange={e => updateTransaction(idx, 'unitPrice', e.target.value)}
+                                        readOnly={isFuelRow}
+                                        tabIndex={isFuelRow ? -1 : undefined}
+                                        aria-readonly={isFuelRow ? 'true' : undefined}
+                                        title={isFuelRow
+                                          ? 'Fuel price is set by Fuel Prices master and cannot be edited here'
+                                          : 'Non-fuel price — edit to override the product master default'}
+                                        className={cn(
+                                          'h-8 text-xs text-right font-mono',
+                                          isFuelRow && 'bg-muted/40 cursor-not-allowed'
+                                        )}
+                                        placeholder="0"
+                                      />
+                                    );
+                                  })()}
                                 </td>
                                 <td className="px-2 py-1 text-right">
                                   <span className="font-mono font-bold text-sm">{fmtPKR(toNumber(txn.lineTotal))}</span>
