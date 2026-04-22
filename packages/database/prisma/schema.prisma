@@ -45,6 +45,7 @@ model Organization {
   expenseAccounts          ExpenseAccount[]
   expenseEntries           ExpenseEntry[]
   cashReconciliations      CashReconciliation[]
+  psoTopups                PsoTopup[]
 
   @@map("organizations")
 }
@@ -80,6 +81,7 @@ model Branch {
   cashLedgerEntries        CashLedgerEntry[]
   expenseEntries           ExpenseEntry[]
   cashReconciliations      CashReconciliation[]
+  psoTopups                PsoTopup[]
 
   @@map("branches")
 }
@@ -215,6 +217,8 @@ model User {
   voidedExpenseEntries            ExpenseEntry[]          @relation("ExpenseVoidedBy")
   submittedCashRecons             CashReconciliation[]    @relation("CashReconSubmittedBy")
   closedCashRecons                CashReconciliation[]    @relation("CashReconClosedBy")
+  createdPsoTopups                PsoTopup[]              @relation("PsoTopupCreatedBy")
+  voidedPsoTopups                 PsoTopup[]              @relation("PsoTopupVoidedBy")
 
   @@unique([organizationId, username], name: "unique_org_username") // Multi-tenant safety
   @@index([organizationId], name: "idx_users_org")
@@ -270,6 +274,7 @@ model ShiftInstance {
   bifurcations  Bifurcation[]
   cashLedgerEntries CashLedgerEntry[]
   expenseEntries ExpenseEntry[]
+  psoTopups PsoTopup[]
 
   @@unique([shiftId, date])
   @@index([branchId, date], name: "idx_shift_instances_date")
@@ -343,6 +348,7 @@ model Customer {
   backdatedTransactions BackdatedTransaction[]
   branchLimits          CustomerBranchLimit[]
   receipts              CustomerReceipt[]
+  psoTopups             PsoTopup[]
 
   @@index([organizationId], name: "idx_customers_org")
   @@map("customers")
@@ -1387,6 +1393,42 @@ model MonthlyInventoryGainLoss {
 ///                        + gainLoss[bootstrap_date, period_start)
 /// and closing = opening + period activity. Exactly one of productId or
 /// fuelTypeId is set per row (enforced by DB CHECK).
+/// PSO Card Top-Up — customer pays cash to load their PSO card. The pump
+/// holds the cash but now owes PSO that amount (supplier A/P). Posted as
+/// cash IN (ledger source=PSO_TOPUP) + QB JournalEntry DR Cash / CR PSO
+/// Payable.
+model PsoTopup {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId  String    @map("organization_id") @db.Uuid
+  branchId        String    @map("branch_id") @db.Uuid
+  businessDate    DateTime  @map("business_date") @db.Date
+  shiftInstanceId String?   @map("shift_instance_id") @db.Uuid
+  customerId      String?   @map("customer_id") @db.Uuid
+  psoCardLast4    String?   @map("pso_card_last4") @db.VarChar(10)
+  amount          Decimal   @db.Decimal(12, 2)
+  memo            String?   @db.Text
+  qbSynced        Boolean   @default(false) @map("qb_synced")
+  qbJournalEntryId String?  @map("qb_journal_entry_id") @db.VarChar(100)
+  qbSyncedAt      DateTime? @map("qb_synced_at") @db.Timestamptz
+  voidedAt        DateTime? @map("voided_at") @db.Timestamptz
+  voidedBy        String?   @map("voided_by") @db.Uuid
+  voidReason      String?   @map("void_reason") @db.Text
+  createdBy       String?   @map("created_by") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization  Organization   @relation(fields: [organizationId], references: [id])
+  branch        Branch         @relation(fields: [branchId], references: [id])
+  shiftInstance ShiftInstance? @relation(fields: [shiftInstanceId], references: [id])
+  customer      Customer?      @relation(fields: [customerId], references: [id])
+  createdByUser User?          @relation(fields: [createdBy], references: [id], name: "PsoTopupCreatedBy")
+  voidedByUser  User?          @relation(fields: [voidedBy], references: [id], name: "PsoTopupVoidedBy")
+
+  @@index([branchId, businessDate], name: "idx_pso_topup_branch_date")
+  @@index([organizationId, businessDate], name: "idx_pso_topup_org_date")
+  @@map("pso_topups")
+}
+
 /// Cash Reconciliation — end-of-day drawer count against the cash ledger.
 /// One row per (branchId, businessDate). Once closed, variance is posted
 /// to the cash ledger as source=COUNTER_VARIANCE so the day totals reflect

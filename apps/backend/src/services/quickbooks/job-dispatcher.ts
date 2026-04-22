@@ -23,6 +23,7 @@ import { handleBillPaymentCreate, BillPaymentPayload } from './handlers/bill-pay
 import { handleReceivePaymentCreate, ReceivePaymentPayload } from './handlers/receive-payment.handler';
 import { handleJournalEntryCreate, JournalEntryPayload } from './handlers/journal-entry.handler';
 import { handleCashExpenseCreate, CashExpensePayload } from './handlers/cash-expense.handler';
+import { handlePsoTopupJournal, PsoTopupPayload } from './handlers/pso-topup.handler';
 
 export interface JobResult {
   success: boolean;
@@ -61,6 +62,12 @@ export async function dispatch(job: QBSyncQueue): Promise<JobResult> {
   if (job.entityType === 'expense' && job.jobType === 'create_cash_expense') {
     const payload = parsePayload<CashExpensePayload>(job.payload);
     return await handleCashExpenseCreate(job, payload);
+  }
+
+  // Cash-to-PSO-Card top-up: DR Cash / CR A/P (Entity = PSO vendor).
+  if (job.entityType === 'pso_topup' && job.jobType === 'create_pso_topup_journal') {
+    const payload = parsePayload<PsoTopupPayload>(job.payload);
+    return await handlePsoTopupJournal(job, payload);
   }
 
   // Vendors / Purchases / Bill payments

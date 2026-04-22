@@ -33,6 +33,7 @@ import inventoryBootstrapRoutes from './modules/inventory/bootstrap.routes';
 import cashLedgerRoutes from './modules/cash-ledger/cash-ledger.routes';
 import expensesRoutes from './modules/expenses/expenses.routes';
 import cashReconciliationRoutes from './modules/cash-reconciliation/cash-reconciliation.routes';
+import psoTopupRoutes from './modules/pso-topup/pso-topup.routes';
 
 // Validate QB config on startup (P0: fail fast if missing)
 validateQuickBooksConfig();
@@ -118,6 +119,7 @@ export function createApp() {
   app.use('/api/cash-ledger', cashLedgerRoutes); // Cash ledger (EOD reconciliation foundation)
   app.use('/api/expenses', expensesRoutes); // Expense module (cash outflows)
   app.use('/api/cash-reconciliation', cashReconciliationRoutes); // EOD cash reconciliation
+  app.use('/api/pso-topups', psoTopupRoutes); // Cash-to-PSO-Card top-ups
 
   app.use('/api/users', usersRoutes);
 

@@ -50,6 +50,7 @@ const navItems: NavItem[] = [
   { title: 'Receipts', href: '/receipts', icon: <Receipt className="h-5 w-5" />, roles: ['admin', 'accountant'] },
   { title: 'Expenses', href: '/expenses', icon: <Banknote className="h-5 w-5" /> },
   { title: 'Cash Reconciliation', href: '/cash-reconciliation', icon: <Calculator className="h-5 w-5" />, roles: ['admin', 'manager', 'accountant'] },
+  { title: 'PSO Top-Ups', href: '/pso-topups', icon: <CreditCard className="h-5 w-5" /> },
   { title: 'Reports', href: '/reports', icon: <FileText className="h-5 w-5" /> },
   { title: 'QuickBooks', href: '/quickbooks', icon: <Link2 className="h-5 w-5" />, roles: ['admin', 'manager', 'accountant'] },
   { title: 'Users', href: '/users', icon: <Settings className="h-5 w-5" />, roles: ['admin', 'accountant'] },
