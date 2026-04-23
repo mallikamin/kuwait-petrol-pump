@@ -125,7 +125,7 @@ async function execute() {
   const r1 = await prisma.$executeRaw`
     INSERT INTO cash_ledger_entries (
       id, organization_id, branch_id, business_date, shift_instance_id,
-      direction, source, source_id, amount, memo, created_at, updated_at
+      direction, source, source_id, amount, memo, created_at
     )
     SELECT
       gen_random_uuid(),
@@ -138,8 +138,7 @@ async function execute() {
       s.id,
       s.total_amount,
       CONCAT('Backfill: sale ', COALESCE(s.slip_number, s.id::text)),
-      s.sale_date,
-      NOW()
+      s.sale_date
     FROM sales s
     JOIN branches b ON b.id = s.branch_id
     WHERE s.payment_method = 'cash'
@@ -147,7 +146,7 @@ async function execute() {
         SELECT 1 FROM cash_ledger_entries cle
         WHERE cle.source = 'SALE' AND cle.source_id = s.id AND cle.direction = 'IN'
       )
-    ON CONFLICT ON CONSTRAINT unique_cash_ledger_source_direction DO NOTHING
+    ON CONFLICT (source, source_id, direction) DO NOTHING
   `;
   results.sales = r1;
 
@@ -155,7 +154,7 @@ async function execute() {
   const r2 = await prisma.$executeRaw`
     INSERT INTO cash_ledger_entries (
       id, organization_id, branch_id, business_date, shift_instance_id,
-      direction, source, source_id, amount, memo, created_by, created_at, updated_at
+      direction, source, source_id, amount, memo, created_by, created_at
     )
     SELECT
       gen_random_uuid(),
@@ -169,8 +168,7 @@ async function execute() {
       m.amount,
       CONCAT('Backfill: advance deposit — ', COALESCE(m.memo, m.id::text)),
       m.created_by,
-      m.created_at,
-      NOW()
+      m.created_at
     FROM customer_advance_movements m
     WHERE m.kind = 'DEPOSIT_CASH'
       AND m.direction = 'IN'
@@ -179,7 +177,7 @@ async function execute() {
         SELECT 1 FROM cash_ledger_entries cle
         WHERE cle.source = 'ADVANCE_DEPOSIT' AND cle.source_id = m.id AND cle.direction = 'IN'
       )
-    ON CONFLICT ON CONSTRAINT unique_cash_ledger_source_direction DO NOTHING
+    ON CONFLICT (source, source_id, direction) DO NOTHING
   `;
   results.depositCash = r2;
 
@@ -187,7 +185,7 @@ async function execute() {
   const r3 = await prisma.$executeRaw`
     INSERT INTO cash_ledger_entries (
       id, organization_id, branch_id, business_date, shift_instance_id,
-      direction, source, source_id, amount, memo, created_by, created_at, updated_at
+      direction, source, source_id, amount, memo, created_by, created_at
     )
     SELECT
       gen_random_uuid(),
@@ -201,8 +199,7 @@ async function execute() {
       m.amount,
       CONCAT('Backfill: driver handout — ', COALESCE(m.memo, m.id::text)),
       m.created_by,
-      m.created_at,
-      NOW()
+      m.created_at
     FROM customer_advance_movements m
     WHERE m.kind = 'CASH_HANDOUT'
       AND m.direction = 'OUT'
@@ -211,7 +208,7 @@ async function execute() {
         SELECT 1 FROM cash_ledger_entries cle
         WHERE cle.source = 'DRIVER_HANDOUT' AND cle.source_id = m.id AND cle.direction = 'OUT'
       )
-    ON CONFLICT ON CONSTRAINT unique_cash_ledger_source_direction DO NOTHING
+    ON CONFLICT (source, source_id, direction) DO NOTHING
   `;
   results.handouts = r3;
 
@@ -219,7 +216,7 @@ async function execute() {
   const r4 = await prisma.$executeRaw`
     INSERT INTO cash_ledger_entries (
       id, organization_id, branch_id, business_date, shift_instance_id,
-      direction, source, source_id, amount, memo, created_by, created_at, updated_at
+      direction, source, source_id, amount, memo, created_by, created_at
     )
     SELECT
       gen_random_uuid(),
@@ -233,15 +230,14 @@ async function execute() {
       t.amount,
       CONCAT('Backfill: PSO top-up — card **** ', COALESCE(t.pso_card_last4, '????')),
       t.created_by,
-      t.created_at,
-      NOW()
+      t.created_at
     FROM pso_topups t
     WHERE t.voided_at IS NULL
       AND NOT EXISTS (
         SELECT 1 FROM cash_ledger_entries cle
         WHERE cle.source = 'PSO_TOPUP' AND cle.source_id = t.id AND cle.direction = 'IN'
       )
-    ON CONFLICT ON CONSTRAINT unique_cash_ledger_source_direction DO NOTHING
+    ON CONFLICT (source, source_id, direction) DO NOTHING
   `;
   results.topups = r4;
 
@@ -249,7 +245,7 @@ async function execute() {
   const r5 = await prisma.$executeRaw`
     INSERT INTO cash_ledger_entries (
       id, organization_id, branch_id, business_date, shift_instance_id,
-      direction, source, source_id, amount, memo, created_by, created_at, updated_at
+      direction, source, source_id, amount, memo, created_by, created_at
     )
     SELECT
       gen_random_uuid(),
@@ -263,15 +259,14 @@ async function execute() {
       e.amount,
       CONCAT('Backfill: expense — ', COALESCE(e.memo, e.id::text)),
       e.created_by,
-      e.created_at,
-      NOW()
+      e.created_at
     FROM expense_entries e
     WHERE e.voided_at IS NULL
       AND NOT EXISTS (
         SELECT 1 FROM cash_ledger_entries cle
         WHERE cle.source = 'EXPENSE' AND cle.source_id = e.id AND cle.direction = 'OUT'
       )
-    ON CONFLICT ON CONSTRAINT unique_cash_ledger_source_direction DO NOTHING
+    ON CONFLICT (source, source_id, direction) DO NOTHING
   `;
   results.expenses = r5;
 

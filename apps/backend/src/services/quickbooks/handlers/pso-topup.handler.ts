@@ -3,7 +3,7 @@
  *
  * Posts a local PsoTopup to QB as a JournalEntry:
  *   Dr  Cash in Hand                   (entityType=bank_account, localId='cash')
- *   Cr  Accounts Payable (A/P)         (entityType=account,      localId='accounts-payable')
+ *   Cr  Accounts Payable (A/P)         (entityType=account,      localId='trade-payables')
  *       with Entity.EntityRef = PSO vendor (entityType=vendor, localId='pso-vendor')
  *
  * Rationale: customer hands cash to the pump in exchange for a PSO Card
@@ -13,7 +13,7 @@
  *
  * Required mappings the admin must seed before the first top-up:
  *   bank_account / cash           → QB Cash in Hand account
- *   account      / accounts-payable → QB Accounts Payable (A/P) account
+ *   account      / trade-payables → QB A/P (shared with purchase.handler)
  *   vendor       / pso-vendor     → QB PSO vendor
  */
 
@@ -73,8 +73,11 @@ export async function handlePsoTopupJournal(
     const cashAccountId = await EntityMappingService.getQbId(job.organizationId, 'bank_account', 'cash');
     if (!cashAccountId) throw new Error('Missing mapping: bank_account/cash (QB Cash in Hand account)');
 
-    const apAccountId = await EntityMappingService.getQbId(job.organizationId, 'account', 'accounts-payable');
-    if (!apAccountId) throw new Error('Missing mapping: account/accounts-payable (QB A/P)');
+    // Reuse the 'trade-payables' local_id that purchase.handler already
+    // expects — both map to the same QB A/P account. Avoids a duplicate
+    // (org_id, entity_type, qb_id) row.
+    const apAccountId = await EntityMappingService.getQbId(job.organizationId, 'account', 'trade-payables');
+    if (!apAccountId) throw new Error('Missing mapping: account/trade-payables (QB A/P)');
 
     const psoVendorId = await EntityMappingService.getQbId(job.organizationId, 'vendor', 'pso-vendor');
     if (!psoVendorId) throw new Error('Missing mapping: vendor/pso-vendor (QB PSO supplier)');
