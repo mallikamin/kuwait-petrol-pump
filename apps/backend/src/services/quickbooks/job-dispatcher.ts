@@ -30,6 +30,10 @@ import {
   AdvanceDepositPayload,
   AdvanceHandoutPayload,
 } from './handlers/customer-advance.handler';
+import {
+  handlePsoCardSettlement,
+  PsoCardSettlementPayload,
+} from './handlers/pso-card-settlement.handler';
 
 export interface JobResult {
   success: boolean;
@@ -74,6 +78,14 @@ export async function dispatch(job: QBSyncQueue): Promise<JobResult> {
   if (job.entityType === 'pso_topup' && job.jobType === 'create_pso_topup_journal') {
     const payload = parsePayload<PsoTopupPayload>(job.payload);
     return await handlePsoTopupJournal(job, payload);
+  }
+
+  // PSO-Card settlement of credit-customer AR (S8C): JE transfer Dr A/R (pso)
+  // / Cr A/R (original customer), plus $0 Payment(s) to apply and close the
+  // original Invoice(s).
+  if (job.entityType === 'customer_receipt' && job.jobType === 'create_pso_card_ar_transfer_journal') {
+    const payload = parsePayload<PsoCardSettlementPayload>(job.payload);
+    return await handlePsoCardSettlement(job, payload);
   }
 
   // Customer advance: DR asset / CR Customer Advance liability.

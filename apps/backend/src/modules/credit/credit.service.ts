@@ -476,41 +476,76 @@ export class CreditService {
 
       const txnDate = new Date(params.receiptDate).toISOString().slice(0, 10);
 
-      // PSO Card receipts: do not post a ReceivePayment (money isn't actually
-      // settled yet — PSO remits later). Instead, enqueue one Invoice against
-      // the 'pso-card-receivable' customer for the full receipt total so QB's
-      // PSO Card Receivables AR balance increases as requested. Final
-      // workflow (how we close the credit customer's invoice in QB) is
-      // pending client confirmation; this placeholder keeps the user-facing
-      // behaviour accurate without fabricating a cash path.
+      // S8C — PSO-Card settlement of credit-customer AR.
+      //
+      // Workbook rule: transfer AR from the credit customer to the PSO Card
+      // Receivables customer via a single JournalEntry (both lines hit the
+      // same A/R account, differentiated by Entity on each line). No cash
+      // moves — PSO remits later, which later triggers a normal
+      // ReceivePayment against the PSO Card Receivables customer.
+      //
+      // The handler also posts a $0 Payment per allocated Invoice that
+      // links the Invoice to the JE credit line, so the Invoice moves
+      // from Open → Paid in QB.
       if (params.paymentMethod === 'pso_card') {
-        const totalAmount = params.allocations.reduce((sum, a) => sum + a.amount, 0);
+        // Resolve each allocation's QB Invoice (skip those whose upstream
+        // Sale hasn't synced yet — the admin can replay once it does).
+        const qbAllocations: Array<{ qbInvoiceId: string; amount: number }> = [];
+        for (const alloc of params.allocations) {
+          let qbInvoiceId: string | null = null;
+          if (alloc.sourceType === 'SALE') {
+            const sale = await prisma.sale.findUnique({
+              where: { id: alloc.sourceId },
+              select: { qbInvoiceId: true },
+            });
+            qbInvoiceId = sale?.qbInvoiceId || null;
+          } else if (alloc.sourceType === 'BACKDATED_TRANSACTION') {
+            const sale = await prisma.sale.findFirst({
+              where: { offlineQueueId: `backdated-${alloc.sourceId}` },
+              select: { qbInvoiceId: true },
+            });
+            qbInvoiceId = sale?.qbInvoiceId || null;
+          }
+          if (!qbInvoiceId) {
+            console.warn(
+              `[QB enqueue][receipt ${params.receiptId}] PSO-card alloc ${alloc.sourceType}:${alloc.sourceId} ` +
+              `skipped — upstream Sale has no qbInvoiceId yet. Admin replay required.`
+            );
+            continue;
+          }
+          qbAllocations.push({ qbInvoiceId, amount: alloc.amount });
+        }
+
+        if (qbAllocations.length === 0) {
+          console.warn(
+            `[QB enqueue][receipt ${params.receiptId}] PSO-card settlement: no allocations ` +
+            `resolved to QB Invoices. Nothing enqueued.`
+          );
+          return;
+        }
+
+        const totalAmount = qbAllocations.reduce((s, a) => s + a.amount, 0);
+
         await prisma.qBSyncQueue.create({
           data: {
             connectionId: connection.id,
             organizationId: params.organizationId,
-            jobType: 'create_invoice',
-            entityType: 'sale',
+            jobType: 'create_pso_card_ar_transfer_journal',
+            entityType: 'customer_receipt',
             entityId: params.receiptId,
             priority: 5,
             status: 'pending',
             approvalStatus: 'approved',
-            idempotencyKey: `qb-receipt-pso-${params.receiptId}`,
+            idempotencyKey: `qb-receipt-psosett-${params.receiptId}`,
             payload: {
-              saleId: params.receiptId,
+              receiptId: params.receiptId,
               organizationId: params.organizationId,
+              customerId: params.customerId,
               txnDate,
-              paymentMethod: 'pso_card',
               totalAmount,
-              lineItems: [
-                {
-                  fuelTypeId: 'non-fuel-item',
-                  fuelTypeName: 'PSO Card credit-receipt settlement',
-                  quantity: 1,
-                  unitPrice: totalAmount,
-                  amount: totalAmount,
-                },
-              ],
+              allocations: qbAllocations,
+              referenceNumber: params.referenceNumber || undefined,
+              notes: params.notes || undefined,
             },
           },
         });
