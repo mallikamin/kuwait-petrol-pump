@@ -16,6 +16,19 @@ export interface ReconciliationPreview {
     total: number;
     bySource: Array<{ source: string; total: number; count: number }>;
   };
+  // Every individual ledger row for this branch/day. The UI renders these
+  // grouped by source so the accountant can drill from the summary into
+  // line-level transactions without leaving the page.
+  entries: Array<{
+    id: string;
+    createdAt: string;
+    direction: 'IN' | 'OUT';
+    source: string;
+    sourceId: string | null;
+    amount: number;
+    memo: string | null;
+    createdBy: string | null;
+  }>;
   physicalCash: number | null;
   variance: number | null;
   status: 'open' | 'closed';
@@ -60,6 +73,16 @@ export class CashReconciliationService {
       expectedCash,
       inflows: summary.inflows,
       outflows: summary.outflows,
+      entries: summary.entries.map((e) => ({
+        id: e.id,
+        createdAt: e.createdAt.toISOString(),
+        direction: e.direction,
+        source: e.source,
+        sourceId: e.sourceId,
+        amount: e.amount,
+        memo: e.memo,
+        createdBy: e.createdBy,
+      })),
       physicalCash: existing ? Number(existing.physicalCash) : null,
       variance: existing ? Number(existing.variance) : null,
       status: (existing?.status as 'open' | 'closed') || 'open',

@@ -1,11 +1,23 @@
 import { apiClient } from './client';
 
+export interface ReconciliationPreviewEntry {
+  id: string;
+  createdAt: string;
+  direction: 'IN' | 'OUT';
+  source: string;
+  sourceId: string | null;
+  amount: number;
+  memo: string | null;
+  createdBy: string | null;
+}
+
 export interface ReconciliationPreview {
   branchId: string;
   businessDate: string;
   expectedCash: number;
   inflows: { total: number; bySource: Array<{ source: string; total: number; count: number }> };
   outflows: { total: number; bySource: Array<{ source: string; total: number; count: number }> };
+  entries: ReconciliationPreviewEntry[];
   physicalCash: number | null;
   variance: number | null;
   status: 'open' | 'closed';

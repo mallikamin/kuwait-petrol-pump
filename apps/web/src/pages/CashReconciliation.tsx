@@ -151,6 +151,43 @@ export function CashReconciliation() {
         <div className="p-6 text-center text-muted-foreground"><Loader2 className="inline animate-spin mr-2" /> Loading...</div>
       )}
 
+      {/* Prominent closed banner — pinned above the summary so it's the
+          first thing the supervisor sees when reopening a past day. */}
+      {preview && isClosed && preview.closedBy && (
+        <div className="flex items-center justify-between gap-3 rounded-md border border-slate-300 bg-slate-50 px-4 py-3 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-700 text-white">
+              <Lock className="h-4 w-4" />
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-slate-900">
+                Day Closed
+              </div>
+              <div className="text-xs text-slate-600">
+                by <span className="font-medium">{preview.closedBy.fullName || preview.closedBy.username}</span>
+                {preview.closedAt && (
+                  <> @ {new Date(preview.closedAt).toLocaleString('en-PK', {
+                    year: 'numeric', month: 'short', day: '2-digit',
+                    hour: '2-digit', minute: '2-digit',
+                  })}</>
+                )}
+              </div>
+            </div>
+          </div>
+          {preview.variance != null && (
+            <div className="text-right">
+              <div className="text-[10px] uppercase tracking-wide text-slate-500">Variance Posted</div>
+              <div className={`font-mono text-sm font-semibold ${
+                Math.abs(preview.variance) < 0.01 ? 'text-emerald-700' :
+                preview.variance > 0 ? 'text-amber-600' : 'text-red-700'
+              }`}>
+                {(preview.variance > 0 ? '+' : '') + fmtPKR(preview.variance)} PKR
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {preview && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* Inflows */}
@@ -292,6 +329,70 @@ export function CashReconciliation() {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Transaction detail — every ledger row for the day, grouped by
+          source. Accountant-friendly drill-down from the summary totals
+          above. Matches the BackdatedEntries2 compact table style. */}
+      {preview && preview.entries && preview.entries.length > 0 && (
+        <div className="border rounded-md overflow-hidden bg-white shadow-sm">
+          <div className="bg-slate-100 px-4 py-2 border-b flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-700">
+              Transaction Detail <span className="text-xs font-normal text-slate-500">({preview.entries.length} entries)</span>
+            </h3>
+            <div className="text-[10px] text-slate-500 uppercase tracking-wider">
+              Net: <span className={`font-mono ${preview.expectedCash >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                {fmtPKR(preview.expectedCash)} PKR
+              </span>
+            </div>
+          </div>
+          {/* Group by source, show section headers + rows */}
+          {(() => {
+            const bySource: Record<string, typeof preview.entries> = {};
+            for (const e of preview.entries) {
+              const key = e.source;
+              (bySource[key] ||= []).push(e);
+            }
+            const SOURCE_ORDER = ['SALE', 'ADVANCE_DEPOSIT', 'PSO_TOPUP', 'CREDIT_RECEIPT', 'EXPENSE', 'DRIVER_HANDOUT', 'COUNTER_VARIANCE', 'MANUAL_ADJUSTMENT'];
+            const sourceKeys = Object.keys(bySource).sort(
+              (a, b) => (SOURCE_ORDER.indexOf(a) + 99) % 99 - (SOURCE_ORDER.indexOf(b) + 99) % 99,
+            );
+            return sourceKeys.map((src) => {
+              const rows = bySource[src];
+              const dir = rows[0].direction;
+              const subtotal = rows.reduce((s, r) => s + r.amount, 0);
+              return (
+                <div key={src} className="border-b last:border-b-0">
+                  <div className={`px-4 py-1.5 text-xs font-semibold flex items-center justify-between ${
+                    dir === 'IN' ? 'bg-emerald-50 text-emerald-900' : 'bg-red-50 text-red-900'
+                  }`}>
+                    <span className="flex items-center gap-2">
+                      {dir === 'IN' ? <ArrowDownCircle className="h-3 w-3" /> : <ArrowUpCircle className="h-3 w-3" />}
+                      {SOURCE_LABELS[src] || src}
+                      <span className="text-[10px] font-normal opacity-70">({rows.length})</span>
+                    </span>
+                    <span className="font-mono">{fmtPKR(subtotal)} PKR</span>
+                  </div>
+                  <div className="divide-y divide-slate-100">
+                    {rows.map((r) => (
+                      <div key={r.id} className="grid grid-cols-[90px_1fr_auto] px-4 py-1.5 text-xs hover:bg-slate-50/60 gap-3">
+                        <span className="text-slate-500 font-mono">
+                          {new Date(r.createdAt).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                        <span className="text-slate-700 truncate">{r.memo || '—'}</span>
+                        <span className={`font-mono font-medium ${
+                          r.direction === 'IN' ? 'text-emerald-700' : 'text-red-700'
+                        }`}>
+                          {r.direction === 'IN' ? '+' : '−'}{fmtPKR(r.amount)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            });
+          })()}
         </div>
       )}
 
