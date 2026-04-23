@@ -144,18 +144,43 @@ export function invoiceCustomerLocalId(
 }
 
 /**
- * Resolve an item-mapping localId for a Bill/Sale line.
+ * Resolve the QB Item id for a sale / purchase line.
  *
- * All 87 non-fuel products collapse to a single QB "Sales of Product Income"
- * item (qb_id=82) seeded as the 'non-fuel-item' alias mapping. Fuel-type UUIDs
- * (from `fuel_types`) retain their per-type mappings (HSD / PMG). Static
- * localIds like 'tax' pass through unchanged.
+ * Three resolution paths in priority order:
+ *   1. rawLocalId is a non-fuel product UUID AND that product has a
+ *      qb_item_id set → return that QB id DIRECTLY (skipping the mapping
+ *      service). This keeps QB's Product/Service column aligned with the
+ *      local product name. Added 2026-04-23 after the "Oil Filter 333"
+ *      bug where every non-fuel sale collapsed to QB item 82.
+ *   2. rawLocalId is a non-fuel product UUID WITHOUT qb_item_id → fall
+ *      back to the 'non-fuel-item' alias via the mapping service (legacy
+ *      behaviour from the 2026-04-19 "one bucket" decision).
+ *   3. Anything else (fuel-type UUIDs, 'tax', etc.) → resolve via the
+ *      mapping service using rawLocalId as the localId.
  *
- * Shared between fuel-sale handler (S1..S7) and purchase handler (S10) so
- * both paths apply the same alias discipline without duplication.
+ * Returns `{ qbItemId }` when the item is already resolved to a concrete
+ * QB id; `{ localId }` when the handler still has to call
+ * EntityMappingService.getQbId().
  *
- * Requires a prisma client passed in to avoid a circular import with the
- * database config module.
+ * Shared between fuel-sale (S1..S7) and purchase (S10) handlers.
+ */
+export async function resolveItemMapping(
+  prismaClient: { product: { findFirst: (args: any) => Promise<{ id: string; qbItemId: string | null } | null> } },
+  rawLocalId: string,
+): Promise<{ qbItemId: string } | { localId: string }> {
+  const product = await prismaClient.product.findFirst({
+    where: { id: rawLocalId },
+    select: { id: true, qbItemId: true },
+  });
+  if (product?.qbItemId) return { qbItemId: product.qbItemId };
+  if (product) return { localId: 'non-fuel-item' };
+  return { localId: rawLocalId };
+}
+
+/**
+ * Legacy wrapper — returns the localId that would have been produced by the
+ * old single-bucket logic. Kept for callers that haven't been migrated to
+ * resolveItemMapping yet. Do NOT use on new code; prefer resolveItemMapping.
  */
 export async function resolveItemLocalId(
   prismaClient: { product: { findFirst: (args: any) => Promise<{ id: string } | null> } },
