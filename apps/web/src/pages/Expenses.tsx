@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { Plus, Receipt, Ban, Building2, CalendarDays, Loader2 } from 'lucide-react';
+import { Plus, Receipt, Ban, Building2, CalendarDays, Loader2, CopyPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -40,6 +40,11 @@ export function Expenses() {
     memo: '',
     businessDate: format(new Date(), 'yyyy-MM-dd'),
   });
+
+  // Tracks whether the in-flight submit should close the dialog or keep it
+  // open for rapid sequential entry (Save vs Save and New).
+  const keepDialogOpenRef = useRef(false);
+  const amountInputRef = useRef<HTMLInputElement>(null);
 
   const { data: branches = [] } = useQuery({
     queryKey: ['branches'],
@@ -92,12 +97,24 @@ export function Expenses() {
     },
     onSuccess: () => {
       toast.success('Expense recorded');
-      setCreateOpen(false);
-      setForm({ expenseAccountId: '', amount: '', memo: '', businessDate: format(new Date(), 'yyyy-MM-dd') });
+      if (keepDialogOpenRef.current) {
+        // Save and New: preserve expense account + business date so the
+        // accountant can burn through a batch of same-day/same-account
+        // expenses without re-picking context. Clear only the amount + memo.
+        setForm((prev) => ({ ...prev, amount: '', memo: '' }));
+        keepDialogOpenRef.current = false;
+        setTimeout(() => amountInputRef.current?.focus(), 0);
+      } else {
+        setCreateOpen(false);
+        setForm({ expenseAccountId: '', amount: '', memo: '', businessDate: format(new Date(), 'yyyy-MM-dd') });
+      }
       queryClient.invalidateQueries({ queryKey: ['expense-entries'] });
       queryClient.invalidateQueries({ queryKey: ['cash-ledger-day'] });
     },
-    onError: (err: any) => toast.error(err?.response?.data?.error || err.message || 'Failed to create expense'),
+    onError: (err: any) => {
+      keepDialogOpenRef.current = false;
+      toast.error(err?.response?.data?.error || err.message || 'Failed to create expense');
+    },
   });
 
   const voidMut = useMutation({
@@ -262,6 +279,7 @@ export function Expenses() {
             <div>
               <Label>Amount (PKR) *</Label>
               <Input
+                ref={amountInputRef}
                 type="number"
                 step="0.01"
                 min="0"
@@ -281,9 +299,31 @@ export function Expenses() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
-            <Button onClick={() => createMut.mutate()} disabled={createMut.isPending}>
-              {createMut.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
-              Record Expense
+            <Button
+              variant="secondary"
+              onClick={() => {
+                keepDialogOpenRef.current = true;
+                createMut.mutate();
+              }}
+              disabled={createMut.isPending}
+              title="Save this expense and keep the dialog open for another entry (same branch, date, and account are preserved)."
+            >
+              {createMut.isPending && keepDialogOpenRef.current
+                ? <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                : <CopyPlus className="h-4 w-4 mr-2" />}
+              Save and New
+            </Button>
+            <Button
+              onClick={() => {
+                keepDialogOpenRef.current = false;
+                createMut.mutate();
+              }}
+              disabled={createMut.isPending}
+            >
+              {createMut.isPending && !keepDialogOpenRef.current
+                ? <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                : <Plus className="h-4 w-4 mr-2" />}
+              Save
             </Button>
           </DialogFooter>
         </DialogContent>
