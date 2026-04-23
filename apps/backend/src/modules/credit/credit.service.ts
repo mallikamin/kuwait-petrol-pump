@@ -556,7 +556,10 @@ export class CreditService {
           status: 'pending',
           // Auto-approve: sync_mode gates actual QB writes.
           approvalStatus: 'approved',
-          idempotencyKey: `qb-receipt-${params.receiptId}-${alloc.sourceType}-${alloc.sourceId}`,
+          // Compact source-type code keeps the key under the 100-char column
+          // limit. 'BACKDATED_TRANSACTION'.length = 21; abbreviating to
+          // 'BT' / 'S' saves 19-20 chars and dodges a silent enqueue failure.
+          idempotencyKey: `qb-receipt-${params.receiptId}-${alloc.sourceType === 'BACKDATED_TRANSACTION' ? 'BT' : 'S'}-${alloc.sourceId}`,
           payload: {
             receiptId: params.receiptId,
             organizationId: params.organizationId,
