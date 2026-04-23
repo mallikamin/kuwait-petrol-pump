@@ -84,14 +84,11 @@ const REQUIRED = [
     candidates: ['Trade Payables', 'Accounts Payable', 'Accounts Payable (A/P)', 'A/P'],
     description: 'A/P account — shared by purchase.handler + pso-topup.handler',
   },
-  {
-    key: 'vendor/pso-vendor',
-    entityType: 'vendor',
-    localId: 'pso-vendor',
-    qbEntity: 'Vendor',
-    candidates: ['PSO', 'Pakistan State Oil', 'Pakistan State Oil Ltd', 'Pakistan State Oil Company Ltd'],
-    description: 'PSO supplier — credited on cash-to-card top-ups (A/P EntityRef)',
-  },
+  // Intentionally NOT bootstrapping a 'vendor/pso-vendor' alias.
+  // pso-topup.handler resolves PSO via qbName directly (the canonical
+  // vendor mapping is stored under the supplier UUID by purchase.handler,
+  // and the UNIQUE(org, entity_type, qb_id) constraint blocks a second
+  // alias row pointing at the same QB vendor).
   {
     key: 'customer/bank-card-receivable',
     entityType: 'customer',

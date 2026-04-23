@@ -79,8 +79,21 @@ export async function handlePsoTopupJournal(
     const apAccountId = await EntityMappingService.getQbId(job.organizationId, 'account', 'trade-payables');
     if (!apAccountId) throw new Error('Missing mapping: account/trade-payables (QB A/P)');
 
-    const psoVendorId = await EntityMappingService.getQbId(job.organizationId, 'vendor', 'pso-vendor');
-    if (!psoVendorId) throw new Error('Missing mapping: vendor/pso-vendor (QB PSO supplier)');
+    // PSO vendor is resolved by qbName rather than a 'pso-vendor' local
+    // alias because the canonical vendor mapping in this realm is stored
+    // under the supplier UUID (purchase.handler flow). Adding a second
+    // 'pso-vendor' alias would collide with the
+    // UNIQUE(org_id, entity_type, qb_id) constraint on qb_entity_mappings.
+    const psoMapping = await prisma.qBEntityMapping.findFirst({
+      where: {
+        organizationId: job.organizationId,
+        entityType: 'vendor',
+        qbName: { in: ['PSO', 'Pakistan State Oil', 'Pakistan State Oil Ltd', 'Pakistan State Oil Company Ltd'] },
+      },
+      select: { qbId: true },
+    });
+    const psoVendorId = psoMapping?.qbId;
+    if (!psoVendorId) throw new Error('No vendor mapping found for PSO (qbName PSO / Pakistan State Oil)');
 
     const jePayload = {
       TxnDate: payload.txnDate,
