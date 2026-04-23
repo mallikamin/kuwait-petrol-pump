@@ -8,9 +8,12 @@
  *   Option B — Bank transfer / IBFT / cheque / online card clearance
  *     DepositToAccount = mapped bank (ABL, BOP Sundar, Faysal, MCB, ...)
  *
- * The payload must carry `qbInvoiceId` — the QB ID of the invoice the payment
- * is being applied to (captured when the original credit sale synced). The
- * handler posts a QB ReceivePayment with a single LinkedTxn of type Invoice.
+ * The payload MAY carry `qbInvoiceId` — the QB ID of the invoice the payment
+ * applies to (captured when the original credit sale synced). When provided,
+ * the handler posts a QB ReceivePayment with a single LinkedTxn of type
+ * Invoice. When omitted, the handler posts an UNAPPLIED ReceivePayment
+ * (no Line array) — QB records it as a negative A/R balance on the customer,
+ * i.e. a customer advance, which a future invoice can settle.
  *
  * Deposit-account resolution uses entityType='bank_account' with these localId
  * conventions (documented in qb-shared.ts too):
@@ -34,7 +37,11 @@ export interface ReceivePaymentPayload {
   receiptId: string;           // CustomerReceipt.id (our source row)
   organizationId: string;
   customerId: string;          // POS customer UUID (mapped via entityType='customer')
-  qbInvoiceId: string;         // QB Invoice.Id the payment applies to
+  // QB Invoice.Id the payment applies to. Optional — when omitted, QB records
+  // the payment as an unapplied credit on the customer (negative AR = customer
+  // advance). Emitted by credit.service.ts when a customer has no outstanding
+  // AR at receipt time.
+  qbInvoiceId?: string;
   paymentDate: string;         // 'YYYY-MM-DD'
   amount: number;
   /**
@@ -200,7 +207,6 @@ function validatePayload(payload: ReceivePaymentPayload): void {
   if (!payload.receiptId) throw new Error('Missing required field: receiptId');
   if (!payload.organizationId) throw new Error('Missing required field: organizationId');
   if (!payload.customerId) throw new Error('Missing required field: customerId');
-  if (!payload.qbInvoiceId) throw new Error('Missing required field: qbInvoiceId (invoice must be synced to QB first)');
   if (!payload.paymentDate) throw new Error('Missing required field: paymentDate');
   if (payload.amount === undefined || payload.amount <= 0) {
     throw new Error('Invalid amount: must be > 0');
@@ -237,20 +243,25 @@ async function buildReceivePaymentPayload(
     );
   }
 
-  // 3. Build ReceivePayment (QB entity: Payment). Line[].LinkedTxn ties it to
-  //    the open invoice so QB auto-reduces AR on that line.
+  // 3. Build ReceivePayment (QB entity: Payment). When a qbInvoiceId is
+  //    provided, Line[].LinkedTxn ties the payment to that open invoice so QB
+  //    auto-reduces AR on that line. When omitted, we post an unapplied
+  //    payment (no Line array) — QB treats it as a negative AR balance on the
+  //    customer (customer advance), which a future invoice can settle.
   const rp: any = {
     TxnDate: payload.paymentDate,
     CustomerRef: { value: customerQbId },
     TotalAmt: payload.amount,
     DepositToAccountRef: { value: bankAccountQbId },
-    Line: [
+  };
+  if (payload.qbInvoiceId) {
+    rp.Line = [
       {
         Amount: payload.amount,
         LinkedTxn: [{ TxnId: payload.qbInvoiceId, TxnType: 'Invoice' }],
       },
-    ],
-  };
+    ];
+  }
   if (payload.referenceNumber) rp.PaymentRefNum = payload.referenceNumber;
   if (payload.notes) rp.PrivateNote = payload.notes;
   return rp;

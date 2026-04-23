@@ -21,6 +21,7 @@ import { banksApi } from '@/api/banks';
 import { useAuthStore } from '@/store/auth';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
+import { CashHandoutPanel } from '@/components/CashHandoutPanel';
 
 // ── Utility Functions ─────────────────────────────────────────────────────────
 
@@ -270,7 +271,7 @@ export function Credit() {
   const { user } = useAuthStore();
 
   // ── Tabs & Context State ────────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState<'receipts' | 'ledger' | 'reports'>('receipts');
+  const [activeTab, setActiveTab] = useState<'receipts' | 'ledger' | 'reports' | 'cash-handout'>('receipts');
   const [selectedCustomerId] = useState('');
   const [showReceiptDialog, setShowReceiptDialog] = useState(false);
   const [showOpenItemsModal, setShowOpenItemsModal] = useState(false);
@@ -890,13 +891,20 @@ export function Credit() {
 
       {/* ─ Tabs ─ */}
       <div className="flex border-b gap-6">
-        {['receipts', 'ledger', 'reports'].map((tab) => (
+        {(
+          [
+            { id: 'receipts', label: 'Receipts' },
+            { id: 'ledger', label: 'Ledger' },
+            { id: 'reports', label: 'Reports' },
+            { id: 'cash-handout', label: 'Cash Handout' },
+          ] as const
+        ).map((tab) => (
           <button
-            key={tab}
-            onClick={() => setActiveTab(tab as typeof activeTab)}
-            className={cn('pb-3 px-1 font-semibold transition-colors border-b-2', activeTab === tab ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground')}
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id as typeof activeTab)}
+            className={cn('pb-3 px-1 font-semibold transition-colors border-b-2', activeTab === tab.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground')}
           >
-            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            {tab.label}
           </button>
         ))}
       </div>
@@ -905,6 +913,7 @@ export function Credit() {
       {activeTab === 'receipts' && renderReceiptsTab()}
       {activeTab === 'ledger' && renderLedgerTab()}
       {activeTab === 'reports' && <div className="text-center py-8 text-muted-foreground">Reports feature coming soon</div>}
+      {activeTab === 'cash-handout' && <CashHandoutPanel />}
 
       {/* ─ Receipt Create Dialog ─ */}
       <Dialog open={showReceiptDialog} onOpenChange={setShowReceiptDialog}>

@@ -28,6 +28,9 @@ jest.mock('../safety-gates');
 jest.mock('../audit-logger');
 jest.mock('../company-lock');
 jest.mock('../entity-mapping.service');
+jest.mock('../ensure-customer-mapping', () => ({
+  ensureCustomerMapping: jest.fn(async () => undefined),
+}));
 
 global.fetch = jest.fn() as jest.MockedFunction<typeof fetch>;
 import { prisma } from '../../../config/database';
@@ -182,9 +185,30 @@ describe('Receive-Payment handler (S8)', () => {
     );
   });
 
-  it('rejects missing qbInvoiceId — ReceivePayment must be linked to an Invoice', async () => {
-    await expect(handleReceivePaymentCreate(mockJob, basePayload({ qbInvoiceId: '' as any }))).rejects.toThrow(
-      /qbInvoiceId/,
+  it('omits Line[] when qbInvoiceId is absent — posts an unapplied ReceivePayment', async () => {
+    // Customer has no outstanding AR; credit.service enqueues a payment with
+    // no qbInvoiceId. Handler must POST a ReceivePayment without a Line array
+    // so QB records it as a negative AR balance (customer advance).
+    (entityMapping.EntityMappingService.getQbId as jest.MockedFunction<any>).mockImplementation(
+      async (_o: string, type: string, id: string) => {
+        if (type === 'customer') return 'QB-CUST-X';
+        if (type === 'bank_account' && id === 'cash') return 'QB-ACC-CASH';
+        return null;
+      },
     );
+    (global.fetch as jest.MockedFunction<typeof fetch>).mockResolvedValue({
+      ok: true, status: 200, json: async () => ({ Payment: { Id: 'QB-PAY-UNAPPLIED' } }),
+    } as Response);
+
+    const { qbInvoiceId: _omit, ...noInvoice } = basePayload();
+    const result = await handleReceivePaymentCreate(mockJob, noInvoice as any);
+    expect(result.success).toBe(true);
+    expect(result.qbId).toBe('QB-PAY-UNAPPLIED');
+
+    const body = JSON.parse(((global.fetch as jest.MockedFunction<typeof fetch>).mock.calls[0][1] as any).body);
+    expect(body.TotalAmt).toBe(1500);
+    expect(body.CustomerRef.value).toBe('QB-CUST-X');
+    expect(body.DepositToAccountRef.value).toBe('QB-ACC-CASH');
+    expect(body.Line).toBeUndefined();
   });
 });
