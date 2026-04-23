@@ -1,9 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import {
-  Wallet, Plus, Minus, Ban, User, Building2, Loader2,
-  ArrowDownCircle, ArrowUpCircle, AlertTriangle,
+  Minus, Ban, User, Building2, Loader2, ArrowUpCircle, AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -13,12 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { branchesApi, customersApi } from '@/api';
-import { banksApi } from '@/api/banks';
-import {
-  customerAdvanceApi,
-  type AdvanceMovement,
-  type AdvanceDepositMethod,
-} from '@/api/customerAdvance';
+import { customerAdvanceApi, type AdvanceMovement } from '@/api/customerAdvance';
 import { useAuthStore } from '@/store/auth';
 
 const fmtPKR = (n: number) => n.toLocaleString('en-PK', { maximumFractionDigits: 2 });
@@ -34,33 +28,23 @@ const KIND_LABELS: Record<string, string> = {
   MANUAL_ADJUSTMENT_OUT: 'Manual OUT',
 };
 
-export function CustomerAdvance() {
+/**
+ * Cash Handout panel — surfaces the driver cash-handout leg of the Customer
+ * Advance liability. Deposits are no longer created here; all customer
+ * payments flow through the Receipts tab. The full movement history is still
+ * rendered read-only so the accountant can reconcile prior deposits, fuel
+ * offsets, and adjustments against handouts.
+ */
+export function CashHandoutPanel() {
   const queryClient = useQueryClient();
   const { user } = useAuthStore();
 
   const [branchId, setBranchId] = useState<string>(() => (user as any)?.branch?.id || '');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
 
-  const [depositOpen, setDepositOpen] = useState(false);
   const [handoutOpen, setHandoutOpen] = useState(false);
   const [voidTarget, setVoidTarget] = useState<AdvanceMovement | null>(null);
   const [voidReason, setVoidReason] = useState('');
-
-  const [deposit, setDeposit] = useState<{
-    method: AdvanceDepositMethod;
-    amount: string;
-    bankId: string;
-    referenceNumber: string;
-    memo: string;
-    businessDate: string;
-  }>({
-    method: 'cash',
-    amount: '',
-    bankId: '',
-    referenceNumber: '',
-    memo: '',
-    businessDate: format(new Date(), 'yyyy-MM-dd'),
-  });
 
   const [handout, setHandout] = useState({
     amount: '',
@@ -78,11 +62,6 @@ export function CustomerAdvance() {
     queryFn: () => customersApi.getAll({ size: 500 }),
   });
   const customers = customersPage?.items || [];
-
-  const { data: banksData = [] } = useQuery({
-    queryKey: ['banks', 'advance'],
-    queryFn: async () => (await banksApi.getAll()).banks,
-  });
 
   const { data: balance } = useQuery({
     queryKey: ['customer-advance-balance', selectedCustomerId],
@@ -103,44 +82,6 @@ export function CustomerAdvance() {
     () => customers.find((c: any) => c.id === selectedCustomerId),
     [selectedCustomerId, customers],
   );
-
-  const depositMut = useMutation({
-    mutationFn: async () => {
-      if (!branchId) throw new Error('Select a branch');
-      if (!selectedCustomerId) throw new Error('Select a customer');
-      const amt = parseFloat(deposit.amount);
-      if (!Number.isFinite(amt) || amt <= 0) throw new Error('Enter a positive amount');
-      if ((deposit.method === 'ibft' || deposit.method === 'bank_card') && !deposit.bankId) {
-        throw new Error(`${deposit.method} requires selecting a bank`);
-      }
-      return customerAdvanceApi.deposit({
-        customerId: selectedCustomerId,
-        branchId,
-        businessDate: deposit.businessDate,
-        method: deposit.method,
-        amount: amt,
-        bankId: deposit.bankId || undefined,
-        referenceNumber: deposit.referenceNumber || undefined,
-        memo: deposit.memo || undefined,
-      });
-    },
-    onSuccess: () => {
-      toast.success('Deposit recorded');
-      setDepositOpen(false);
-      setDeposit({
-        method: 'cash',
-        amount: '',
-        bankId: '',
-        referenceNumber: '',
-        memo: '',
-        businessDate: format(new Date(), 'yyyy-MM-dd'),
-      });
-      queryClient.invalidateQueries({ queryKey: ['customer-advance-balance'] });
-      queryClient.invalidateQueries({ queryKey: ['customer-advance-movements'] });
-      queryClient.invalidateQueries({ queryKey: ['cash-recon-preview'] });
-    },
-    onError: (err: any) => toast.error(err?.response?.data?.error || err.message),
-  });
 
   const handoutMut = useMutation({
     mutationFn: async () => {
@@ -185,32 +126,21 @@ export function CustomerAdvance() {
   });
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Wallet className="h-6 w-6" /> Customer Advance Accounts
-          </h1>
           <p className="text-sm text-muted-foreground">
-            Track customer deposits and driver usage against an advance balance.
+            Record driver cash hand-outs against a customer's advance balance.
+            Deposits are recorded via the Receipts tab.
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button
-            onClick={() => setDepositOpen(true)}
-            disabled={!selectedCustomerId}
-            className="bg-emerald-600 hover:bg-emerald-700"
-          >
-            <ArrowDownCircle className="h-4 w-4 mr-2" /> Deposit
-          </Button>
-          <Button
-            onClick={() => setHandoutOpen(true)}
-            disabled={!selectedCustomerId}
-            variant="outline"
-          >
-            <ArrowUpCircle className="h-4 w-4 mr-2" /> Cash Handout
-          </Button>
-        </div>
+        <Button
+          onClick={() => setHandoutOpen(true)}
+          disabled={!selectedCustomerId}
+          variant="outline"
+        >
+          <ArrowUpCircle className="h-4 w-4 mr-2" /> Cash Handout
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-4 border rounded-md bg-muted/20">
@@ -308,70 +238,6 @@ export function CustomerAdvance() {
         </div>
       )}
 
-      {/* Deposit dialog */}
-      <Dialog open={depositOpen} onOpenChange={setDepositOpen}>
-        <DialogContent>
-          <DialogHeader><DialogTitle className="flex items-center gap-2"><ArrowDownCircle className="h-5 w-5 text-emerald-600" /> New Advance Deposit</DialogTitle></DialogHeader>
-          <div className="space-y-3 py-2">
-            <div>
-              <Label>Date *</Label>
-              <Input type="date" value={deposit.businessDate} onChange={(e) => setDeposit({ ...deposit, businessDate: e.target.value })} />
-            </div>
-            <div>
-              <Label>Method *</Label>
-              <Select value={deposit.method} onValueChange={(v) => setDeposit({ ...deposit, method: v as AdvanceDepositMethod })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="cash">Cash</SelectItem>
-                  <SelectItem value="ibft">IBFT / Bank Transfer</SelectItem>
-                  <SelectItem value="bank_card">Bank Card</SelectItem>
-                  <SelectItem value="pso_card">PSO Card</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {(deposit.method === 'ibft' || deposit.method === 'bank_card') && (
-              <div>
-                <Label>Bank *</Label>
-                <Select value={deposit.bankId} onValueChange={(v) => setDeposit({ ...deposit, bankId: v })}>
-                  <SelectTrigger><SelectValue placeholder="Select bank" /></SelectTrigger>
-                  <SelectContent>
-                    {banksData.map((b: any) => (
-                      <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            <div>
-              <Label>Amount (PKR) *</Label>
-              <Input type="number" step="0.01" min="0" value={deposit.amount} onChange={(e) => setDeposit({ ...deposit, amount: e.target.value })} />
-            </div>
-            <div>
-              <Label>Reference / Cheque # (optional)</Label>
-              <Input value={deposit.referenceNumber} onChange={(e) => setDeposit({ ...deposit, referenceNumber: e.target.value })} />
-            </div>
-            <div>
-              <Label>Memo (optional)</Label>
-              <Input value={deposit.memo} onChange={(e) => setDeposit({ ...deposit, memo: e.target.value })} />
-            </div>
-            <div className="text-xs text-muted-foreground p-2 border rounded bg-muted/20">
-              {deposit.method === 'cash' && '→ Cash IN to drawer ledger. QB JE: DR Cash / CR Customer Advance.'}
-              {deposit.method === 'ibft' && '→ No cash-drawer impact. QB JE: DR Bank / CR Customer Advance.'}
-              {deposit.method === 'bank_card' && '→ No cash-drawer impact. QB JE: DR Bank Card Receivable / CR Customer Advance.'}
-              {deposit.method === 'pso_card' && '→ No cash-drawer impact. QB JE: DR PSO Card Receivable / CR Customer Advance.'}
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDepositOpen(false)}>Cancel</Button>
-            <Button onClick={() => depositMut.mutate()} disabled={depositMut.isPending} className="bg-emerald-600 hover:bg-emerald-700">
-              {depositMut.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
-              Record Deposit
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Cash handout dialog */}
       <Dialog open={handoutOpen} onOpenChange={setHandoutOpen}>
         <DialogContent>
           <DialogHeader><DialogTitle className="flex items-center gap-2"><ArrowUpCircle className="h-5 w-5 text-red-600" /> Driver Cash Handout</DialogTitle></DialogHeader>
@@ -413,7 +279,6 @@ export function CustomerAdvance() {
         </DialogContent>
       </Dialog>
 
-      {/* Void dialog */}
       <Dialog open={!!voidTarget} onOpenChange={(o) => { if (!o) { setVoidTarget(null); setVoidReason(''); } }}>
         <DialogContent>
           <DialogHeader><DialogTitle>Void movement</DialogTitle></DialogHeader>

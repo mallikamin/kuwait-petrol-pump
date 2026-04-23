@@ -24,6 +24,7 @@ jest.mock('../../config/database', () => {
     customerReceiptAllocation: {
       create: jest.fn(async () => ({}) as any),
       findMany: jest.fn(),
+      count: jest.fn(async () => 0),
     },
     customer: { update: jest.fn(async () => ({}) as any) },
     auditLog: { create: jest.fn(async () => ({}) as any) },
@@ -33,7 +34,7 @@ jest.mock('../../config/database', () => {
       $transaction: jest.fn(async (fn: any) => fn(tx)),
       sale: { findUnique: jest.fn(), findFirst: jest.fn() },
       qBConnection: { findFirst: jest.fn() },
-      qBSyncQueue: { createMany: jest.fn() },
+      qBSyncQueue: { createMany: jest.fn(), create: jest.fn() },
       // Exposed so tests can grab the inner tx mock
       __tx: tx,
     },
@@ -60,6 +61,8 @@ beforeEach(() => {
     id: 'qb-conn-1', organizationId: orgId, isActive: true,
   } as any);
   (prisma.qBSyncQueue.createMany as jest.MockedFunction<any>).mockResolvedValue({ count: 1 } as any);
+  (prisma.qBSyncQueue.create as jest.MockedFunction<any>).mockResolvedValue({} as any);
+  tx.customerReceiptAllocation.count.mockResolvedValue(0);
   tx.customerReceipt.create.mockResolvedValue({
     id: 'r-1', organizationId: orgId, receiptNumber: 'R-TEST-1', amount: 1000, paymentMethod: 'cash',
   } as any);
@@ -93,9 +96,11 @@ describe('CreditService.createReceipt → QB enqueue', () => {
     expect(rows[0].jobType).toBe('create_receive_payment');
     expect(rows[0].payload.qbInvoiceId).toBe('QB-INV-A');
     expect(rows[0].payload.amount).toBe(600);
-    expect(rows[0].idempotencyKey).toBe('qb-receipt-r-1-SALE-sale-1');
+    // Idempotency key uses compact source-type codes (SALE → 'S',
+    // BACKDATED_TRANSACTION → 'BT') to stay under the 100-char column limit.
+    expect(rows[0].idempotencyKey).toBe('qb-receipt-r-1-S-sale-1');
     expect(rows[1].payload.qbInvoiceId).toBe('QB-INV-B');
-    expect(rows[1].idempotencyKey).toBe('qb-receipt-r-1-SALE-sale-2');
+    expect(rows[1].idempotencyKey).toBe('qb-receipt-r-1-S-sale-2');
   });
 
   it('skips allocations whose Sale has no qbInvoiceId yet (still persists receipt)', async () => {
@@ -144,6 +149,45 @@ describe('CreditService.createReceipt → QB enqueue', () => {
     expect(row.payload.qbInvoiceId).toBe('QB-INV-BD');
     expect(row.payload.paymentChannel).toBe('bank_transfer');
     expect(row.payload.bankId).toBe('bank-abl');
+  });
+
+  it('zero-allocation cash receipt → enqueues ONE unapplied ReceivePayment (no qbInvoiceId)', async () => {
+    // FIFO path with no open invoices → autoAllocateFIFO is stubbed, no
+    // allocations persisted. Receipt is still created.
+    tx.customerReceiptAllocation.findMany.mockResolvedValue([] as any);
+
+    await svc.createReceipt(orgId, 'user-1', {
+      customerId: 'c-1', branchId: 'b-1',
+      receiptDatetime: new Date('2026-04-19'), amount: 1500,
+      paymentMethod: 'cash', allocationMode: 'FIFO',
+    });
+
+    expect(prisma.qBSyncQueue.create).toHaveBeenCalledTimes(1);
+    expect(prisma.qBSyncQueue.createMany).not.toHaveBeenCalled();
+    const payload = (prisma.qBSyncQueue.create as jest.MockedFunction<any>).mock.calls[0][0].data;
+    expect(payload.jobType).toBe('create_receive_payment');
+    expect(payload.idempotencyKey).toBe('qb-receipt-r-1-unapplied');
+    expect(payload.payload.qbInvoiceId).toBeUndefined();
+    expect(payload.payload.amount).toBe(1500);
+    expect(payload.payload.paymentChannel).toBe('cash');
+  });
+
+  it('zero-allocation pso_card receipt → rejects at createReceipt (no QB side-effects)', async () => {
+    // pso_card with no open AR → should 400 and skip the enqueue.
+    // Force the allocation count to 0 post-allocation step.
+    tx.customerReceiptAllocation.count.mockResolvedValue(0);
+    tx.customerReceiptAllocation.findMany.mockResolvedValue([] as any);
+
+    await expect(
+      svc.createReceipt(orgId, 'user-1', {
+        customerId: 'c-1', branchId: 'b-1',
+        receiptDatetime: new Date('2026-04-19'), amount: 500,
+        paymentMethod: 'pso_card', allocationMode: 'FIFO',
+      }),
+    ).rejects.toThrow(/PSO-Card/i);
+
+    expect(prisma.qBSyncQueue.create).not.toHaveBeenCalled();
+    expect(prisma.qBSyncQueue.createMany).not.toHaveBeenCalled();
   });
 
   it('no QB connection → no enqueue (receipt still returns)', async () => {

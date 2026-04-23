@@ -455,6 +455,7 @@ export class CreditService {
     organizationId: string;
     customerId: string;
     receiptDate: Date;
+    receiptAmount: number;
     paymentMethod: 'cash' | 'cheque' | 'bank_transfer' | 'online' | 'pso_card';
     bankId?: string | null;
     referenceNumber?: string | null;
@@ -466,8 +467,6 @@ export class CreditService {
     }>;
   }): Promise<void> {
     try {
-      if (params.allocations.length === 0) return;
-
       const connection = await prisma.qBConnection.findFirst({
         where: { organizationId: params.organizationId, isActive: true },
         select: { id: true },
@@ -475,6 +474,41 @@ export class CreditService {
       if (!connection) return;
 
       const txnDate = new Date(params.receiptDate).toISOString().slice(0, 10);
+
+      // Zero-allocation receipt → unapplied ReceivePayment (= customer advance
+      // in QB, shown as negative AR). Fires when customer has no outstanding
+      // AR invoices at receipt time. Not applicable to pso_card — that path
+      // always requires an AR allocation to transfer from (the service-level
+      // createReceipt guard rejects pso_card without allocations).
+      if (params.allocations.length === 0) {
+        if (params.paymentMethod === 'pso_card') return;
+        await prisma.qBSyncQueue.create({
+          data: {
+            connectionId: connection.id,
+            organizationId: params.organizationId,
+            jobType: 'create_receive_payment',
+            entityType: 'customer_payment',
+            entityId: params.receiptId,
+            priority: 5,
+            status: 'pending',
+            approvalStatus: 'approved',
+            idempotencyKey: `qb-receipt-${params.receiptId}-unapplied`,
+            payload: {
+              receiptId: params.receiptId,
+              organizationId: params.organizationId,
+              customerId: params.customerId,
+              // qbInvoiceId omitted — handler posts unapplied payment.
+              paymentDate: txnDate,
+              amount: params.receiptAmount,
+              paymentChannel: toReceivePaymentChannel(params.paymentMethod as any),
+              bankId: params.bankId || undefined,
+              referenceNumber: params.referenceNumber || undefined,
+              notes: params.notes || undefined,
+            },
+          },
+        });
+        return;
+      }
 
       // S8C — PSO-Card settlement of credit-customer AR.
       //
@@ -672,11 +706,11 @@ export class CreditService {
         },
       });
 
-      // 5. Handle allocations
-      if (data.allocationMode === 'MANUAL') {
-        if (!data.allocations || data.allocations.length === 0) {
-          throw new AppError(400, 'Manual allocation mode requires allocations array');
-        }
+      // 5. Handle allocations. MANUAL with allocations → explicit apply;
+      //    MANUAL with empty array OR FIFO with no open items → receipt is
+      //    created unapplied (surfaces in QB as a customer advance / negative
+      //    A/R balance). See enqueueQbReceivePayments zero-allocation branch.
+      if (data.allocationMode === 'MANUAL' && data.allocations && data.allocations.length > 0) {
         await this.validateAllocations(tx, data.customerId, data.allocations, data.amount);
 
         for (const alloc of data.allocations) {
@@ -689,9 +723,25 @@ export class CreditService {
             },
           });
         }
-      } else {
-        // FIFO auto-allocation
+      } else if (data.allocationMode === 'FIFO') {
         await this.autoAllocateFIFO(tx, data.customerId, data.amount, receipt.id);
+      }
+
+      // Guard: PSO-card receipts settle AR via JE transfer. Without any open
+      // AR on the customer, there is nothing to transfer — the accountant
+      // should record the advance via the Cash Handout module (liability
+      // posting) or pick a different payment method.
+      if (data.paymentMethod === 'pso_card') {
+        const allocCount = await tx.customerReceiptAllocation.count({
+          where: { receiptId: receipt.id },
+        });
+        if (allocCount === 0) {
+          throw new AppError(
+            400,
+            'PSO-Card receipts require an outstanding invoice to settle. ' +
+            'Record the advance via Customer Advance → Cash Handout, or use a different payment method.'
+          );
+        }
       }
 
       // 6. Full recalculation of balance
@@ -741,6 +791,7 @@ export class CreditService {
       organizationId,
       customerId: data.customerId,
       receiptDate: data.receiptDatetime,
+      receiptAmount: data.amount,
       paymentMethod: data.paymentMethod,
       bankId: data.bankId,
       referenceNumber: data.referenceNumber,
