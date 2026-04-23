@@ -164,7 +164,9 @@ describe('PSO-Card Settlement handler (S8C)', () => {
     expect(payBody1.CustomerRef.value).toBe('QB-CUST-BPO');
     expect(payBody1.Line[0].Amount).toBe(1500);
     expect(payBody1.Line[0].LinkedTxn[0]).toEqual({ TxnId: 'INV-100', TxnType: 'Invoice' });
-    expect(payBody1.Line[1].Amount).toBe(-1500);
+    // QB rejects negative Line.Amount: both lines must be positive; TotalAmt=0
+    // tells QB the JE credit covers the Invoice pay line.
+    expect(payBody1.Line[1].Amount).toBe(1500);
     expect(payBody1.Line[1].LinkedTxn[0]).toEqual({ TxnId: 'JE-700', TxnType: 'JournalEntry' });
 
     // Payment[1] for INV-101

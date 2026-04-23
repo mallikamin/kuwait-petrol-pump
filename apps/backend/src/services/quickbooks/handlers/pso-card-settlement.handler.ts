@@ -182,9 +182,12 @@ export async function handlePsoCardSettlement(
     console.log(`[PSO settlement] JE created: ${je.Id}`);
 
     // 2) For each allocated Invoice, post a zero-dollar Payment on the
-    //    ORIGINAL customer that applies the JE credit line to the Invoice.
-    //    QB's Payment endpoint accepts LinkedTxn.TxnType='JournalEntry', so
-    //    the Invoice moves from Open to Paid without any cash movement.
+    //    ORIGINAL customer that applies the JE credit to the Invoice.
+    //    QB pattern for applying a credit (JE/CreditMemo) to an Invoice via
+    //    the Payment endpoint uses TWO Lines, both with positive Amount —
+    //    one linked to the Invoice ("pay"), one linked to the JE
+    //    ("credit applied"). QB rejects negative Line.Amount.
+    //    TotalAmt=0 signals no cash received; the JE credit covers it.
     const paymentIds: string[] = [];
     const paymentErrors: string[] = [];
     for (const alloc of payload.allocations) {
@@ -199,7 +202,7 @@ export async function handlePsoCardSettlement(
             LinkedTxn: [{ TxnId: alloc.qbInvoiceId, TxnType: 'Invoice' }],
           },
           {
-            Amount: -alloc.amount,
+            Amount: alloc.amount,
             LinkedTxn: [{ TxnId: je.Id, TxnType: 'JournalEntry' }],
           },
         ],
