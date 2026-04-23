@@ -164,10 +164,18 @@ export function invoiceCustomerLocalId(
  *
  * Shared between fuel-sale (S1..S7) and purchase (S10) handlers.
  */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function resolveItemMapping(
   prismaClient: { product: { findFirst: (args: any) => Promise<{ id: string; qbItemId: string | null } | null> } },
   rawLocalId: string,
 ): Promise<{ qbItemId: string } | { localId: string }> {
+  // Static aliases ('non-fuel-item', 'tax', etc.) and fuel-type UUIDs that
+  // won't exist in `products` skip the product lookup entirely. Without this
+  // guard, Prisma rejects non-UUID strings against the UUID-typed product.id
+  // column ("Error creating UUID, invalid character") — the failure mode
+  // that took down the PSO-card credit-receipt path on 2026-04-23.
+  if (!UUID_RE.test(rawLocalId)) return { localId: rawLocalId };
   const product = await prismaClient.product.findFirst({
     where: { id: rawLocalId },
     select: { id: true, qbItemId: true },
