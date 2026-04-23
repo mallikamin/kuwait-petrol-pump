@@ -24,7 +24,17 @@ export const createReceiptSchema = z.object({
       })
     )
     .optional(),
-}).strict();
+}).strict().refine(
+  // Spec Scenario 8 Option B: non-cash / non-PSO receipts must specify
+  // which bank the funds were deposited into so QB posts Dr <bank>/Cr A/R
+  // against the correct account. Cash receipts deposit to Cash in Hand;
+  // PSO card receipts don't post a ReceivePayment at all.
+  (data) =>
+    data.paymentMethod === 'cash' ||
+    data.paymentMethod === 'pso_card' ||
+    !!data.bankId,
+  { message: 'bankId is required for cheque / bank_transfer / online receipts', path: ['bankId'] },
+);
 
 export const updateReceiptSchema = z.object({
   branchId: z.string().uuid().optional(),

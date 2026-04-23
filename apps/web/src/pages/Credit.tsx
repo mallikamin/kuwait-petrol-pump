@@ -17,6 +17,7 @@ import {
 import { cn } from '@/utils/cn';
 import { creditApi } from '@/api/credit';
 import { customersApi, branchesApi } from '@/api';
+import { banksApi } from '@/api/banks';
 import { useAuthStore } from '@/store/auth';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -318,6 +319,17 @@ export function Credit() {
 
   // ── Queries ──────────────────────────────────────────────────────────────────
 
+  // Bank list for the receipt form's "Deposit Bank" selector. Shown only
+  // when paymentMethod != 'cash' — per spec Scenario 8 Option B
+  // (bank transfer / IBFT / cheque / online / card → specific bank).
+  const { data: banks = [] } = useQuery({
+    queryKey: ['banks-list'],
+    queryFn: async () => {
+      const res = await banksApi.getAll();
+      return (res.banks || []).filter((b) => b.active);
+    },
+  });
+
   const { data: customers = [] } = useQuery({
     queryKey: ['customers'],
     queryFn: async () => {
@@ -389,6 +401,14 @@ export function Credit() {
       const totalAmount = parseFloat(receiptForm.amount);
       if (isNaN(totalAmount) || totalAmount <= 0) {
         throw new Error('Amount must be a positive number');
+      }
+
+      // Spec Scenario 8 Option B: non-cash / non-PSO receipts must deposit
+      // to a specific bank so QB can post Dr <bank> / Cr A/R.
+      const needsBank =
+        receiptForm.paymentMethod !== 'cash' && receiptForm.paymentMethod !== 'pso_card';
+      if (needsBank && !receiptForm.bankId) {
+        throw new Error('Deposit bank is required for Bank Transfer / Cheque / Online receipts');
       }
 
       const allocationMode = receiptForm.allocationMode as 'FIFO' | 'MANUAL';
@@ -962,7 +982,15 @@ export function Credit() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-xs font-semibold mb-2 block">Payment Method *</label>
-                <Select value={receiptForm.paymentMethod} onValueChange={(value) => setReceiptForm({ ...receiptForm, paymentMethod: value as any })}>
+                <Select
+                  value={receiptForm.paymentMethod}
+                  onValueChange={(value) => setReceiptForm({
+                    ...receiptForm,
+                    paymentMethod: value as any,
+                    // Clear bank selection when switching to cash / pso_card
+                    bankId: value === 'cash' || value === 'pso_card' ? '' : receiptForm.bankId,
+                  })}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -970,7 +998,7 @@ export function Credit() {
                     <SelectItem value="cash">Cash</SelectItem>
                     <SelectItem value="cheque">Cheque</SelectItem>
                     <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
-                    <SelectItem value="online">Online</SelectItem>
+                    <SelectItem value="online">Online / Debit or Credit Card</SelectItem>
                     <SelectItem value="pso_card">PSO Card</SelectItem>
                   </SelectContent>
                 </Select>
@@ -980,6 +1008,34 @@ export function Credit() {
                 <Input placeholder="Cheque/txn number" value={receiptForm.referenceNumber} onChange={(e) => setReceiptForm({ ...receiptForm, referenceNumber: e.target.value })} />
               </div>
             </div>
+
+            {/* ─ Deposit Bank (shown only for non-cash / non-PSO channels) ─
+                Scenario 8 Option B: Bank Transfer / IBFT / Cheque / Online /
+                Debit or Credit Card — posts Dr <specific bank> / Cr A/R in QB,
+                so the cashier must pick which bank received the funds. */}
+            {receiptForm.paymentMethod !== 'cash' && receiptForm.paymentMethod !== 'pso_card' && (
+              <div>
+                <label className="text-xs font-semibold mb-2 block">Deposit Bank *</label>
+                <Select
+                  value={receiptForm.bankId}
+                  onValueChange={(value) => setReceiptForm({ ...receiptForm, bankId: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select bank where funds were received" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {banks.map((b: any) => (
+                      <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {!receiptForm.bankId && (
+                  <div className="text-xs text-red-600 mt-1">
+                    Required — QB posts Dr {'{'}bank{'}'} / Cr A/R (Scenario 8 Option B)
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* ─ Allocation Mode ─ */}
             <div>
