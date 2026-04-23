@@ -35,7 +35,7 @@ import {
   isCardSale,
   invoiceCustomerLocalId,
   paymentMethodLocalId,
-  resolveItemLocalId,
+  resolveItemMapping,
   PaymentMethod,
 } from '../qb-shared';
 import { ensureCustomerMapping } from '../ensure-customer-mapping';
@@ -268,16 +268,22 @@ async function buildLines(organizationId: string, payload: FuelSalePayload): Pro
   const lines: any[] = [];
 
   for (const item of payload.lineItems) {
-    // Non-fuel product UUIDs collapse to 'non-fuel-item' alias (→ QB item 82);
-    // fuel-type UUIDs and static localIds pass through. Shared with purchase
-    // handler via qb-shared#resolveItemLocalId.
-    const mappingLocalId = await resolveItemLocalId(prisma, item.fuelTypeId);
-    const itemQbId = await EntityMappingService.getQbId(organizationId, 'item', mappingLocalId);
-    if (!itemQbId) {
-      throw new Error(
-        `Item mapping not found: localId=${mappingLocalId} (${item.fuelTypeName}). ` +
-        `Create mapping via /api/quickbooks/mappings (entityType: item) before syncing.`
-      );
+    // Per-product QB Item routing: if the non-fuel product has a qb_item_id
+    // populated we use that QB id directly. Otherwise fall back to the
+    // 'non-fuel-item' alias (legacy single-bucket behaviour). Fuel-type
+    // UUIDs and static localIds resolve via the mapping service as before.
+    const resolved = await resolveItemMapping(prisma, item.fuelTypeId);
+    let itemQbId: string | null;
+    if ('qbItemId' in resolved) {
+      itemQbId = resolved.qbItemId;
+    } else {
+      itemQbId = await EntityMappingService.getQbId(organizationId, 'item', resolved.localId);
+      if (!itemQbId) {
+        throw new Error(
+          `Item mapping not found: localId=${resolved.localId} (${item.fuelTypeName}). ` +
+          `Create mapping via /api/quickbooks/mappings (entityType: item) before syncing.`
+        );
+      }
     }
     lines.push({
       Amount: item.amount,
