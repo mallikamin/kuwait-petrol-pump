@@ -84,3 +84,6 @@ outputs/qb-rule-mining/
 # Python cache
 __pycache__/
 *.pyc
+
+# Local-only feedback / working docs (not for repo)
+*.docx
