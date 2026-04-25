@@ -27,8 +27,11 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 ORG_CODE="se"
 ORG_NAME="Sundar Estate"
-COMPANY_NAME="Sundar Estate Filling Station"
-COMPANY_ADDRESS="Sundar Estate, Pakistan"
+# Report header brand mirrors the parent company (Absormax) — Sundar Estate
+# is a branch under the same legal entity, so report headers stay identical
+# to the demo org and only the Branch line distinguishes the two.
+COMPANY_NAME="Absormax Hygiene Products (Pvt) LTD"
+COMPANY_ADDRESS="Sundar Industrial Estate, Lahore"
 BRANCH_CODE="b01"
 BRANCH_NAME="Sundar Estate Branch 01"
 
@@ -37,10 +40,13 @@ BRANCH_NAME="Sundar Estate Branch 01"
 INITIAL_PASSWORD="${INITIAL_PASSWORD:-seb123}"
 
 run_in_backend() {
+  # Use docker exec -w + array argv so multi-word args like "Sundar Estate"
+  # survive shell quoting. The previous `sh -c "cd /app/apps/backend && npm
+  # run $*"` form lost quoting and truncated multi-word values to first word.
   if [ -n "${SUNDAR_LOCAL:-}" ]; then
     (cd "$REPO_ROOT/apps/backend" && npm run "$@")
   else
-    docker exec kuwaitpos-backend sh -c "cd /app/apps/backend && npm run $*"
+    docker exec -w /app/apps/backend kuwaitpos-backend npm run "$@"
   fi
 }
 
