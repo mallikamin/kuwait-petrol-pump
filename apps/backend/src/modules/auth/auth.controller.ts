@@ -63,7 +63,22 @@ export class AuthController {
       }
       const user = await prisma.user.findUnique({
         where: { id: req.user.userId },
-        include: { branch: { select: { id: true, name: true } } },
+        include: {
+          branch: { select: { id: true, name: true, code: true } },
+          organization: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+              currency: true,
+              timezone: true,
+              isDemo: true,
+              companyName: true,
+              companyAddress: true,
+              reportFooter: true,
+            },
+          },
+        },
       });
       if (!user) {
         return res.status(404).json({ error: 'User not found' });
@@ -77,6 +92,7 @@ export class AuthController {
         branch_id: user.branchId,
         is_active: user.isActive,
         branch: user.branch,
+        organization: user.organization,
       });
     } catch (error) {
       next(error);

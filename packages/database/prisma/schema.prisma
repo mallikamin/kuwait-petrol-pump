@@ -16,12 +16,23 @@ datasource db {
 
 /// Organization (Multi-tenant root entity)
 model Organization {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name      String   @db.VarChar(255)
-  currency  String   @default("PKR") @db.VarChar(3)
-  timezone  String   @default("Asia/Karachi") @db.VarChar(50)
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name            String   @db.VarChar(255)
+  /// Short tenant code (lowercase). Login prefix and admin UI handle. Globally unique.
+  code            String?  @unique @db.VarChar(32)
+  currency        String   @default("PKR") @db.VarChar(3)
+  timezone        String   @default("Asia/Karachi") @db.VarChar(50)
+  /// pool | silo. Pool = shared DB. Silo = dedicated DB at dedicatedDbUrl.
+  tenancyMode     String   @default("pool") @map("tenancy_mode") @db.VarChar(20)
+  dedicatedDbUrl  String?  @map("dedicated_db_url") @db.Text
+  isDemo          Boolean  @default(false) @map("is_demo")
+  features        Json     @default("{}")
+  /// Display name shown on report CSV/PDF headers. Falls back to name when null.
+  companyName     String?  @map("company_name") @db.VarChar(255)
+  companyAddress  String?  @map("company_address") @db.Text
+  reportFooter    String?  @map("report_footer") @db.Text
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
   branches               Branch[]
@@ -55,6 +66,8 @@ model Organization {
 model Branch {
   id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
+  /// Short branch code within an org (e.g. "b01"). Login prefix segment.
+  code           String?  @db.VarChar(32)
   name           String   @db.VarChar(255)
   location       String?  @db.Text
   isActive       Boolean  @default(true) @map("is_active")
@@ -84,8 +97,32 @@ model Branch {
   cashReconciliations      CashReconciliation[]
   psoTopups                PsoTopup[]
   customerAdvanceMovements CustomerAdvanceMovement[]
+  userBranchAccess         UserBranchAccess[]
 
+  @@unique([organizationId, code], name: "unique_org_branch_code")
   @@map("branches")
+}
+
+/// Optional many-to-many: users that need access to a hand-picked subset of
+/// branches within their org (e.g. one accountant covering 5 of 10 pumps).
+/// Created in 2026-04-26 multi-tenant foundation; NOT yet wired into access
+/// middleware. Existing User.branchId semantics (NULL = all branches in org,
+/// set = single branch) remain authoritative until middleware is updated.
+model UserBranchAccess {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  branchId  String   @map("branch_id") @db.Uuid
+  /// Optional per-branch role override. NULL = inherit users.role.
+  role      String?  @db.VarChar(50)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, branchId], name: "unique_user_branch")
+  @@index([userId], name: "idx_user_branch_access_user")
+  @@index([branchId], name: "idx_user_branch_access_branch")
+  @@map("user_branch_access")
 }
 
 // ============================================================
@@ -223,6 +260,7 @@ model User {
   voidedPsoTopups                 PsoTopup[]              @relation("PsoTopupVoidedBy")
   createdAdvanceMovements         CustomerAdvanceMovement[] @relation("AdvanceCreatedBy")
   voidedAdvanceMovements          CustomerAdvanceMovement[] @relation("AdvanceVoidedBy")
+  branchAccess                    UserBranchAccess[]
 
   @@unique([organizationId, username], name: "unique_org_username") // Multi-tenant safety
   @@index([organizationId], name: "idx_users_org")

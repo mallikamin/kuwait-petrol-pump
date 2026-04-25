@@ -82,6 +82,7 @@ const navItems: NavItem[] = [
   { title: 'Reports', href: '/reports', icon: <FileText className="h-5 w-5" /> },
   { title: 'QuickBooks', href: '/quickbooks', icon: <Link2 className="h-5 w-5" />, roles: ['admin', 'manager', 'accountant'] },
   { title: 'Users', href: '/users', icon: <Settings className="h-5 w-5" />, roles: ['admin', 'accountant'] },
+  { title: 'Master Client List', href: '/admin/clients', icon: <Building2 className="h-5 w-5" />, roles: ['admin'] },
 ];
 
 interface SidebarProps {

@@ -17,3 +17,4 @@ export { banksApi } from './banks';
 export { creditApi } from './credit';
 export { expensesApi } from './expenses';
 export { inventoryApi } from './inventory';
+export { adminApi } from './admin';
