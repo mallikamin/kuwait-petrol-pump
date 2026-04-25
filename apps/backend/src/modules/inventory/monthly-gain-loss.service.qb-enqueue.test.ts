@@ -21,6 +21,7 @@ jest.mock('../../config/database', () => ({
     user: { findUnique: jest.fn() },
     monthlyInventoryGainLoss: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
       create: jest.fn(),
     },
     fuelInventory: { findUnique: jest.fn() },
@@ -43,6 +44,7 @@ function seedBase() {
   } as any);
   (prisma.user.findUnique as jest.MockedFunction<any>).mockResolvedValue({ id: 'u-1' } as any);
   (prisma.monthlyInventoryGainLoss.findUnique as jest.MockedFunction<any>).mockResolvedValue(null);
+  (prisma.monthlyInventoryGainLoss.findFirst as jest.MockedFunction<any>).mockResolvedValue(null);
   (prisma.monthlyInventoryGainLoss.create as jest.MockedFunction<any>).mockImplementation(async ({ data }: any) => ({
     id: 'gl-1',
     branchId: data.branchId,

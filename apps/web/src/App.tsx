@@ -25,6 +25,7 @@ import { Credit } from '@/pages/Credit';
 import { Expenses } from '@/pages/Expenses';
 import { CashReconciliation } from '@/pages/CashReconciliation';
 import { PsoTopups } from '@/pages/PsoTopups';
+import { GainLoss } from '@/pages/GainLoss';
 import { NotFound } from '@/pages/NotFound';
 import { useAuthStore } from '@/store/auth';
 import { useThemeStore } from '@/store/theme';
@@ -92,6 +93,7 @@ function App() {
             <Route path="expenses" element={<Expenses />} />
             <Route path="cash-reconciliation" element={<CashReconciliation />} />
             <Route path="pso-topups" element={<PsoTopups />} />
+            <Route path="gain-loss" element={<GainLoss />} />
             {/* Legacy /customer-advance redirect → Receipts tab preserves any
                 bookmarks / deep-links after the merge into Receipts page. */}
             <Route path="customer-advance" element={<Navigate to="/receipts" replace />} />

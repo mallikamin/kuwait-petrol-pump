@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { MonthlyGainLossService } from './monthly-gain-loss.service';
+import { computeStockAtDate } from './stock-at-date.service';
 
 const createEntrySchema = z.object({
   branchId: z.string().uuid(),
@@ -10,15 +11,36 @@ const createEntrySchema = z.object({
   remarks: z.string().optional(),
 });
 
+const createByDateSchema = z
+  .object({
+    branchId: z.string().uuid(),
+    fuelTypeId: z.string().uuid(),
+    businessDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date (YYYY-MM-DD)'),
+    measuredQty: z.number().finite().optional(),
+    quantity: z.number().finite().optional(),
+    remarks: z.string().optional(),
+  })
+  .refine((d) => d.measuredQty !== undefined || d.quantity !== undefined, {
+    message: 'Provide either measuredQty or quantity',
+  });
+
 const getEntriesSchema = z.object({
   branchId: z.string().uuid(),
   month: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   fuelTypeId: z.string().uuid().optional(),
 });
 
 const getMonthSummarySchema = z.object({
   branchId: z.string().uuid(),
   month: z.string().regex(/^\d{4}-\d{2}$/),
+});
+
+const stockAtDateSchema = z.object({
+  branchId: z.string().uuid(),
+  fuelTypeId: z.string().uuid(),
+  asOfDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });
 
 export class MonthlyGainLossController {
@@ -52,15 +74,37 @@ export class MonthlyGainLossController {
     }
   };
 
+  /** New date-keyed creation flow (Gain/Loss page). */
+  createByDate = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const parsed = createByDateSchema.parse(req.body);
+      if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+
+      const result = await this.service.createByDate({
+        branchId: parsed.branchId,
+        fuelTypeId: parsed.fuelTypeId,
+        businessDate: parsed.businessDate,
+        measuredQty: parsed.measuredQty,
+        quantity: parsed.quantity,
+        remarks: parsed.remarks,
+        recordedBy: req.user.userId,
+      });
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
   getEntries = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { branchId, month, fuelTypeId } = getEntriesSchema.parse(
-        req.query
-      );
+      const { branchId, month, startDate, endDate, fuelTypeId } =
+        getEntriesSchema.parse(req.query);
 
       const entries = await this.service.getEntries({
         branchId,
         month,
+        startDate,
+        endDate,
         fuelTypeId,
       });
 
@@ -114,6 +158,18 @@ export class MonthlyGainLossController {
         summary,
         totalFuelTypes: summary.length,
       });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /** GET /api/inventory/monthly-gain-loss/stock-at-date — drives the
+   *  auto-calc UI. Returns book stock + lastPurchaseRate at a given date. */
+  stockAtDate = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { branchId, fuelTypeId, asOfDate } = stockAtDateSchema.parse(req.query);
+      const result = await computeStockAtDate({ branchId, fuelTypeId, asOfDate });
+      res.json(result);
     } catch (error) {
       next(error);
     }
