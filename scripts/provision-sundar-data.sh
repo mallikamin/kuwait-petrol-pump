@@ -42,10 +42,12 @@ run_psql() {
 }
 
 echo "Step 1/3: Clone master data from kpc -> se (branch b01:b01)"
+# fuel-prices is a no-op (table is global) but we include it so the
+# onboarding output shows the operator what prices Sundar already inherits.
 run_in_backend onboard:clone -- \
   --from-org kpc --to-org se \
   --branch-mapping b01:b01 \
-  --include branch-structure,products,suppliers,customers,expense-accounts
+  --include branch-structure,products,suppliers,customers,expense-accounts,banks,fuel-prices
 echo
 
 echo "Step 2/3: Create single shift 'Day' (00:00-23:59) for Sundar Estate Branch 01"

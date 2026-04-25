@@ -8,6 +8,14 @@
 //   - suppliers
 //   - customers (currentBalance reset to 0 — each org owns its own credit)
 //   - expense_accounts
+//   - banks (org-scoped or branch-scoped; branch-scoped banks are
+//     translated through --branch-mapping)
+//
+// REPORTS BUT DOES NOT CLONE:
+//   - fuel-prices: the fuel_prices table is GLOBAL (no organization_id
+//     column), so prices set on the source org are already visible to
+//     the target org. The "fuel-prices" include just lists what's
+//     currently active for operator visibility — no inserts.
 //
 // DOES NOT CLONE (transactional data, per-tenant state):
 //   - sales, meter readings, bifurcations
@@ -18,14 +26,12 @@
 //   - purchase orders, supplier payments, stock receipts
 //   - QB connections, QB mappings, QB sync queue, QB logs, QB snapshots
 //   - shift definitions (caller decides shift schedule per their ops)
-//   - banks (per-tenant financial relationships)
-//   - fuel prices (each org sets their own; have effective dates)
 //
 // Usage:
 //   tsx scripts/onboarding/clone-master-data.ts \
 //     --from-org kpc --to-org se \
 //     --branch-mapping b01:b01 \
-//     [--include products,suppliers,customers,expense-accounts,branch-structure]
+//     [--include products,suppliers,customers,expense-accounts,branch-structure,banks,fuel-prices]
 //
 // Idempotent: skips records that already exist in the target (matched
 // by org-scoped natural key — sku for products, name for suppliers/
@@ -41,7 +47,9 @@ type IncludeKey =
   | 'products'
   | 'suppliers'
   | 'customers'
-  | 'expense-accounts';
+  | 'expense-accounts'
+  | 'banks'
+  | 'fuel-prices';
 
 const ALL_INCLUDES: IncludeKey[] = [
   'branch-structure',
@@ -49,6 +57,8 @@ const ALL_INCLUDES: IncludeKey[] = [
   'suppliers',
   'customers',
   'expense-accounts',
+  'banks',
+  'fuel-prices',
 ];
 
 interface CloneStats {
@@ -192,6 +202,73 @@ async function cloneExpenseAccounts(fromOrgId: string, toOrgId: string): Promise
     stats.created++;
   }
   return stats;
+}
+
+async function cloneBanks(
+  fromOrgId: string,
+  toOrgId: string,
+  branchMap: BranchMap | null,
+): Promise<CloneStats> {
+  const stats: CloneStats = { created: 0, skipped: 0, total: 0 };
+  const source = await prisma.bank.findMany({
+    where: { organizationId: fromOrgId },
+    orderBy: { name: 'asc' },
+  });
+  stats.total = source.length;
+
+  for (const b of source) {
+    // Translate branch_id through the mapping. If a branch-scoped bank
+    // exists in source but no mapping is provided, fall back to org-level
+    // (NULL branch_id) on the target so the bank still shows in dropdowns.
+    let targetBranchId: string | null = null;
+    if (b.branchId) {
+      if (branchMap && b.branchId === branchMap.fromBranchId) {
+        targetBranchId = branchMap.toBranchId;
+      } else {
+        targetBranchId = null; // unmapped source branch → drop to org-level
+      }
+    }
+
+    // No DB unique constraint on (org_id, name); enforce idempotency here.
+    const exists = await prisma.bank.findFirst({
+      where: { organizationId: toOrgId, name: b.name },
+    });
+    if (exists) {
+      stats.skipped++;
+      continue;
+    }
+    await prisma.bank.create({
+      data: {
+        organizationId: toOrgId,
+        branchId: targetBranchId,
+        name: b.name,
+        code: b.code,
+        accountNumber: b.accountNumber,
+        accountTitle: b.accountTitle,
+        isActive: b.isActive,
+      },
+    });
+    stats.created++;
+  }
+  return stats;
+}
+
+async function reportFuelPrices(): Promise<{ count: number }> {
+  // fuel_prices has NO organization_id column — the table is global.
+  // Prices set anywhere are visible to every org. This handler is a
+  // visibility check, not a copy operation, so onboarding operators
+  // can confirm what's currently active.
+  const active = await prisma.fuelPrice.findMany({
+    where: { effectiveTo: null },
+    include: { fuelType: true },
+    orderBy: { effectiveFrom: 'desc' },
+  });
+  for (const p of active) {
+    console.log(
+      `    ${p.fuelType.code}: ${p.pricePerLiter} (effective from ${p.effectiveFrom.toISOString().slice(0, 10)})`,
+    );
+  }
+  return { count: active.length };
 }
 
 async function cloneBranchStructure(map: BranchMap): Promise<{
@@ -352,6 +429,19 @@ Optional:
   if (include.includes('expense-accounts')) {
     const r = await cloneExpenseAccounts(fromOrg.id, toOrg.id);
     console.log(`[expense-accounts] created=${r.created} skipped=${r.skipped} total=${r.total}`);
+  }
+
+  if (include.includes('banks')) {
+    const r = await cloneBanks(fromOrg.id, toOrg.id, branchMap);
+    console.log(`[banks]            created=${r.created} skipped=${r.skipped} total=${r.total}`);
+  }
+
+  if (include.includes('fuel-prices')) {
+    console.log(`[fuel-prices]      table is GLOBAL (shared across orgs); current active prices visible to ${toOrgCode}:`);
+    const r = await reportFuelPrices();
+    if (r.count === 0) {
+      console.log('    (no active fuel prices set anywhere — operator must add prices via the Fuel Prices page)');
+    }
   }
 
   console.log();
