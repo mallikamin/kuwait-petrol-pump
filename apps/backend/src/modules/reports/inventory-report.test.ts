@@ -690,6 +690,55 @@ describe('Inventory Report - Product-Wise Movement', () => {
     expect(out.productMovement.rows[0].productType).toBe('HSD');
     expect(out.diagnostics.errors).toEqual([]);
   });
+
+  it('keeps fuel rows with opening stock even when there is no movement', async () => {
+    // Regression: a branch with HSD opening stock = 10000 but zero
+    // purchases/sales/gain-loss in the period must still surface the HSD
+    // row in the report (so the operator can see what's sitting at the
+    // pump). Pre-fix, the movement-only filter dropped any row with
+    // purchasedQty=0 AND soldQty=0, hiding opening stock entirely.
+    (prisma.branch.findFirst as any).mockResolvedValueOnce(testBranch);
+    (prisma.stockLevel.findMany as any).mockResolvedValueOnce([]);
+    (prisma.fuelType.findMany as any).mockResolvedValueOnce([]);
+    (prisma.stockReceipt.findMany as any).mockResolvedValueOnce([]);
+    (prisma.purchaseOrder.findMany as any).mockResolvedValueOnce([]);
+    (prisma.sale.findMany as any).mockResolvedValueOnce([]);
+    (prisma.inventoryBootstrap.findMany as any).mockResolvedValueOnce([
+      {
+        id: 'b-hsd',
+        branchId: testBranchId,
+        productId: null,
+        fuelTypeId: 'ft-HSD',
+        asOfDate: new Date('2026-01-01T00:00:00Z'),
+        quantity: 10000 as any,
+        source: 'user_entered',
+        product: null,
+        fuelType: { code: 'HSD' },
+      },
+      {
+        id: 'b-pmg',
+        branchId: testBranchId,
+        productId: null,
+        fuelTypeId: 'ft-PMG',
+        asOfDate: new Date('2026-01-01T00:00:00Z'),
+        quantity: 0 as any,
+        source: 'user_entered',
+        product: null,
+        fuelType: { code: 'PMG' },
+      },
+    ]);
+    const out = await reportsService.getInventoryReport(
+      testBranchId, testOrgId, undefined, '2026-04-01', '2026-04-30',
+    );
+
+    const rows = out.productMovement.rows;
+    const hsd = rows.find((r: any) => r.productType === 'HSD');
+    expect(hsd).toBeDefined();
+    expect(hsd.openingQty).toBe(10000);
+    expect(hsd.closingQty).toBe(10000); // no movement, no gain/loss
+    // PMG with opening=0 and no movement is correctly hidden.
+    expect(rows.find((r: any) => r.productType === 'PMG')).toBeUndefined();
+  });
 });
 
 describe('Inventory Report - StockReceipt per-receipt quantity (2026-04 regression)', () => {

@@ -1364,8 +1364,17 @@ export class ReportsService {
           ? filteredByCategory.filter(r => r.productId === productId)
           : filteredByCategory;
 
-        // Movement-only: drop rows with no activity in the window
-        const movementOnly = filteredByProduct.filter(r => r.purchasedQty > 0 || r.soldQty > 0);
+        // Movement-only: drop rows with no activity AND no opening anchor.
+        // A fuel row with bootstrap opening (e.g. HSD=10000) but no purchases
+        // or sales in the window is still meaningful — it shows the stock
+        // sitting at the branch and is the row the accountant will adjust
+        // via Gain/Loss. Excluding it would hide opening stock entirely.
+        const movementOnly = filteredByProduct.filter((r) => {
+          if (r.purchasedQty > 0 || r.soldQty > 0) return true;
+          if (Number(r.openingQty || 0) !== 0) return true;
+          if (Number(r.gainLossQty || 0) !== 0) return true;
+          return false;
+        });
 
         productMovement = {
           filters: { category, productId: productId || null },

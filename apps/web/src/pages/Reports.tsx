@@ -16,7 +16,9 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
@@ -942,19 +944,31 @@ export function Reports() {
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="daily-sales">Daily Sales Summary</SelectItem>
-                  <SelectItem value="inventory">Inventory Report</SelectItem>
-                  <SelectItem value="customer-ledger">Customer Ledger</SelectItem>
-                  <SelectItem value="variance">Variance Report</SelectItem>
-                  <SelectItem value="fuel-price-history">Fuel Price History</SelectItem>
-                  <SelectItem value="customer-wise-sales">Customer-Wise Sales</SelectItem>
-                  <SelectItem value="vehicle-wise-report">Vehicle-Wise Report</SelectItem>
-                  <SelectItem value="product-wise-summary">Product-Wise Summary</SelectItem>
-                  <SelectItem value="expenses">Expenses Report</SelectItem>
-                  <SelectItem value="customer-advance-balances">Customer Advance Balances</SelectItem>
-                  <SelectItem value="pso-topups-summary">PSO Top-Ups Summary</SelectItem>
-                  <SelectItem value="cash-recon-history">Cash Reconciliation History</SelectItem>
+                <SelectContent className="max-h-[70vh]">
+                  <SelectGroup>
+                    <SelectLabel>Sales</SelectLabel>
+                    <SelectItem value="daily-sales">Daily Sales</SelectItem>
+                    <SelectItem value="customer-wise-sales">By Customer</SelectItem>
+                    <SelectItem value="vehicle-wise-report">By Vehicle</SelectItem>
+                    <SelectItem value="product-wise-summary">By Product</SelectItem>
+                  </SelectGroup>
+                  <SelectGroup>
+                    <SelectLabel>Inventory</SelectLabel>
+                    <SelectItem value="inventory">Inventory Report</SelectItem>
+                    <SelectItem value="variance">Variance</SelectItem>
+                    <SelectItem value="fuel-price-history">Fuel Prices</SelectItem>
+                  </SelectGroup>
+                  <SelectGroup>
+                    <SelectLabel>Receivables</SelectLabel>
+                    <SelectItem value="customer-ledger">Customer Ledger</SelectItem>
+                    <SelectItem value="customer-advance-balances">Customer Advances</SelectItem>
+                  </SelectGroup>
+                  <SelectGroup>
+                    <SelectLabel>Cash & Settlement</SelectLabel>
+                    <SelectItem value="expenses">Expenses</SelectItem>
+                    <SelectItem value="pso-topups-summary">PSO Top-Ups</SelectItem>
+                    <SelectItem value="cash-recon-history">Cash Recon History</SelectItem>
+                  </SelectGroup>
                 </SelectContent>
               </Select>
             </div>

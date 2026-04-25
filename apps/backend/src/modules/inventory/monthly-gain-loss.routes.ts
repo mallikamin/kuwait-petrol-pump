@@ -5,10 +5,20 @@ import { MonthlyGainLossController } from './monthly-gain-loss.controller';
 const router = Router();
 const controller = new MonthlyGainLossController();
 
-// POST /api/inventory/monthly-gain-loss - Create entry
+// POST /api/inventory/monthly-gain-loss - Create entry (legacy month-keyed)
 router.post('/', authenticate, controller.createEntry);
 
-// GET /api/inventory/monthly-gain-loss - List entries
+// POST /api/inventory/monthly-gain-loss/by-date - Create entry on specific date
+// (auto-computes gain/loss from measured liters when measuredQty supplied,
+//  snapshots lastPurchaseRate + bookQtyAtDate at write time)
+router.post('/by-date', authenticate, controller.createByDate);
+
+// GET /api/inventory/monthly-gain-loss/stock-at-date - Book stock + last
+// purchase rate at a calendar date. Drives the Gain/Loss form's live
+// "current PMG/HSD level" display.
+router.get('/stock-at-date', authenticate, controller.stockAtDate);
+
+// GET /api/inventory/monthly-gain-loss - List entries (supports startDate/endDate)
 router.get('/', authenticate, controller.getEntries);
 
 // GET /api/inventory/monthly-gain-loss/summary - Get month summary

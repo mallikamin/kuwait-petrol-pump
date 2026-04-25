@@ -122,14 +122,14 @@ export function PurchaseOrders() {
 
   const { data: branchesData } = useQuery({
     queryKey: ['branches'],
-    queryFn: () => branchesApi.getAll(),
+    queryFn: async () => (await branchesApi.getAll()).items,
   });
 
   const purchaseOrders = poData?.purchaseOrders ?? [];
   const suppliers = suppliersData?.suppliers ?? [];
   const fuelTypes = Array.isArray(fuelTypesData) ? fuelTypesData : [];
   const products = productsData?.products ?? [];
-  const branches = branchesData?.items ?? [];
+  const branches = Array.isArray(branchesData) ? branchesData : [];
 
   const createMutation = useMutation({
     mutationFn: (data: CreatePOInput) => purchaseOrdersApi.create(data),

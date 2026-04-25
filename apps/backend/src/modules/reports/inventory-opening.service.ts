@@ -81,7 +81,38 @@ export async function computeInventoryOpeningClosing(params: {
   });
 
   if (bootstraps.length === 0) {
-    return new Map();
+    // No bootstrap rows yet — but the user may still have recorded
+    // MonthlyInventoryGainLoss entries for fuel. Surface those so the
+    // Gain/Loss column is populated even before the accountant seeds
+    // opening stock. Opening/closing stay 0 since we have no anchor;
+    // the productMovement row's purchased/sold come from the period
+    // query upstream and are unaffected by this branch.
+    const startMonth = startDate.slice(0, 7);
+    const endMonth = endDate.slice(0, 7);
+    const gainLosses = await prisma.monthlyInventoryGainLoss.findMany({
+      where: { branchId, month: { lte: endMonth } },
+      include: { fuelType: { select: { code: true } } },
+    });
+    const out: OpeningClosingMap = new Map();
+    gainLosses.forEach((gl) => {
+      const code = gl.fuelType.code;
+      if (!code) return;
+      const k = keyOf({ kind: 'fuel', key: code });
+      const isPeriod = gl.month >= startMonth && gl.month <= endMonth;
+      const row = out.get(k) || {
+        openingQty: 0,
+        purchasesQtyInPeriod: 0,
+        soldQtyInPeriod: 0,
+        gainLossQtyInPeriod: 0,
+        closingQty: 0,
+      };
+      const qty = Number(gl.quantity);
+      if (isPeriod) row.gainLossQtyInPeriod += qty;
+      else row.openingQty += qty;
+      row.closingQty = row.openingQty + row.gainLossQtyInPeriod;
+      out.set(k, row);
+    });
+    return out;
   }
 
   // For each (product/fuel) pick the most-recent bootstrap row that
