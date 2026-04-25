@@ -363,22 +363,105 @@ export class MonthlyGainLossService {
     return this.toDto(entry);
   }
 
-  async deleteEntry(id: string, userId: string) {
+  /**
+   * Edit an existing entry. measuredQty edits re-derive quantity against
+   * the SAME bookQtyAtDate that was originally captured (not a fresh
+   * stock lookup) so editing one entry doesn't ripple through the chain
+   * of later entries. Date and fuel cannot change — those are the row's
+   * identity; if either is wrong, delete and re-add.
+   */
+  async updateEntry(
+    id: string,
+    input: {
+      measuredQty?: number | null;
+      quantity?: number | null;
+      remarks?: string | null;
+    },
+    userId: string,
+    userRole?: string,
+  ) {
+    const entry = await prisma.monthlyInventoryGainLoss.findUnique({
+      where: { id },
+      include: { fuelType: { select: { id: true, code: true, name: true } } },
+    });
+    if (!entry) throw new AppError(404, 'Gain/loss entry not found');
+
+    const isAdmin = userRole === 'admin';
+    if (!isAdmin && entry.recordedBy !== userId) {
+      throw new AppError(403, 'Only the recorder or an admin can edit this entry');
+    }
+
+    const data: any = {};
+
+    if (input.measuredQty !== undefined) {
+      if (input.measuredQty === null) {
+        data.measuredQty = null;
+      } else {
+        if (!Number.isFinite(input.measuredQty)) {
+          throw new AppError(400, 'measuredQty must be a finite number');
+        }
+        data.measuredQty = new Decimal(input.measuredQty);
+        const baseBook =
+          entry.bookQtyAtDate != null ? Number(entry.bookQtyAtDate.toString()) : 0;
+        const newQty = input.measuredQty - baseBook;
+        data.quantity = new Decimal(newQty);
+        if (entry.lastPurchaseRate != null) {
+          const rate = Number(entry.lastPurchaseRate.toString());
+          data.valueAtRate = new Decimal(Number((newQty * rate).toFixed(2)));
+        }
+      }
+    } else if (input.quantity !== undefined) {
+      if (input.quantity === null) throw new AppError(400, 'quantity cannot be null');
+      if (!Number.isFinite(input.quantity)) {
+        throw new AppError(400, 'quantity must be a finite number');
+      }
+      data.quantity = new Decimal(input.quantity);
+      data.measuredQty = null;
+      if (entry.lastPurchaseRate != null) {
+        const rate = Number(entry.lastPurchaseRate.toString());
+        data.valueAtRate = new Decimal(Number((input.quantity * rate).toFixed(2)));
+      }
+    }
+
+    if (input.remarks !== undefined) data.remarks = input.remarks;
+
+    if (Object.keys(data).length === 0) {
+      throw new AppError(400, 'No fields to update');
+    }
+
+    const updated = await prisma.monthlyInventoryGainLoss.update({
+      where: { id },
+      data,
+      include: {
+        fuelType: { select: { id: true, code: true, name: true } },
+        user: { select: { id: true, username: true, fullName: true } },
+      },
+    });
+
+    return this.toDto(updated);
+  }
+
+  async deleteEntry(id: string, userId: string, userRole?: string) {
     const entry = await prisma.monthlyInventoryGainLoss.findUnique({ where: { id } });
     if (!entry) throw new AppError(404, 'Gain/loss entry not found');
 
-    if (entry.recordedBy !== userId) {
-      throw new AppError(403, 'Only the recorder can delete this entry');
+    const isAdmin = userRole === 'admin';
+    if (!isAdmin && entry.recordedBy !== userId) {
+      throw new AppError(403, 'Only the recorder or an admin can delete this entry');
     }
 
-    const recordedDate = new Date(entry.recordedAt);
-    const now = new Date();
-    const hoursDiff = (now.getTime() - recordedDate.getTime()) / (1000 * 60 * 60);
-    if (hoursDiff > 24) {
-      throw new AppError(
-        400,
-        'Cannot delete entries older than 24 hours. Contact admin for corrections.',
-      );
+    // Admins can delete any entry; the 24h window only applies to non-admins
+    // so accountants can clean up their own mistakes within a day.
+    if (!isAdmin) {
+      const recordedDate = new Date(entry.recordedAt);
+      const now = new Date();
+      const hoursDiff = (now.getTime() - recordedDate.getTime()) / (1000 * 60 * 60);
+      if (hoursDiff > 24) {
+        throw new AppError(
+          400,
+          'Cannot delete entries older than 24 hours. Contact admin for corrections.',
+        );
+      }
     }
 
     await prisma.monthlyInventoryGainLoss.delete({ where: { id } });

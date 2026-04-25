@@ -27,6 +27,9 @@ router.get('/summary', authenticate, controller.getMonthSummary);
 // GET /api/inventory/monthly-gain-loss/:id - Get single entry
 router.get('/:id', authenticate, controller.getEntryById);
 
+// PATCH /api/inventory/monthly-gain-loss/:id - Edit entry (measuredQty, quantity, remarks)
+router.patch('/:id', authenticate, controller.updateEntry);
+
 // DELETE /api/inventory/monthly-gain-loss/:id - Delete entry
 router.delete('/:id', authenticate, controller.deleteEntry);
 

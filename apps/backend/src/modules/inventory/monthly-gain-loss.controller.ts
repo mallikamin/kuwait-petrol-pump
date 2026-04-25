@@ -43,6 +43,12 @@ const stockAtDateSchema = z.object({
   asOfDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });
 
+const updateEntrySchema = z.object({
+  measuredQty: z.number().finite().nullable().optional(),
+  quantity: z.number().finite().optional(),
+  remarks: z.string().nullable().optional(),
+});
+
 export class MonthlyGainLossController {
   private service: MonthlyGainLossService;
 
@@ -128,6 +134,24 @@ export class MonthlyGainLossController {
     }
   };
 
+  updateEntry = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+      const parsed = updateEntrySchema.parse(req.body);
+      if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+
+      const result = await this.service.updateEntry(
+        id,
+        parsed,
+        req.user.userId,
+        req.user.role,
+      );
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
   deleteEntry = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
@@ -136,7 +160,7 @@ export class MonthlyGainLossController {
         return res.status(401).json({ error: 'Not authenticated' });
       }
 
-      const result = await this.service.deleteEntry(id, req.user.userId);
+      const result = await this.service.deleteEntry(id, req.user.userId, req.user.role);
       res.json(result);
     } catch (error) {
       next(error);

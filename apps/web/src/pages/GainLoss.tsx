@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { Plus, Loader2, AlertTriangle, Building2, CalendarDays, Trash2 } from 'lucide-react';
+import { Building2, CalendarDays, Loader2, Plus, Trash2, Check, X, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -13,31 +12,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { branchesApi, apiClient, inventoryApi } from '@/api';
 import type { GainLossEntry, StockAtDateResult } from '@/api/inventory';
 import { useAuthStore } from '@/store/auth';
+import { cn } from '@/utils/cn';
 
 interface FuelType {
   id: string;
@@ -45,13 +23,145 @@ interface FuelType {
   name: string;
 }
 
-const fmtL = (n: number | null | undefined) =>
-  Number(n ?? 0).toLocaleString('en-PK', { maximumFractionDigits: 3 });
-
+const fmtL = (n: number | null | undefined) => {
+  const v = Number(n ?? 0);
+  if (v === 0) return '0';
+  return (Math.round(v * 1000) / 1000).toFixed(3).replace(/\.?0+$/, '');
+};
 const fmtPKR = (n: number | null | undefined) =>
-  Number(n ?? 0).toLocaleString('en-PK', { maximumFractionDigits: 2 });
+  Number(n ?? 0).toLocaleString('en-PK', { maximumFractionDigits: 0 });
 
-const monthOf = (d: string) => d.slice(0, 7);
+const monthOf = (d: string | null | undefined) => (d || '').slice(0, 7) || '—';
+
+/**
+ * Inline editor for an existing gain/loss entry. Edits the measured liters;
+ * server re-derives quantity + value against the originally captured
+ * bookQtyAtDate so the chain of subsequent entries stays stable.
+ */
+function MeasuredCell({
+  entry,
+  onSaved,
+}: {
+  entry: GainLossEntry;
+  onSaved: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState<string>(
+    entry.measuredQty != null ? String(entry.measuredQty) : '',
+  );
+
+  const mut = useMutation({
+    mutationFn: async () => {
+      const num = parseFloat(val);
+      if (!Number.isFinite(num)) throw new Error('Enter a number');
+      return inventoryApi.updateGainLossEntry(entry.id, { measuredQty: num });
+    },
+    onSuccess: () => {
+      toast.success('Updated');
+      setEditing(false);
+      onSaved();
+    },
+    onError: (e: any) => {
+      const msg = e?.response?.data?.error || e?.message || 'Update failed';
+      toast.error('Update failed', { description: msg });
+    },
+  });
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        className="font-mono w-full text-right hover:bg-accent rounded px-1 py-0.5 cursor-pointer group"
+        onClick={() => setEditing(true)}
+        title="Click to edit measured liters"
+      >
+        {entry.measuredQty != null ? fmtL(entry.measuredQty) : '—'}
+        <Pencil className="inline-block ml-1 h-3 w-3 opacity-0 group-hover:opacity-50" />
+      </button>
+    );
+  }
+  return (
+    <div className="flex items-center gap-1">
+      <Input
+        autoFocus
+        type="number"
+        step="0.001"
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') mut.mutate();
+          if (e.key === 'Escape') setEditing(false);
+        }}
+        className="h-7 text-right font-mono w-28"
+      />
+      <Button size="sm" variant="ghost" className="h-7 px-1.5" onClick={() => mut.mutate()} disabled={mut.isPending}>
+        {mut.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+      </Button>
+      <Button size="sm" variant="ghost" className="h-7 px-1.5" onClick={() => setEditing(false)}>
+        <X className="h-3 w-3" />
+      </Button>
+    </div>
+  );
+}
+
+function RemarksCell({
+  entry,
+  onSaved,
+}: {
+  entry: GainLossEntry;
+  onSaved: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(entry.remarks || '');
+
+  const mut = useMutation({
+    mutationFn: async () =>
+      inventoryApi.updateGainLossEntry(entry.id, { remarks: val || null }),
+    onSuccess: () => {
+      toast.success('Remarks updated');
+      setEditing(false);
+      onSaved();
+    },
+    onError: (e: any) => {
+      toast.error('Update failed', {
+        description: e?.response?.data?.error || e?.message,
+      });
+    },
+  });
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        className="text-left w-full truncate hover:bg-accent rounded px-1 py-0.5 cursor-pointer text-muted-foreground"
+        title={entry.remarks || 'Click to add remarks'}
+      >
+        {entry.remarks || <span className="italic opacity-50">add remarks</span>}
+      </button>
+    );
+  }
+  return (
+    <div className="flex items-center gap-1">
+      <Input
+        autoFocus
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') mut.mutate();
+          if (e.key === 'Escape') setEditing(false);
+        }}
+        className="h-7 text-sm"
+      />
+      <Button size="sm" variant="ghost" className="h-7 px-1.5" onClick={() => mut.mutate()} disabled={mut.isPending}>
+        <Check className="h-3 w-3" />
+      </Button>
+      <Button size="sm" variant="ghost" className="h-7 px-1.5" onClick={() => setEditing(false)}>
+        <X className="h-3 w-3" />
+      </Button>
+    </div>
+  );
+}
 
 export function GainLoss() {
   const queryClient = useQueryClient();
@@ -61,33 +171,27 @@ export function GainLoss() {
     () => (user as any)?.branch?.id || '',
   );
 
-  // Default to last 90 days so the operator sees recent entries by default;
-  // they can widen via the date filters.
+  // Default: this calendar year so the operator sees yearly totals at a glance.
   const [startDate, setStartDate] = useState<string>(() => {
     const d = new Date();
-    d.setDate(d.getDate() - 90);
-    return format(d, 'yyyy-MM-dd');
+    return `${d.getFullYear()}-01-01`;
   });
   const [endDate, setEndDate] = useState<string>(() => format(new Date(), 'yyyy-MM-dd'));
 
-  const [createOpen, setCreateOpen] = useState(false);
-  const [form, setForm] = useState({
+  // Inline new-entry row state. Lives at the top of each fuel section so the
+  // accountant can punch in a measurement without opening a modal.
+  const [draft, setDraft] = useState({
     fuelTypeId: '',
     businessDate: format(new Date(), 'yyyy-MM-dd'),
     measuredQty: '',
     remarks: '',
   });
 
-  const [deleteTarget, setDeleteTarget] = useState<GainLossEntry | null>(null);
-
   const { data: branches = [] } = useQuery({
     queryKey: ['branches'],
     queryFn: async () => (await branchesApi.getAll()).items,
   });
 
-  // Pick the first branch automatically when none is selected — avoids the
-  // empty-state lockout the user saw on Expenses before they wired up
-  // a default.
   useEffect(() => {
     if (!selectedBranchId && branches.length > 0) {
       setSelectedBranchId(branches[0].id);
@@ -102,6 +206,13 @@ export function GainLoss() {
     },
   });
 
+  // Default the draft fuel to the first fuel once the list arrives.
+  useEffect(() => {
+    if (!draft.fuelTypeId && fuelTypes.length > 0) {
+      setDraft((d) => ({ ...d, fuelTypeId: fuelTypes[0].id }));
+    }
+  }, [fuelTypes, draft.fuelTypeId]);
+
   const { data: entriesResult, isLoading: entriesLoading } = useQuery({
     queryKey: ['gain-loss-entries', selectedBranchId, startDate, endDate],
     enabled: !!selectedBranchId,
@@ -115,24 +226,20 @@ export function GainLoss() {
 
   const entries = entriesResult?.entries || [];
 
-  // Live book-stock lookup for the form. Refetches whenever fuel/date changes.
   const { data: stockAtDate, isFetching: stockLoading } = useQuery<StockAtDateResult>({
-    queryKey: ['stock-at-date', selectedBranchId, form.fuelTypeId, form.businessDate],
-    enabled: createOpen && !!selectedBranchId && !!form.fuelTypeId && !!form.businessDate,
+    queryKey: ['stock-at-date', selectedBranchId, draft.fuelTypeId, draft.businessDate],
+    enabled: !!selectedBranchId && !!draft.fuelTypeId && !!draft.businessDate,
     queryFn: () =>
       inventoryApi.getStockAtDate({
         branchId: selectedBranchId,
-        fuelTypeId: form.fuelTypeId,
-        asOfDate: form.businessDate,
+        fuelTypeId: draft.fuelTypeId,
+        asOfDate: draft.businessDate,
       }),
   });
 
-  // Computed gain/loss preview shown live while the user types.
-  const measuredNum = parseFloat(form.measuredQty);
+  const measuredNum = parseFloat(draft.measuredQty);
   const computedDelta =
-    stockAtDate && Number.isFinite(measuredNum)
-      ? measuredNum - stockAtDate.bookQty
-      : null;
+    stockAtDate && Number.isFinite(measuredNum) ? measuredNum - stockAtDate.bookQty : null;
   const computedValue =
     computedDelta != null && stockAtDate?.lastPurchaseRate != null
       ? computedDelta * stockAtDate.lastPurchaseRate
@@ -141,33 +248,26 @@ export function GainLoss() {
   const createMut = useMutation({
     mutationFn: async () => {
       if (!selectedBranchId) throw new Error('Select a branch');
-      if (!form.fuelTypeId) throw new Error('Select a fuel');
-      if (!form.businessDate) throw new Error('Pick a date');
-      const measured = parseFloat(form.measuredQty);
+      if (!draft.fuelTypeId) throw new Error('Select a fuel');
+      const measured = parseFloat(draft.measuredQty);
       if (!Number.isFinite(measured)) throw new Error('Enter measured liters');
       return inventoryApi.createGainLossByDate({
         branchId: selectedBranchId,
-        fuelTypeId: form.fuelTypeId,
-        businessDate: form.businessDate,
+        fuelTypeId: draft.fuelTypeId,
+        businessDate: draft.businessDate,
         measuredQty: measured,
-        remarks: form.remarks || undefined,
+        remarks: draft.remarks || undefined,
       });
     },
-    onSuccess: (entry) => {
-      toast.success('Gain/Loss recorded', {
-        description: `${entry.fuel?.code || ''} delta = ${fmtL(entry.quantity)} L`,
-      });
-      setCreateOpen(false);
-      setForm((f) => ({ ...f, measuredQty: '', remarks: '' }));
+    onSuccess: () => {
+      toast.success('Entry recorded');
+      setDraft((d) => ({ ...d, measuredQty: '', remarks: '' }));
       queryClient.invalidateQueries({ queryKey: ['gain-loss-entries'] });
       queryClient.invalidateQueries({ queryKey: ['report-inventory'] });
     },
     onError: (err: any) => {
       const msg =
-        err?.response?.data?.error ||
-        err?.response?.data?.message ||
-        err?.message ||
-        'Failed to save';
+        err?.response?.data?.error || err?.message || 'Failed to save';
       toast.error('Save failed', { description: msg });
     },
   });
@@ -179,421 +279,339 @@ export function GainLoss() {
     },
     onSuccess: () => {
       toast.success('Entry deleted');
-      setDeleteTarget(null);
       queryClient.invalidateQueries({ queryKey: ['gain-loss-entries'] });
       queryClient.invalidateQueries({ queryKey: ['report-inventory'] });
     },
     onError: (err: any) => {
-      const msg = err?.response?.data?.error || err?.message || 'Delete failed';
-      toast.error('Delete failed', { description: msg });
+      toast.error('Delete failed', {
+        description: err?.response?.data?.error || err?.message,
+      });
     },
   });
 
-  // Split entries by fuel + compute monthly subtotals.
-  const split = useMemo(() => {
-    const byFuel: Record<string, GainLossEntry[]> = { HSD: [], PMG: [], OTHER: [] };
+  // Period totals for the KPI strip — sums quantity + value across all entries
+  // currently visible (i.e. inside the date range filter).
+  const totals = useMemo(() => {
+    const acc: Record<string, { qty: number; value: number; n: number }> = {
+      HSD: { qty: 0, value: 0, n: 0 },
+      PMG: { qty: 0, value: 0, n: 0 },
+    };
     entries.forEach((e) => {
-      const code = e.fuel?.code || 'OTHER';
-      const bucket = code === 'HSD' || code === 'PMG' ? code : 'OTHER';
-      byFuel[bucket].push(e);
+      const code = e.fuel?.code;
+      if (!code || !acc[code]) return;
+      acc[code].qty += Number(e.quantity);
+      acc[code].value += Number(e.valueAtRate || 0);
+      acc[code].n += 1;
     });
-
-    const monthly = (rows: GainLossEntry[]) => {
-      const map = new Map<string, { qty: number; value: number; count: number }>();
-      rows.forEach((r) => {
-        const m = monthOf(r.businessDate || r.month + '-01');
-        const cur = map.get(m) || { qty: 0, value: 0, count: 0 };
-        cur.qty += Number(r.quantity);
-        cur.value += Number(r.valueAtRate || 0);
-        cur.count += 1;
-        map.set(m, cur);
-      });
-      return Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0]));
-    };
-
-    return {
-      hsd: byFuel.HSD,
-      pmg: byFuel.PMG,
-      hsdMonthly: monthly(byFuel.HSD),
-      pmgMonthly: monthly(byFuel.PMG),
-    };
+    return acc;
   }, [entries]);
 
-  type MonthlyAgg = [string, { qty: number; value: number; count: number }];
-  const renderTable = (title: string, rows: GainLossEntry[], monthly: MonthlyAgg[]) => (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center justify-between">
-          <span>{title} Gain / Loss</span>
-          <span className="text-xs font-normal text-muted-foreground">
-            {rows.length} entr{rows.length === 1 ? 'y' : 'ies'}
-          </span>
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {monthly.length > 0 && (
-          <div className="mb-3 grid grid-cols-2 md:grid-cols-4 gap-2">
-            {monthly.slice(0, 4).map(([m, agg]) => (
-              <div key={m} className="rounded border p-2 text-xs">
-                <div className="text-muted-foreground">{m}</div>
-                <div className="font-mono">
-                  <span className={agg.qty < 0 ? 'text-destructive' : ''}>
-                    {fmtL(agg.qty)} L
-                  </span>
-                </div>
-                <div className="text-muted-foreground">PKR {fmtPKR(agg.value)}</div>
-              </div>
-            ))}
-          </div>
-        )}
+  const onRefetchEntries = () => {
+    queryClient.invalidateQueries({ queryKey: ['gain-loss-entries'] });
+    queryClient.invalidateQueries({ queryKey: ['report-inventory'] });
+  };
 
-        {rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-4">
-            No entries in this date range.
+  const draftFuelCode = fuelTypes.find((f) => f.id === draft.fuelTypeId)?.code || '';
+  const canSubmit =
+    !!selectedBranchId &&
+    !!draft.fuelTypeId &&
+    !!draft.businessDate &&
+    Number.isFinite(parseFloat(draft.measuredQty));
+
+  return (
+    <div className="p-3 space-y-3">
+      {/* Top toolbar: branch + date range + KPI strip — single row, no scrolling. */}
+      <div className="flex flex-wrap items-end gap-2 border-b pb-2">
+        <div>
+          <div className="text-[10px] text-muted-foreground mb-0.5 flex items-center gap-1">
+            <Building2 className="h-3 w-3" /> Branch
+          </div>
+          <Select value={selectedBranchId} onValueChange={setSelectedBranchId}>
+            <SelectTrigger className="h-8 w-48">
+              <SelectValue placeholder="Select branch" />
+            </SelectTrigger>
+            <SelectContent>
+              {branches.map((b: any) => (
+                <SelectItem key={b.id} value={b.id}>
+                  {b.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <div className="text-[10px] text-muted-foreground mb-0.5 flex items-center gap-1">
+            <CalendarDays className="h-3 w-3" /> From
+          </div>
+          <Input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            className="h-8 w-36"
+          />
+        </div>
+        <div>
+          <div className="text-[10px] text-muted-foreground mb-0.5 flex items-center gap-1">
+            <CalendarDays className="h-3 w-3" /> To
+          </div>
+          <Input
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            className="h-8 w-36"
+          />
+        </div>
+        <h1 className="text-base font-semibold ml-2">Inventory Gain / Loss</h1>
+
+        <div className="ml-auto flex items-center gap-3 text-xs">
+          {(['HSD', 'PMG'] as const).map((code) => (
+            <div key={code} className="rounded border px-2 py-1">
+              <div className="text-[10px] text-muted-foreground">{code} Net</div>
+              <div className="flex gap-3">
+                <span
+                  className={cn(
+                    'font-mono font-semibold',
+                    totals[code].qty < 0 && 'text-destructive',
+                    totals[code].qty > 0 && 'text-green-700',
+                  )}
+                >
+                  {fmtL(totals[code].qty)} L
+                </span>
+                <span
+                  className={cn(
+                    'font-mono text-muted-foreground',
+                    totals[code].value < 0 && 'text-destructive',
+                  )}
+                >
+                  PKR {fmtPKR(totals[code].value)}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Inline new-entry row — single line, no modal. */}
+      <div className="rounded border bg-muted/30 p-2">
+        <div className="grid grid-cols-12 gap-2 items-end text-xs">
+          <div className="col-span-2">
+            <div className="text-[10px] text-muted-foreground mb-0.5">Fuel</div>
+            <Select
+              value={draft.fuelTypeId}
+              onValueChange={(v) => setDraft((d) => ({ ...d, fuelTypeId: v }))}
+            >
+              <SelectTrigger className="h-8">
+                <SelectValue placeholder="Fuel" />
+              </SelectTrigger>
+              <SelectContent>
+                {fuelTypes.map((ft) => (
+                  <SelectItem key={ft.id} value={ft.id}>
+                    {ft.code}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="col-span-2">
+            <div className="text-[10px] text-muted-foreground mb-0.5">Date measured</div>
+            <Input
+              type="date"
+              value={draft.businessDate}
+              max={format(new Date(), 'yyyy-MM-dd')}
+              onChange={(e) => setDraft((d) => ({ ...d, businessDate: e.target.value }))}
+              className="h-8"
+            />
+          </div>
+          <div className="col-span-2">
+            <div className="text-[10px] text-muted-foreground mb-0.5">
+              Book stock {stockLoading && <Loader2 className="inline h-2.5 w-2.5 animate-spin ml-1" />}
+            </div>
+            <div className="h-8 px-2 flex items-center font-mono text-sm bg-background rounded border">
+              {stockAtDate ? `${fmtL(stockAtDate.bookQty)} L` : '—'}
+            </div>
+          </div>
+          <div className="col-span-2">
+            <div className="text-[10px] text-muted-foreground mb-0.5">Measured (dipstick)</div>
+            <Input
+              type="number"
+              step="0.001"
+              placeholder="liters"
+              value={draft.measuredQty}
+              onChange={(e) => setDraft((d) => ({ ...d, measuredQty: e.target.value }))}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && canSubmit) createMut.mutate();
+              }}
+              className="h-8 font-mono text-right"
+            />
+          </div>
+          <div className="col-span-2">
+            <div className="text-[10px] text-muted-foreground mb-0.5">
+              {computedDelta != null
+                ? computedDelta >= 0 ? 'Gain' : 'Loss'
+                : 'Δ'}
+            </div>
+            <div
+              className={cn(
+                'h-8 px-2 flex items-center justify-between rounded border bg-background font-mono text-sm',
+                computedDelta != null && computedDelta < 0 && 'text-destructive',
+                computedDelta != null && computedDelta > 0 && 'text-green-700',
+              )}
+            >
+              <span>{computedDelta != null ? `${fmtL(computedDelta)} L` : '—'}</span>
+              {computedValue != null && (
+                <span className="text-[11px] text-muted-foreground">
+                  PKR {fmtPKR(computedValue)}
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="col-span-2 flex gap-1">
+            <Input
+              placeholder="Remarks"
+              value={draft.remarks}
+              onChange={(e) => setDraft((d) => ({ ...d, remarks: e.target.value }))}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && canSubmit) createMut.mutate();
+              }}
+              className="h-8 text-sm"
+            />
+            <Button
+              size="sm"
+              className="h-8 px-2"
+              onClick={() => createMut.mutate()}
+              disabled={!canSubmit || createMut.isPending}
+              title={`Save ${draftFuelCode} entry for ${draft.businessDate}`}
+            >
+              {createMut.isPending ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Plus className="h-3 w-3" />
+              )}
+            </Button>
+          </div>
+        </div>
+        {stockAtDate?.lastPurchaseRate == null && draft.fuelTypeId && (
+          <p className="mt-1 text-[11px] text-amber-600">
+            No purchase rate found on/before this date — value will not be saved.
           </p>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead className="text-right">Measured (L)</TableHead>
-                <TableHead className="text-right">Book (L)</TableHead>
-                <TableHead className="text-right">Gain/Loss (L)</TableHead>
-                <TableHead className="text-right">Rate (PKR/L)</TableHead>
-                <TableHead className="text-right">Value (PKR)</TableHead>
-                <TableHead>Remarks</TableHead>
-                <TableHead>By</TableHead>
-                <TableHead></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((r) => (
-                <TableRow key={r.id}>
-                  <TableCell className="font-mono">
-                    {r.businessDate || r.month}
-                  </TableCell>
-                  <TableCell className="text-right font-mono">
-                    {r.measuredQty != null ? fmtL(r.measuredQty) : '—'}
-                  </TableCell>
-                  <TableCell className="text-right font-mono">
-                    {r.bookQtyAtDate != null ? fmtL(r.bookQtyAtDate) : '—'}
-                  </TableCell>
-                  <TableCell
-                    className={`text-right font-mono font-semibold ${
-                      Number(r.quantity) < 0 ? 'text-destructive' : 'text-green-700'
-                    }`}
+        )}
+        {stockAtDate?.lastPurchaseRate != null && (
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Rate: PKR {fmtPKR(stockAtDate.lastPurchaseRate)}/L (last purchase {stockAtDate.lastPurchaseDate}). Bootstrap {fmtL(stockAtDate.bootstrapQty)} L · +Pur {fmtL(stockAtDate.purchasesQty)} · −Sales {fmtL(stockAtDate.soldQty)} · ±G/L {fmtL(stockAtDate.priorGainLossQty)} = {fmtL(stockAtDate.bookQty)} L.
+          </p>
+        )}
+      </div>
+
+      {/* Entries table — single dense table, no scrolling, inline editing. */}
+      <div className="border rounded">
+        <table className="w-full text-xs">
+          <thead className="bg-muted/50 text-muted-foreground">
+            <tr>
+              <th className="text-left p-2 font-medium">Date</th>
+              <th className="text-left p-2 font-medium">Month</th>
+              <th className="text-left p-2 font-medium">Fuel</th>
+              <th className="text-right p-2 font-medium">Measured</th>
+              <th className="text-right p-2 font-medium">Book</th>
+              <th className="text-right p-2 font-medium">Gain/Loss</th>
+              <th className="text-right p-2 font-medium">Rate</th>
+              <th className="text-right p-2 font-medium">Value</th>
+              <th className="text-left p-2 font-medium">Remarks</th>
+              <th className="text-left p-2 font-medium">By</th>
+              <th className="w-8 p-2"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {entriesLoading && (
+              <tr>
+                <td colSpan={11} className="p-4 text-center text-muted-foreground">
+                  <Loader2 className="inline h-3 w-3 animate-spin mr-1" /> Loading…
+                </td>
+              </tr>
+            )}
+            {!entriesLoading && entries.length === 0 && (
+              <tr>
+                <td colSpan={11} className="p-4 text-center text-muted-foreground">
+                  No entries in this date range. Add one above.
+                </td>
+              </tr>
+            )}
+            {entries.map((e) => {
+              const qty = Number(e.quantity);
+              const val = Number(e.valueAtRate || 0);
+              return (
+                <tr key={e.id} className="border-t hover:bg-muted/20">
+                  <td className="p-2 font-mono">{e.businessDate || '—'}</td>
+                  <td className="p-2 text-muted-foreground">{monthOf(e.businessDate)}</td>
+                  <td className="p-2">
+                    <span
+                      className={cn(
+                        'inline-block rounded px-1.5 py-0.5 text-[10px] font-medium',
+                        e.fuel?.code === 'HSD' && 'bg-orange-100 text-orange-800',
+                        e.fuel?.code === 'PMG' && 'bg-emerald-100 text-emerald-800',
+                      )}
+                    >
+                      {e.fuel?.code}
+                    </span>
+                  </td>
+                  <td className="p-2 text-right">
+                    <MeasuredCell entry={e} onSaved={onRefetchEntries} />
+                  </td>
+                  <td className="p-2 text-right font-mono text-muted-foreground">
+                    {e.bookQtyAtDate != null ? fmtL(e.bookQtyAtDate) : '—'}
+                  </td>
+                  <td
+                    className={cn(
+                      'p-2 text-right font-mono font-semibold',
+                      qty < 0 && 'text-destructive',
+                      qty > 0 && 'text-green-700',
+                    )}
                   >
-                    {fmtL(r.quantity)}
-                  </TableCell>
-                  <TableCell className="text-right font-mono">
-                    {r.lastPurchaseRate != null ? fmtPKR(r.lastPurchaseRate) : '—'}
-                  </TableCell>
-                  <TableCell
-                    className={`text-right font-mono ${
-                      Number(r.valueAtRate || 0) < 0 ? 'text-destructive' : ''
-                    }`}
+                    {fmtL(qty)}
+                  </td>
+                  <td className="p-2 text-right font-mono text-muted-foreground">
+                    {e.lastPurchaseRate != null ? fmtPKR(e.lastPurchaseRate) : '—'}
+                  </td>
+                  <td
+                    className={cn(
+                      'p-2 text-right font-mono',
+                      val < 0 && 'text-destructive',
+                    )}
                   >
-                    {r.valueAtRate != null ? fmtPKR(r.valueAtRate) : '—'}
-                  </TableCell>
-                  <TableCell className="max-w-[200px] truncate" title={r.remarks || ''}>
-                    {r.remarks || ''}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {r.recordedByUser?.fullName || r.recordedByUser?.username || '—'}
-                  </TableCell>
-                  <TableCell>
+                    {e.valueAtRate != null ? fmtPKR(val) : '—'}
+                  </td>
+                  <td className="p-2 max-w-[200px]">
+                    <RemarksCell entry={e} onSaved={onRefetchEntries} />
+                  </td>
+                  <td className="p-2 text-muted-foreground text-[11px]">
+                    {e.recordedByUser?.fullName || e.recordedByUser?.username || '—'}
+                  </td>
+                  <td className="p-2">
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => setDeleteTarget(r)}
-                      title="Delete (within 24h of recording)"
+                      className="h-6 w-6 p-0"
+                      onClick={() => {
+                        if (confirm(`Delete ${e.fuel?.code} entry on ${e.businessDate}?`)) {
+                          deleteMut.mutate(e.id);
+                        }
+                      }}
+                      title="Delete"
                     >
                       <Trash2 className="h-3 w-3" />
                     </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </CardContent>
-    </Card>
-  );
-
-  return (
-    <div className="space-y-4 p-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Inventory Gain / Loss</h1>
-          <p className="text-sm text-muted-foreground">
-            Record fuel gain/loss against measured tank levels. System computes
-            the delta and values it at the last purchase rate.
-          </p>
-        </div>
-        <Button onClick={() => setCreateOpen(true)} disabled={!selectedBranchId}>
-          <Plus className="mr-2 h-4 w-4" /> New Entry
-        </Button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
 
-      <Card>
-        <CardContent className="pt-4">
-          <div className="grid gap-3 md:grid-cols-4">
-            <div>
-              <Label className="text-xs flex items-center gap-1">
-                <Building2 className="h-3 w-3" /> Branch
-              </Label>
-              <Select value={selectedBranchId} onValueChange={setSelectedBranchId}>
-                <SelectTrigger className="h-9">
-                  <SelectValue placeholder="Select branch" />
-                </SelectTrigger>
-                <SelectContent>
-                  {branches.map((b: any) => (
-                    <SelectItem key={b.id} value={b.id}>
-                      {b.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-xs flex items-center gap-1">
-                <CalendarDays className="h-3 w-3" /> From
-              </Label>
-              <Input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="h-9"
-              />
-            </div>
-            <div>
-              <Label className="text-xs flex items-center gap-1">
-                <CalendarDays className="h-3 w-3" /> To
-              </Label>
-              <Input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="h-9"
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {entriesLoading ? (
-        <div className="flex items-center gap-2 text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" /> Loading entries…
-        </div>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2">
-          {renderTable('HSD', split.hsd, split.hsdMonthly)}
-          {renderTable('PMG', split.pmg, split.pmgMonthly)}
-        </div>
-      )}
-
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>New Gain/Loss Entry</DialogTitle>
-            <DialogDescription>
-              Pick a fuel and date. The system shows the current book stock
-              for that day; enter the measured liters from the dipstick to
-              auto-compute the gain/loss.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>Fuel</Label>
-                <Select
-                  value={form.fuelTypeId}
-                  onValueChange={(v) => setForm((f) => ({ ...f, fuelTypeId: v }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select fuel" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {fuelTypes.map((ft) => (
-                      <SelectItem key={ft.id} value={ft.id}>
-                        {ft.code} — {ft.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Date measured</Label>
-                <Input
-                  type="date"
-                  value={form.businessDate}
-                  max={format(new Date(), 'yyyy-MM-dd')}
-                  onChange={(e) => setForm((f) => ({ ...f, businessDate: e.target.value }))}
-                />
-              </div>
-            </div>
-
-            {/* Live book-stock readout */}
-            <div className="rounded border bg-muted/40 p-3 text-sm space-y-1">
-              {!form.fuelTypeId ? (
-                <p className="text-muted-foreground">
-                  Select a fuel to see its current book stock.
-                </p>
-              ) : stockLoading ? (
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Loader2 className="h-3 w-3 animate-spin" /> Loading book stock…
-                </div>
-              ) : stockAtDate ? (
-                <>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Book stock on {stockAtDate.asOfDate}</span>
-                    <span className="font-mono font-semibold">{fmtL(stockAtDate.bookQty)} L</span>
-                  </div>
-                  <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>Bootstrap</span>
-                    <span className="font-mono">{fmtL(stockAtDate.bootstrapQty)} L</span>
-                  </div>
-                  <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>+ Purchases</span>
-                    <span className="font-mono">{fmtL(stockAtDate.purchasesQty)} L</span>
-                  </div>
-                  <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>− Sales</span>
-                    <span className="font-mono">{fmtL(stockAtDate.soldQty)} L</span>
-                  </div>
-                  <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>± Prior gain/loss</span>
-                    <span className="font-mono">{fmtL(stockAtDate.priorGainLossQty)} L</span>
-                  </div>
-                  <div className="flex justify-between text-xs pt-1 border-t mt-1">
-                    <span className="text-muted-foreground">Last purchase rate</span>
-                    <span className="font-mono">
-                      {stockAtDate.lastPurchaseRate != null
-                        ? `PKR ${fmtPKR(stockAtDate.lastPurchaseRate)} / L`
-                        : '—'}
-                      {stockAtDate.lastPurchaseDate ? ` (${stockAtDate.lastPurchaseDate})` : ''}
-                    </span>
-                  </div>
-                </>
-              ) : (
-                <p className="text-muted-foreground">No data.</p>
-              )}
-            </div>
-
-            <div>
-              <Label>Measured liters (from dipstick / tank gauge)</Label>
-              <Input
-                type="number"
-                step="0.001"
-                placeholder="e.g. 9850.500"
-                value={form.measuredQty}
-                onChange={(e) => setForm((f) => ({ ...f, measuredQty: e.target.value }))}
-                className="font-mono text-lg"
-              />
-            </div>
-
-            {computedDelta != null && (
-              <div className="rounded border-2 border-primary/30 bg-primary/5 p-3 text-sm">
-                <div className="flex justify-between">
-                  <span className="font-medium">
-                    {computedDelta >= 0 ? 'Gain' : 'Loss'}
-                  </span>
-                  <span
-                    className={`font-mono text-lg font-bold ${
-                      computedDelta < 0 ? 'text-destructive' : 'text-green-700'
-                    }`}
-                  >
-                    {fmtL(computedDelta)} L
-                  </span>
-                </div>
-                {computedValue != null && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Valued at last purchase rate</span>
-                    <span className={`font-mono ${computedValue < 0 ? 'text-destructive' : ''}`}>
-                      PKR {fmtPKR(computedValue)}
-                    </span>
-                  </div>
-                )}
-                {stockAtDate?.lastPurchaseRate == null && (
-                  <p className="mt-1 flex items-start gap-1 text-xs text-amber-600">
-                    <AlertTriangle className="h-3 w-3 mt-0.5" />
-                    No purchase rate found on/before this date — value will not
-                    be saved. Record a purchase first if needed.
-                  </p>
-                )}
-              </div>
-            )}
-
-            <div>
-              <Label>Remarks (optional)</Label>
-              <Input
-                value={form.remarks}
-                onChange={(e) => setForm((f) => ({ ...f, remarks: e.target.value }))}
-                placeholder="Reason for variance, dipstick notes, etc."
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={() => createMut.mutate()}
-              disabled={
-                createMut.isPending ||
-                !form.fuelTypeId ||
-                !Number.isFinite(parseFloat(form.measuredQty))
-              }
-            >
-              {createMut.isPending ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving…
-                </>
-              ) : (
-                <>
-                  <Plus className="mr-2 h-4 w-4" /> Save Entry
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={!!deleteTarget} onOpenChange={(v) => !v && setDeleteTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Gain/Loss Entry?</DialogTitle>
-            <DialogDescription>
-              This entry will be removed permanently. Only entries recorded
-              within the last 24 hours can be deleted.
-            </DialogDescription>
-          </DialogHeader>
-          {deleteTarget && (
-            <div className="rounded border p-3 text-sm space-y-1">
-              <div>
-                {deleteTarget.fuel?.code} on {deleteTarget.businessDate || deleteTarget.month}
-              </div>
-              <div className="font-mono">
-                Quantity: {fmtL(deleteTarget.quantity)} L
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={deleteMut.isPending}
-              onClick={() => deleteTarget && deleteMut.mutate(deleteTarget.id)}
-            >
-              {deleteMut.isPending ? 'Deleting…' : 'Delete'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <p className="text-[11px] text-muted-foreground">
+        Tip: click measured liters or remarks to edit inline. Δ recomputes
+        against the originally captured book stock so editing one entry
+        won't ripple through later ones.
+      </p>
     </div>
   );
 }
