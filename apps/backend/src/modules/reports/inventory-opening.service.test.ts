@@ -417,4 +417,52 @@ describe('computeInventoryOpeningClosing - accountant cycle', () => {
     });
     expect(map.get('fuel:HSD')!.purchasesQtyInPeriod).toBe(10000);
   });
+
+  // Regression: the frontend sends `new Date(startDate).toISOString()`,
+  // which produces 'YYYY-MM-DDTHH:mm:ss.sssZ'. Naïvely concatenating
+  // `${startDate}T23:59:59.999Z` for the bootstrap cutoff used to give
+  // 'Invalid Date', which made Prisma throw, the outer try/catch zeroed
+  // every row, and the user saw HSD opening=0 + gain/loss=0 even when
+  // bootstrap=10000 and 6 gain/loss rows existed.
+  it('accepts ISO-Z startDate/endDate (full ISO from `new Date().toISOString()`)', async () => {
+    (prisma.inventoryBootstrap.findMany as jest.Mock).mockResolvedValue([
+      fuelBootstrap('HSD', 10000),
+    ]);
+    (prisma.stockReceipt.findMany as jest.Mock).mockResolvedValue([]);
+    (prisma.purchaseOrder.findMany as jest.Mock).mockResolvedValue([]);
+    (prisma.sale.findMany as jest.Mock).mockResolvedValue([]);
+    (prisma.monthlyInventoryGainLoss.findMany as jest.Mock).mockResolvedValue([
+      { id: 'gl1', branchId, fuelTypeId: 'ft-HSD', month: '2026-02', quantity: 300 as any, fuelType: { code: 'HSD' } },
+      { id: 'gl2', branchId, fuelTypeId: 'ft-HSD', month: '2026-03', quantity: 500 as any, fuelType: { code: 'HSD' } },
+    ]);
+
+    const map = await computeInventoryOpeningClosing({
+      branchId,
+      startDate: '2026-01-01T00:00:00.000Z',
+      endDate: '2026-04-25T00:00:00.000Z',
+    });
+
+    const hsd = map.get('fuel:HSD');
+    expect(hsd).toBeDefined();
+    expect(hsd!.openingQty).toBe(10000);                  // bootstrap honoured, not zeroed
+    expect(hsd!.gainLossQtyInPeriod).toBe(800);           // 300 + 500 in period (>= 2026-01)
+    expect(hsd!.closingQty).toBe(10800);                  // 10000 + 800
+  });
+
+  // Regression: same ISO-Z input but no bootstrap row exists. The fallback
+  // path that surfaces gain/loss alone must also handle ISO-Z input.
+  it('accepts ISO-Z input on the gain-loss-only fallback (no bootstrap)', async () => {
+    (prisma.inventoryBootstrap.findMany as jest.Mock).mockResolvedValue([]);
+    (prisma.monthlyInventoryGainLoss.findMany as jest.Mock).mockResolvedValue([
+      { id: 'gl1', branchId, fuelTypeId: 'ft-HSD', month: '2026-02', quantity: 100 as any, fuelType: { code: 'HSD' } },
+    ]);
+
+    const map = await computeInventoryOpeningClosing({
+      branchId,
+      startDate: '2026-01-01T00:00:00.000Z',
+      endDate: '2026-04-25T00:00:00.000Z',
+    });
+
+    expect(map.get('fuel:HSD')?.gainLossQtyInPeriod).toBe(100);
+  });
 });

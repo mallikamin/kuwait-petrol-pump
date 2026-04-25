@@ -51,10 +51,19 @@ const keyOf = (k: MovementKey): string => `${k.kind}:${k.key}`;
  */
 export async function computeInventoryOpeningClosing(params: {
   branchId: string;
-  startDate: string; // 'YYYY-MM-DD'
-  endDate: string;   // 'YYYY-MM-DD'
+  startDate: string; // 'YYYY-MM-DD' or full ISO 'YYYY-MM-DDTHH:mm:ss.sssZ'
+  endDate: string;   // 'YYYY-MM-DD' or full ISO
 }): Promise<OpeningClosingMap> {
-  const { branchId, startDate, endDate } = params;
+  const { branchId } = params;
+
+  // Frontend sends both YYYY-MM-DD and full ISO (e.g. '2026-01-01T00:00:00.000Z').
+  // Naïvely concatenating `${startDate}T23:59:59.999Z` for the bootstrap
+  // cutoff produces 'Invalid Date' on ISO inputs (the trailing Z gets a
+  // second T appended). Normalise to YYYY-MM-DD up front so every cutoff
+  // string is well-formed, and so .slice(0,7) still gives the right
+  // YYYY-MM bucket on either input shape.
+  const startDate = params.startDate.slice(0, 10);
+  const endDate = params.endDate.slice(0, 10);
 
   const periodStart = toBranchStartOfDay(startDate);
   const periodEnd = toBranchEndOfDay(endDate);

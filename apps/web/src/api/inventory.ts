@@ -113,6 +113,19 @@ export const inventoryApi = {
     return response.data as GainLossEntry;
   },
 
+  // Edit an existing entry. measuredQty edits re-derive quantity against
+  // the originally captured bookQtyAtDate (server-side).
+  updateGainLossEntry: async (
+    id: string,
+    data: { measuredQty?: number | null; quantity?: number; remarks?: string | null },
+  ) => {
+    const response = await apiClient.patch(
+      `/inventory/monthly-gain-loss/${id}`,
+      data,
+    );
+    return response.data as GainLossEntry;
+  },
+
   // Delete an entry
   deleteGainLossEntry: async (id: string) => {
     const response = await apiClient.delete(
