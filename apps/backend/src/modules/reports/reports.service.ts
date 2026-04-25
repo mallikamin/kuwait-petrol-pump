@@ -1047,11 +1047,32 @@ export class ReportsService {
       }>;
     } | null = null;
 
-    if (startDate && endDate) {
+    // No-filter mode (no asOfDate, no range) used to skip the entire movement
+    // section, so Product-Wise Movement / sales / fuel movement came back null
+    // and "All Data" looked emptier than any explicit date range. Expand the
+    // window to [earliest bootstrap, today] so the same aggregations run; the
+    // bootstrap-anchored start keeps opening qty correct (bootstrap is the
+    // only meaningful "before the system started" anchor — anything earlier
+    // produces openingQty=0 and a wrong closing in inventory-opening.service).
+    let effectiveStartDate: string | undefined = startDate;
+    let effectiveEndDate: string | undefined = endDate;
+    if (!startDate && !endDate && !asOfDate) {
+      const earliestBootstrap = await prisma.inventoryBootstrap.findFirst({
+        where: { branchId },
+        orderBy: { asOfDate: 'asc' },
+        select: { asOfDate: true },
+      });
+      effectiveEndDate = new Date().toISOString().slice(0, 10);
+      effectiveStartDate = earliestBootstrap
+        ? earliestBootstrap.asOfDate.toISOString().slice(0, 10)
+        : '1970-01-01';
+    }
+
+    if (effectiveStartDate && effectiveEndDate) {
       try {
         // ✅ TIMEZONE FIX: Use Asia/Karachi boundaries for sales query
-        const rangeStart = toBranchStartOfDay(startDate);
-        const rangeEnd = toBranchEndOfDay(endDate);
+        const rangeStart = toBranchStartOfDay(effectiveStartDate);
+        const rangeEnd = toBranchEndOfDay(effectiveEndDate);
 
         const sales = await prisma.sale.findMany({
           where: {
@@ -1162,7 +1183,7 @@ export class ReportsService {
         });
 
         fuelMovement = {
-          dateRange: { startDate, endDate },
+          dateRange: { startDate: effectiveStartDate, endDate: effectiveEndDate },
           byFuelType: fuelMovementByType,
           formula: 'Net Movement = Purchases - Sales (Opening + Closing require tank level tracking)',
         };
@@ -1185,7 +1206,7 @@ export class ReportsService {
         });
 
         salesMovement = {
-          dateRange: { startDate, endDate },
+          dateRange: { startDate: effectiveStartDate, endDate: effectiveEndDate },
           fuelSold: Array.from(fuelSalesMap.values()),
           nonFuelSold: Array.from(nonFuelSalesMap.values()),
           totalSalesAmount: sales.reduce((sum, s) => sum + s.totalAmount.toNumber(), 0),
@@ -1306,8 +1327,8 @@ export class ReportsService {
         try {
           const ocMap = await computeInventoryOpeningClosing({
             branchId,
-            startDate,
-            endDate,
+            startDate: effectiveStartDate,
+            endDate: effectiveEndDate,
           });
           let assumedCount = 0;
           allRows.forEach((r) => {

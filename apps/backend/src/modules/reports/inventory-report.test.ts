@@ -14,7 +14,7 @@ jest.mock('../../config/database', () => ({
     // purchase/sale aggregation can leave these as the default empty-array
     // mocks — computeInventoryOpeningClosing short-circuits on empty
     // bootstraps without touching the gain/loss table.
-    inventoryBootstrap: { findMany: jest.fn() },
+    inventoryBootstrap: { findMany: jest.fn(), findFirst: jest.fn() },
     monthlyInventoryGainLoss: { findMany: jest.fn() },
   },
 }));
@@ -125,6 +125,10 @@ describe('Inventory Report - Date Filtering', () => {
 
       // Mock purchase orders query
       (prisma.purchaseOrder.findMany as any).mockResolvedValueOnce([]);
+
+      // No-filter mode now expands the movement window to [earliest bootstrap, today]
+      // so productMovement renders. The bootstrap lookup must be mocked.
+      (prisma.inventoryBootstrap.findFirst as any).mockResolvedValueOnce(null);
 
       // Call service with no date filters
       await reportsService.getInventoryReport(testBranchId, testOrgId);
