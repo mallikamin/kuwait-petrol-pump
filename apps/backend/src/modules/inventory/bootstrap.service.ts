@@ -76,9 +76,20 @@ export class BootstrapService {
       },
     });
 
+    // Skip rows whose productId points to a Product with category='Fuel'.
+    // The seed accidentally created Product entries named "HSD"/"PMG" alongside
+    // the FuelType entries, so the editor was showing each fuel twice (once
+    // FuelType-keyed, once Product-keyed). The report never reads Product-keyed
+    // bootstrap for fuel — it keys by FuelType.code — so these Product rows
+    // are dead weight. Hide them in the editor.
+    const visibleRows = rows.filter((r) => {
+      if (!r.productId) return true;
+      return (r.product?.category || '').toLowerCase() !== 'fuel';
+    });
+
     // Apply category + productId filters in memory - the row set per
     // branch per date is bounded by products + fuel types, so this is cheap.
-    const mapped: BootstrapRowDto[] = rows.map((r) => {
+    const mapped: BootstrapRowDto[] = visibleRows.map((r) => {
       const isFuel = !!r.fuelTypeId;
       const productType: BootstrapRowDto['productType'] = isFuel
         ? ((r.fuelType?.code as 'HSD' | 'PMG') || 'HSD')
