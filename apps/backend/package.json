@@ -10,7 +10,10 @@
     "test": "jest --passWithNoTests",
     "lint": "eslint src --ext .ts",
     "db:migrate": "prisma migrate dev",
-    "db:seed": "tsx prisma/seed.ts"
+    "db:seed": "tsx prisma/seed.ts",
+    "onboard:client": "tsx scripts/onboarding/onboard-client.ts",
+    "onboard:branch": "tsx scripts/onboarding/onboard-branch.ts",
+    "onboard:user": "tsx scripts/onboarding/onboard-user.ts"
   },
   "dependencies": {
     "@kuwait-petrol-pump/database": "workspace:*",

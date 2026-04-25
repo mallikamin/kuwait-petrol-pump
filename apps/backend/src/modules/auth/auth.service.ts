@@ -33,11 +33,16 @@ export class AuthService {
   }
 
   async login(username: string, password: string) {
-    // Use findFirst since compound unique requires organizationId
-    // For single-org system, this finds the user by username
+    // Case-insensitive lookup so usernames can be entered as the user
+    // remembers them (e.g. "SE-B01-001" matches "se-b01-001" stored in DB).
+    // Existing lowercase usernames keep working unchanged. Onboarding
+    // scripts now normalize new usernames to lowercase at insert time.
     const user = await prisma.user.findFirst({
-      where: { username, isActive: true },
-      include: { branch: true },
+      where: {
+        username: { equals: username, mode: 'insensitive' },
+        isActive: true,
+      },
+      include: { branch: true, organization: true },
     });
 
     if (!user) {
@@ -87,6 +92,20 @@ export class AuthService {
           ? {
               id: user.branch.id,
               name: user.branch.name,
+              code: (user.branch as { code?: string | null }).code ?? null,
+            }
+          : null,
+        organization: user.organization
+          ? {
+              id: user.organization.id,
+              name: user.organization.name,
+              code: user.organization.code,
+              currency: user.organization.currency,
+              timezone: user.organization.timezone,
+              isDemo: user.organization.isDemo,
+              companyName: user.organization.companyName,
+              companyAddress: user.organization.companyAddress,
+              reportFooter: user.organization.reportFooter,
             }
           : null,
       },

@@ -3,17 +3,51 @@
  * page. Centralizing this lets us change the company header in one place and
  * guarantees consistent metadata across reports (branch, range, timestamp).
  *
- * The company string set here is intentionally hardcoded: this POS is a
- * single-tenant deployment for Absormax Hygiene Products. If the system
- * ever goes multi-tenant, swap these constants for a per-organization lookup.
+ * Multi-tenant note (2026-04-26): the brand is now sourced at runtime from
+ * the logged-in user's organization (via setReportBrandProvider, registered
+ * once at app boot). The DEFAULT_BRAND constants below act as a fallback
+ * when no provider is registered yet (e.g. on the login page) and preserve
+ * the exact original output for the demo/Absormax org.
  */
 
-export const REPORT_BRAND = {
+interface ReportBrand {
+  companyName: string;
+  companyAddress: string;
+  systemLabel: string;
+  reportFooter?: string | null;
+}
+
+const DEFAULT_BRAND: ReportBrand = {
   companyName: 'Absormax Hygiene Products (Pvt) LTD',
   companyAddress: 'Sundar Industrial Estate, Lahore',
-  // Short tagline shown in the print footer; empty string hides it.
   systemLabel: 'Kuwait Petrol Pump POS',
-} as const;
+};
+
+let brandProvider: (() => ReportBrand) | null = null;
+
+/// Registered once during app boot. The provider closure should read from
+/// the auth store so it always reflects the currently logged-in org.
+export function setReportBrandProvider(provider: () => ReportBrand): void {
+  brandProvider = provider;
+}
+
+function getBrand(): ReportBrand {
+  if (!brandProvider) return DEFAULT_BRAND;
+  try {
+    return brandProvider();
+  } catch {
+    return DEFAULT_BRAND;
+  }
+}
+
+/// Kept for any legacy import sites; resolves at access time, not at module
+/// init, so it always reflects the current org.
+export const REPORT_BRAND = new Proxy({} as ReportBrand, {
+  get(_target, prop) {
+    const b = getBrand();
+    return (b as unknown as Record<string, unknown>)[prop as string];
+  },
+});
 
 const csvEscape = (v: string | number): string => {
   if (typeof v === 'number') return String(v);

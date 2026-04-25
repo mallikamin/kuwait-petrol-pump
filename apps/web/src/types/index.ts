@@ -9,6 +9,20 @@ export interface User {
   branch_id?: string;
   is_active: boolean;
   created_at: string;
+  branch?: { id: string; name: string; code?: string | null } | null;
+  organization?: UserOrganization | null;
+}
+
+export interface UserOrganization {
+  id: string;
+  name: string;
+  code: string | null;
+  currency: string;
+  timezone: string;
+  isDemo: boolean;
+  companyName: string | null;
+  companyAddress: string | null;
+  reportFooter: string | null;
 }
 
 export interface Branch {

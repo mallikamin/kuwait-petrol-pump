@@ -35,6 +35,7 @@ import expensesRoutes from './modules/expenses/expenses.routes';
 import cashReconciliationRoutes from './modules/cash-reconciliation/cash-reconciliation.routes';
 import psoTopupRoutes from './modules/pso-topup/pso-topup.routes';
 import customerAdvanceRoutes from './modules/customer-advance/customer-advance.routes';
+import { adminRoutes } from './modules/admin';
 
 // Validate QB config on startup (P0: fail fast if missing)
 validateQuickBooksConfig();
@@ -124,6 +125,7 @@ export function createApp() {
   app.use('/api/customer-advance', customerAdvanceRoutes); // Customer advance account
 
   app.use('/api/users', usersRoutes);
+  app.use('/api/admin', adminRoutes); // Multi-tenant admin: Master Client List
 
   // Root endpoint
   app.get('/', (req, res) => {

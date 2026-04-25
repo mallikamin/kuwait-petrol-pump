@@ -26,6 +26,7 @@ import { Expenses } from '@/pages/Expenses';
 import { CashReconciliation } from '@/pages/CashReconciliation';
 import { PsoTopups } from '@/pages/PsoTopups';
 import { GainLoss } from '@/pages/GainLoss';
+import { AdminClients } from '@/pages/AdminClients';
 import { NotFound } from '@/pages/NotFound';
 import { useAuthStore } from '@/store/auth';
 import { useThemeStore } from '@/store/theme';
@@ -100,6 +101,7 @@ function App() {
             <Route path="reports" element={<Reports />} />
             <Route path="quickbooks" element={<QuickBooks />} />
             <Route path="users" element={<Users />} />
+            <Route path="admin/clients" element={<AdminClients />} />
             <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>
