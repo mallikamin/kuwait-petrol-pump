@@ -13,7 +13,8 @@
     "db:seed": "tsx prisma/seed.ts",
     "onboard:client": "tsx scripts/onboarding/onboard-client.ts",
     "onboard:branch": "tsx scripts/onboarding/onboard-branch.ts",
-    "onboard:user": "tsx scripts/onboarding/onboard-user.ts"
+    "onboard:user": "tsx scripts/onboarding/onboard-user.ts",
+    "onboard:clone": "tsx scripts/onboarding/clone-master-data.ts"
   },
   "dependencies": {
     "@kuwait-petrol-pump/database": "workspace:*",
