@@ -1,5 +1,11 @@
 import { apiClient } from './client';
 import { User } from '@/types';
+import type { AccessibleOrg } from '@/store/auth';
+
+export interface AccessibleOrgsResponse {
+  primaryOrgId: string;
+  orgs: AccessibleOrg[];
+}
 
 export interface LoginRequest {
   username: string;
@@ -29,5 +35,10 @@ export const authApi = {
 
   logout: async (): Promise<void> => {
     await apiClient.post('/api/auth/logout');
+  },
+
+  getAccessibleOrgs: async (): Promise<AccessibleOrgsResponse> => {
+    const response = await apiClient.get<AccessibleOrgsResponse>('/api/auth/accessible-orgs');
+    return response.data;
   },
 };

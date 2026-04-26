@@ -58,6 +58,7 @@ model Organization {
   cashReconciliations      CashReconciliation[]
   psoTopups                PsoTopup[]
   customerAdvanceMovements CustomerAdvanceMovement[]
+  userOrgAccess            UserOrgAccess[]
 
   @@map("organizations")
 }
@@ -123,6 +124,28 @@ model UserBranchAccess {
   @@index([userId], name: "idx_user_branch_access_user")
   @@index([branchId], name: "idx_user_branch_access_branch")
   @@map("user_branch_access")
+}
+
+/// Cross-organization access grants for BPO / super-admin users.
+/// Single-org users have ZERO rows here (their existing User.organizationId
+/// remains authoritative). Rows present = user can switch between the listed
+/// orgs via the `X-Active-Org-Id` request header. Validated by auth middleware.
+model UserOrgAccess {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  /// User who granted this access. NULL = seeded by migration / granter deleted.
+  grantedBy      String?  @map("granted_by") @db.Uuid
+  grantedAt      DateTime @default(now()) @map("granted_at") @db.Timestamptz
+
+  user         User         @relation("UserOrgAccessUser", fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  granter      User?        @relation("UserOrgAccessGrantedBy", fields: [grantedBy], references: [id], onDelete: SetNull)
+
+  @@unique([userId, organizationId], name: "unique_user_org")
+  @@index([userId], name: "idx_user_org_access_user")
+  @@index([organizationId], name: "idx_user_org_access_org")
+  @@map("user_org_access")
 }
 
 // ============================================================
@@ -261,6 +284,8 @@ model User {
   createdAdvanceMovements         CustomerAdvanceMovement[] @relation("AdvanceCreatedBy")
   voidedAdvanceMovements          CustomerAdvanceMovement[] @relation("AdvanceVoidedBy")
   branchAccess                    UserBranchAccess[]
+  orgAccess                       UserOrgAccess[]         @relation("UserOrgAccessUser")
+  grantedOrgAccess                UserOrgAccess[]         @relation("UserOrgAccessGrantedBy")
 
   @@unique([organizationId, username], name: "unique_org_username") // Multi-tenant safety
   @@index([organizationId], name: "idx_users_org")

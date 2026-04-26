@@ -141,9 +141,22 @@ export const refreshAccessToken = async (): Promise<boolean> => {
 // Request interceptor
 apiClient.interceptors.request.use(
   (config) => {
-    const token = useAuthStore.getState().token;
+    const state = useAuthStore.getState();
+    const token = state.token;
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+
+    // Multi-org switcher: forward the active org/branch the user has selected
+    // in the header dropdown. Backend auth middleware validates these against
+    // user_org_access and overrides req.user for the request. Single-org users
+    // never see the switcher and these headers stay aligned with the JWT, so
+    // the override is a no-op.
+    if (state.activeOrgId) {
+      config.headers['X-Active-Org-Id'] = state.activeOrgId;
+    }
+    if (state.activeBranchId) {
+      config.headers['X-Active-Branch-Id'] = state.activeBranchId;
     }
 
     // Normalize URLs: prevent /api/api/... duplication
