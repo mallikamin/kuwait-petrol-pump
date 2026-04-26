@@ -25,6 +25,7 @@ import { formatCurrency, formatDate } from '@/utils/format';
 import { bifurcationsApi } from '@/api/bifurcations';
 import { shiftsApi } from '@/api/shifts';
 import { useAuthStore } from '@/store/auth';
+import { useEffectiveBranchId } from '@/hooks/useEffectiveBranch';
 
 interface BifurcationFormData {
   branchId: string;
@@ -88,44 +89,47 @@ export function Reconciliation() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { user } = useAuthStore();
+  // Active branch from the top-bar org/branch switcher; falls back to the
+  // user's JWT branch for single-org users (zero behavior change for them).
+  const branchId = useEffectiveBranchId();
 
   // Fetch bifurcation history
   const { data: bifurcationsData, isLoading } = useQuery({
-    queryKey: ['bifurcations', 'history'],
+    queryKey: ['bifurcations', 'history', branchId],
     queryFn: async () => {
-      if (!user?.branch_id) return { bifurcations: [], pagination: { total: 0 } };
+      if (!branchId) return { bifurcations: [], pagination: { total: 0 } };
       const response = await bifurcationsApi.getAll({
-        branchId: user.branch_id,
+        branchId,
       });
       return response;
     },
-    enabled: !!user?.branch_id,
+    enabled: !!branchId,
   });
 
   // Fetch closed shifts for reconciliation
   const { data: closedShifts } = useQuery({
-    queryKey: ['shifts', 'closed', user?.branch_id],
+    queryKey: ['shifts', 'closed', branchId],
     queryFn: async () => {
-      if (!user?.branch_id) return { items: [], total: 0 };
+      if (!branchId) return { items: [], total: 0 };
       const response = await shiftsApi.getHistory({
-        branchId: user.branch_id,
+        branchId,
         status: 'closed',
         limit: 50,
       });
       return response;
     },
-    enabled: !!user?.branch_id && isWizardOpen,
+    enabled: !!branchId && isWizardOpen,
   });
 
   // Load daily summary when wizard opens
   useEffect(() => {
-    if (isWizardOpen && user?.branch_id && currentStep === 1) {
+    if (isWizardOpen && branchId && currentStep === 1) {
       loadDailySummary();
     }
-  }, [isWizardOpen, user?.branch_id]);
+  }, [isWizardOpen, branchId]);
 
   const loadDailySummary = async () => {
-    if (!user?.branch_id) {
+    if (!branchId) {
       toast({
         title: 'Error',
         description: 'Branch not found. Please log in again.',
@@ -140,7 +144,7 @@ export function Reconciliation() {
     try {
       const summary = await bifurcationsApi.getSummary({
         date: formData.date,
-        branchId: user.branch_id,
+        branchId,
       });
 
       // Store meter readings and POS data separately
@@ -152,7 +156,7 @@ export function Reconciliation() {
       const useMeter = summary.meterReadings !== null;
       setFormData(prev => ({
         ...prev,
-        branchId: user.branch_id || '',
+        branchId,
         pmgTotalLiters: useMeter && summary.meterReadings ? summary.meterReadings.pmgTotalLiters : summary.pos.pmgTotalLiters,
         pmgTotalAmount: useMeter && summary.meterReadings ? summary.meterReadings.pmgTotalAmount : summary.pos.pmgTotalAmount,
         hsdTotalLiters: useMeter && summary.meterReadings ? summary.meterReadings.hsdTotalLiters : summary.pos.hsdTotalLiters,
@@ -317,7 +321,7 @@ export function Reconciliation() {
   };
 
   const loadReconciliationSummary = async () => {
-    if (!user?.branch_id) {
+    if (!branchId) {
       toast({
         title: 'Error',
         description: 'Branch not found. Please log in again.',
@@ -331,7 +335,7 @@ export function Reconciliation() {
       const summary = await bifurcationsApi.getReconciliationSummaryRange({
         startDate: dateRangeStartDate,
         endDate: dateRangeEndDate,
-        branchId: user.branch_id,
+        branchId,
       });
       setReconciliationSummary(summary);
     } catch (error: any) {

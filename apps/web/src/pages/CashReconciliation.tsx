@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { branchesApi } from '@/api';
 import { cashReconciliationApi } from '@/api/cashReconciliation';
 import { useAuthStore } from '@/store/auth';
+import { useOnOrgSwitch } from '@/hooks/useEffectiveBranch';
 
 const fmtPKR = (n: number | null) => (n == null ? '—' : n.toLocaleString('en-PK', { maximumFractionDigits: 2 }));
 
@@ -36,6 +37,8 @@ export function CashReconciliation() {
   const [selectedBranchId, setSelectedBranchId] = useState<string>(() =>
     (user as any)?.branch?.id || ''
   );
+  // Reset selection when the org switches via the top-bar dropdown.
+  useOnOrgSwitch(() => setSelectedBranchId(''));
   const [businessDate, setBusinessDate] = useState<string>(() => format(new Date(), 'yyyy-MM-dd'));
   const [physicalCash, setPhysicalCash] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
