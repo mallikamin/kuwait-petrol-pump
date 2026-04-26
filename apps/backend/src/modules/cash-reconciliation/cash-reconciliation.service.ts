@@ -182,6 +182,90 @@ export class CashReconciliationService {
     return recon;
   }
 
+  /**
+   * Per-day cash reconciliation digest for a date range. Read-only — used
+   * by the Reconciliation Dashboard to show cash status alongside meter
+   * readings without driving the user out of the page. Days with no cash
+   * activity and no submitted reconciliation are still returned with zeros
+   * so the UI can render a "Pending" pill.
+   */
+  static async getSummaryRange(
+    organizationId: string,
+    branchId: string,
+    from: string,
+    to: string,
+  ): Promise<Array<{
+    businessDate: string;
+    inflowsTotal: number;
+    outflowsTotal: number;
+    physicalCash: number | null;
+    variance: number | null;
+    status: 'open' | 'closed' | 'none';
+    closedAt: string | null;
+  }>> {
+    const fromDate = new Date(`${from}T00:00:00Z`);
+    const toDate = new Date(`${to}T00:00:00Z`);
+
+    // One range scan over cash_ledger_entries grouped by businessDate+direction.
+    const ledgerRows = await prisma.cashLedgerEntry.groupBy({
+      by: ['businessDate', 'direction'],
+      where: {
+        organizationId,
+        branchId,
+        businessDate: { gte: fromDate, lte: toDate },
+        reversedAt: null,
+      },
+      _sum: { amount: true },
+    });
+
+    const reconRows = await prisma.cashReconciliation.findMany({
+      where: {
+        organizationId,
+        branchId,
+        businessDate: { gte: fromDate, lte: toDate },
+      },
+      select: {
+        businessDate: true,
+        physicalCash: true,
+        variance: true,
+        status: true,
+        closedAt: true,
+      },
+    });
+
+    const ledgerByDate = new Map<string, { in: number; out: number }>();
+    for (const row of ledgerRows) {
+      const key = row.businessDate.toISOString().slice(0, 10);
+      const bucket = ledgerByDate.get(key) || { in: 0, out: 0 };
+      const amt = Number(row._sum.amount || 0);
+      if (row.direction === 'IN') bucket.in += amt;
+      else bucket.out += amt;
+      ledgerByDate.set(key, bucket);
+    }
+
+    const reconByDate = new Map<string, typeof reconRows[number]>();
+    for (const r of reconRows) {
+      reconByDate.set(r.businessDate.toISOString().slice(0, 10), r);
+    }
+
+    const allDates = new Set<string>([...ledgerByDate.keys(), ...reconByDate.keys()]);
+    return Array.from(allDates)
+      .sort()
+      .map((businessDate) => {
+        const ledger = ledgerByDate.get(businessDate) || { in: 0, out: 0 };
+        const recon = reconByDate.get(businessDate);
+        return {
+          businessDate,
+          inflowsTotal: ledger.in,
+          outflowsTotal: ledger.out,
+          physicalCash: recon ? Number(recon.physicalCash) : null,
+          variance: recon ? Number(recon.variance) : null,
+          status: (recon?.status as 'open' | 'closed') || 'none',
+          closedAt: recon?.closedAt?.toISOString() || null,
+        };
+      });
+  }
+
   static async reopen(
     organizationId: string,
     reconId: string,

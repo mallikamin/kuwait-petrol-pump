@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { hasRole } from '../../middleware/auth.middleware';
 import { CashReconciliationService } from './cash-reconciliation.service';
-import { previewQuerySchema, reopenSchema, submitSchema } from './cash-reconciliation.schema';
+import { previewQuerySchema, reopenSchema, submitSchema, summaryRangeQuerySchema } from './cash-reconciliation.schema';
 
 export class CashReconciliationController {
   getPreview = async (req: Request, res: Response, next: NextFunction) => {
@@ -37,6 +37,23 @@ export class CashReconciliationController {
         close: body.close,
       });
       return res.json({ success: true, data: recon });
+    } catch (err) { next(err); }
+  };
+
+  getSummaryRange = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+      if (!hasRole(req.user, ['admin', 'manager', 'accountant'])) {
+        return res.status(403).json({ error: 'Insufficient permissions' });
+      }
+      const q = summaryRangeQuerySchema.parse(req.query);
+      const rows = await CashReconciliationService.getSummaryRange(
+        req.user.organizationId,
+        q.branchId,
+        q.from,
+        q.to,
+      );
+      return res.json({ success: true, data: rows });
     } catch (err) { next(err); }
   };
 

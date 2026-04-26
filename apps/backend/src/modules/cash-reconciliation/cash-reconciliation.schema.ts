@@ -17,3 +17,9 @@ export const reopenSchema = z.object({
   reconId: z.string().uuid(),
   reason: z.string().min(1),
 });
+
+export const summaryRangeQuerySchema = z.object({
+  branchId: z.string().uuid(),
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
