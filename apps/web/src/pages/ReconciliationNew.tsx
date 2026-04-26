@@ -51,6 +51,12 @@ interface DailySummary {
     editedBy?: string;
     editedAt?: string;
   }[];
+  // Reporting aggregates (added 2026-04-26 for CSV export + per-day cards)
+  meter?: { hsdLiters: number; pmgLiters: number; hsdPkr: number; pmgPkr: number };
+  posted?: { hsdLiters: number; pmgLiters: number; hsdPkr: number; pmgPkr: number };
+  nonFuel?: { units: number; pkr: number };
+  cashSales?: number;
+  expensesTotal?: number;
 }
 
 export function ReconciliationNew() {
@@ -123,36 +129,110 @@ export function ReconciliationNew() {
     });
   };
 
+  // CSV cell escape — wrap values with commas/quotes/newlines.
+  const csvCell = (v: unknown): string => {
+    if (v === null || v === undefined) return '';
+    const s = typeof v === 'number' ? v.toString() : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+
   const exportToCSV = () => {
     if (!summaries) return;
 
-    const headers = ['Date', 'Status', 'Expected', 'Entered', 'Derived', 'Missing', 'Completion %'];
-    const rows = summaries.map(s => [
-      s.businessDate,
-      s.status.replace(/_/g, ' ').toUpperCase(),
-      s.totalReadingsExpected,
-      s.totalReadingsEntered,
-      s.totalReadingsDerived,
-      s.totalReadingsMissing,
-      toNumber(s.completionPercent).toFixed(0) + '%',
-    ]);
+    const headers = [
+      'Date',
+      'Expected Readings',
+      'Entered',
+      'Missing',
+      'HSD Meter Litres',
+      'HSD Meter PKR',
+      'HSD Posted Litres',
+      'HSD Posted PKR',
+      'HSD Variation (Litres)',
+      'PMG Meter Litres',
+      'PMG Meter PKR',
+      'PMG Posted Litres',
+      'PMG Posted PKR',
+      'PMG Variation (Litres)',
+      'Non-Fuel Units',
+      'Non-Fuel PKR',
+      'Cash Sales (Fuel + Non-Fuel)',
+      'Day Finalized',
+      'Expenses',
+      'Expected Cash',
+      'Physical Cash Submitted',
+      'Cash Variance',
+      'Cash Recon Day Closed',
+    ];
 
-    const csv = [headers, ...rows].map(row => row.join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
+    const rows = summaries.map((s) => {
+      const meter = s.meter || { hsdLiters: 0, pmgLiters: 0, hsdPkr: 0, pmgPkr: 0 };
+      const posted = s.posted || { hsdLiters: 0, pmgLiters: 0, hsdPkr: 0, pmgPkr: 0 };
+      const nonFuel = s.nonFuel || { units: 0, pkr: 0 };
+      const cash = cashByDate.get(s.businessDate);
+      const expectedCash = (cash?.inflowsTotal ?? 0) - (cash?.outflowsTotal ?? 0);
+      const hsdVar = meter.hsdLiters - posted.hsdLiters;
+      const pmgVar = meter.pmgLiters - posted.pmgLiters;
+      const round2 = (n: number) => Math.round(n * 100) / 100;
+
+      return [
+        s.businessDate,
+        s.totalReadingsExpected,
+        s.totalReadingsEntered,
+        s.totalReadingsMissing,
+        round2(meter.hsdLiters),
+        round2(meter.hsdPkr),
+        round2(posted.hsdLiters),
+        round2(posted.hsdPkr),
+        round2(hsdVar),
+        round2(meter.pmgLiters),
+        round2(meter.pmgPkr),
+        round2(posted.pmgLiters),
+        round2(posted.pmgPkr),
+        round2(pmgVar),
+        round2(nonFuel.units),
+        round2(nonFuel.pkr),
+        round2(s.cashSales ?? 0),
+        s.finalizeStatus === 'finalized' ? 'Yes' : 'No',
+        round2(s.expensesTotal ?? 0),
+        cash ? round2(expectedCash) : '',
+        cash?.physicalCash !== null && cash?.physicalCash !== undefined ? round2(cash.physicalCash) : '',
+        cash?.variance !== null && cash?.variance !== undefined ? round2(cash.variance) : '',
+        cash?.status === 'closed' ? 'Yes' : 'No',
+      ];
+    });
+
+    const csv = [headers, ...rows].map((row) => row.map(csvCell).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `reconciliation-summary-${startDate}-to-${endDate}.csv`;
     a.click();
+    window.URL.revokeObjectURL(url);
   };
 
-  // Aggregate stats
-  const stats = summaries ? {
-    fullyReconciled: summaries.filter(s => s.status === 'fully_reconciled').length,
-    partiallyReconciled: summaries.filter(s => s.status === 'partially_reconciled').length,
-    notReconciled: summaries.filter(s => s.status === 'not_reconciled').length,
-    totalMissing: summaries.reduce((sum, s) => sum + s.totalReadingsMissing, 0),
-  } : null;
+  // Aggregate stats — accountant-correct definitions:
+  //   Fully Reconciled = day finalized AND cash recon closed
+  //   Partially Reconciled = day finalized but cash recon not closed
+  //   Not Reconciled = day not finalized (backdated work still missing)
+  // Cash close cannot happen until backdated is finalized, so the three
+  // buckets are mutually exclusive.
+  const stats = summaries ? (() => {
+    let fullyReconciled = 0;
+    let partiallyReconciled = 0;
+    let notReconciled = 0;
+    let totalMissing = 0;
+    for (const s of summaries) {
+      const finalized = s.finalizeStatus === 'finalized';
+      const cashClosed = cashByDate.get(s.businessDate)?.status === 'closed';
+      if (finalized && cashClosed) fullyReconciled += 1;
+      else if (finalized) partiallyReconciled += 1;
+      else notReconciled += 1;
+      totalMissing += s.totalReadingsMissing;
+    }
+    return { fullyReconciled, partiallyReconciled, notReconciled, totalMissing };
+  })() : null;
 
   if (!branchId) {
     return (
@@ -232,7 +312,7 @@ export function ReconciliationNew() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-green-600">{stats.fullyReconciled}</div>
-              <p className="text-xs text-muted-foreground">100% complete</p>
+              <p className="text-xs text-muted-foreground">Finalized + cash closed</p>
             </CardContent>
           </Card>
 
@@ -243,7 +323,7 @@ export function ReconciliationNew() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-yellow-600">{stats.partiallyReconciled}</div>
-              <p className="text-xs text-muted-foreground">Some data entered</p>
+              <p className="text-xs text-muted-foreground">Finalized, cash close pending</p>
             </CardContent>
           </Card>
 
@@ -254,7 +334,7 @@ export function ReconciliationNew() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-red-600">{stats.notReconciled}</div>
-              <p className="text-xs text-muted-foreground">No data</p>
+              <p className="text-xs text-muted-foreground">Backdated missing</p>
             </CardContent>
           </Card>
 

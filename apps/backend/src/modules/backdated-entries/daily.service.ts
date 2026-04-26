@@ -174,6 +174,17 @@ export class DailyBackdatedEntriesService {
       finalizeStatus: 'finalized' | 'not_finalized' | 'no_entries';
       blockers: string[];
       readyForFinalize: boolean;
+      // Per-day reporting aggregates — mirror values exposed by the
+      // per-day getDailySummary endpoint so CSV export and dashboards
+      // can render the full picture without N+1 fetches.
+      meter: { hsdLiters: number; pmgLiters: number; hsdPkr: number; pmgPkr: number };
+      posted: {
+        hsdLiters: number; pmgLiters: number;
+        hsdPkr: number; pmgPkr: number;
+      };
+      nonFuel: { units: number; pkr: number };
+      cashSales: number; // sum of paymentMethod='cash' line totals (fuel + non-fuel)
+      expensesTotal: number; // sum of non-voided expense_entries for the day
     };
 
     const dayMap = new Map<string, DaySummary>();
@@ -201,6 +212,11 @@ export class DailyBackdatedEntriesService {
         finalizeStatus: 'no_entries',
         blockers: [],
         readyForFinalize: false,
+        meter: { hsdLiters: 0, pmgLiters: 0, hsdPkr: 0, pmgPkr: 0 },
+        posted: { hsdLiters: 0, pmgLiters: 0, hsdPkr: 0, pmgPkr: 0 },
+        nonFuel: { units: 0, pkr: 0 },
+        cashSales: 0,
+        expensesTotal: 0,
       });
     }
 
@@ -208,7 +224,7 @@ export class DailyBackdatedEntriesService {
 
     // ✅ PERF FIX: Use batched range query instead of per-day queries
     // Improvement: 30 queries → 1 batched query (~10-30x faster, 300-1000ms → 30-100ms)
-    const [meterReadingsMap, transactions, entries] = await Promise.all([
+    const [meterReadingsMap, transactions, entries, expenseAgg] = await Promise.all([
       this.meterReadingsDailyService.getDailyMeterReadingsRange(
         branchId,
         startDate,
@@ -229,6 +245,11 @@ export class DailyBackdatedEntriesService {
         select: {
           paymentMethod: true,
           productName: true,
+          quantity: true,
+          unitPrice: true,
+          lineTotal: true,
+          fuelTypeId: true,
+          productId: true,
           fuelType: {
             select: { code: true },
           },
@@ -259,6 +280,17 @@ export class DailyBackdatedEntriesService {
           isFinalized: true,
         },
       }),
+      // Daily expense aggregates — non-voided entries only.
+      prisma.expenseEntry.groupBy({
+        by: ['businessDate'],
+        where: {
+          branchId,
+          organizationId,
+          businessDate: { gte: startDateObj, lte: endDateObj },
+          voidedAt: null,
+        },
+        _sum: { amount: true },
+      }),
     ]);
 
     // Populate meter data from batched query results
@@ -269,25 +301,69 @@ export class DailyBackdatedEntriesService {
       summary.totalReadingsExpected = meterSummary.totalReadingsExpected || summary.totalReadingsExpected;
       summary.totalReadingsEntered = meterSummary.totalReadingsEntered || 0;
       summary.totalReadingsDerived = meterSummary.totalReadingsDerived || 0;
+      summary.meter.hsdLiters = Number(meterSummary.hsdSalesLiters || 0);
+      summary.meter.pmgLiters = Number(meterSummary.pmgSalesLiters || 0);
     }
+
+    // Per-day price snapshot — first transaction's unitPrice for each fuel.
+    // Mirrors the per-day getDailySummary fallback (287.33 / 290.5).
+    const priceByDate = new Map<string, { hsd: number; pmg: number }>();
 
     for (const txn of transactions) {
       const dateStr = txn.backdatedEntry.businessDate.toISOString().split('T')[0];
       const summary = dayMap.get(dateStr);
       if (!summary) continue;
 
+      const lineTotal = Number(txn.lineTotal);
+      const quantity = Number(txn.quantity);
+      const unitPrice = Number(txn.unitPrice);
+      const method = (txn.paymentMethod || '').toLowerCase();
+
+      // Cash sales include both fuel and non-fuel (per spec).
+      if (method === 'cash') summary.cashSales += lineTotal;
+
       const fuelCode = this.resolveFuelCodeForChecklist(txn);
-      if (!fuelCode) continue;
+      if (!fuelCode) {
+        // Non-fuel transaction — track units + PKR separately.
+        summary.nonFuel.units += quantity;
+        summary.nonFuel.pkr += lineTotal;
+        continue;
+      }
 
       summary.postingChecks.transactionsByFuel[fuelCode] += 1;
+      summary.posted[fuelCode === 'HSD' ? 'hsdLiters' : 'pmgLiters'] += quantity;
+      summary.posted[fuelCode === 'HSD' ? 'hsdPkr' : 'pmgPkr'] += lineTotal;
 
-      const method = (txn.paymentMethod || '').toLowerCase();
+      // Capture first-seen unit price per day per fuel for meter PKR derivation.
+      const priceBucket = priceByDate.get(dateStr) || { hsd: 0, pmg: 0 };
+      if (fuelCode === 'HSD' && priceBucket.hsd === 0) priceBucket.hsd = unitPrice;
+      if (fuelCode === 'PMG' && priceBucket.pmg === 0) priceBucket.pmg = unitPrice;
+      priceByDate.set(dateStr, priceBucket);
+
       if (method === 'cash') {
         summary.postingChecks.cashByFuel[fuelCode] += 1;
       }
       if (method === 'credit_customer' || method === 'credit_card' || method === 'bank_card') {
         summary.postingChecks.creditOrBankByFuel[fuelCode] += 1;
       }
+    }
+
+    // Compute meter PKR per day using captured prices (with fallback constants
+    // mirroring the per-day getDailySummary endpoint).
+    for (const [dateStr, summary] of dayMap.entries()) {
+      const prices = priceByDate.get(dateStr) || { hsd: 0, pmg: 0 };
+      const hsdPrice = prices.hsd || 287.33;
+      const pmgPrice = prices.pmg || 290.5;
+      summary.meter.hsdPkr = summary.meter.hsdLiters * hsdPrice;
+      summary.meter.pmgPkr = summary.meter.pmgLiters * pmgPrice;
+    }
+
+    // Merge expense aggregates.
+    for (const row of expenseAgg) {
+      const dateStr = row.businessDate.toISOString().split('T')[0];
+      const summary = dayMap.get(dateStr);
+      if (!summary) continue;
+      summary.expensesTotal = Number(row._sum.amount || 0);
     }
 
     const entryFinalizeMap = new Map<string, { total: number; finalized: number }>();
