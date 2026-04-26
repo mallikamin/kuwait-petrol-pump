@@ -294,18 +294,23 @@ export function GainLoss() {
   });
 
   // Period totals for the KPI strip — sums quantity + value across all entries
-  // currently visible (i.e. inside the date range filter).
+  // currently visible (i.e. inside the date range filter). `valuedN` counts
+  // only the entries that have a non-null valueAtRate, so the card can show
+  // "—" when no rate was captured and flag partial coverage with "*".
   const totals = useMemo(() => {
-    const acc: Record<string, { qty: number; value: number; n: number }> = {
-      HSD: { qty: 0, value: 0, n: 0 },
-      PMG: { qty: 0, value: 0, n: 0 },
+    const acc: Record<string, { qty: number; value: number; n: number; valuedN: number }> = {
+      HSD: { qty: 0, value: 0, n: 0, valuedN: 0 },
+      PMG: { qty: 0, value: 0, n: 0, valuedN: 0 },
     };
     entries.forEach((e) => {
       const code = e.fuel?.code;
       if (!code || !acc[code]) return;
       acc[code].qty += Number(e.quantity);
-      acc[code].value += Number(e.valueAtRate || 0);
       acc[code].n += 1;
+      if (e.valueAtRate != null) {
+        acc[code].value += Number(e.valueAtRate);
+        acc[code].valuedN += 1;
+      }
     });
     return acc;
   }, [entries]);
@@ -368,30 +373,50 @@ export function GainLoss() {
         <h1 className="text-base font-semibold ml-2">Inventory Gain / Loss</h1>
 
         <div className="ml-auto flex items-center gap-3 text-xs">
-          {(['HSD', 'PMG'] as const).map((code) => (
-            <div key={code} className="rounded border px-2 py-1">
-              <div className="text-[10px] text-muted-foreground">{code} Net</div>
-              <div className="flex gap-3">
-                <span
-                  className={cn(
-                    'font-mono font-semibold',
-                    totals[code].qty < 0 && 'text-destructive',
-                    totals[code].qty > 0 && 'text-green-700',
+          {(['HSD', 'PMG'] as const).map((code) => {
+            const t = totals[code];
+            const noneValued = t.n > 0 && t.valuedN === 0;
+            const partial = t.valuedN > 0 && t.valuedN < t.n;
+            return (
+              <div key={code} className="rounded border px-2 py-1">
+                <div className="text-[10px] text-muted-foreground">{code} Net</div>
+                <div className="flex gap-3">
+                  <span
+                    className={cn(
+                      'font-mono font-semibold',
+                      t.qty < 0 && 'text-destructive',
+                      t.qty > 0 && 'text-green-700',
+                    )}
+                  >
+                    {fmtL(t.qty)} L
+                  </span>
+                  {noneValued ? (
+                    <span
+                      className="font-mono text-muted-foreground"
+                      title="No rate captured for these entries"
+                    >
+                      PKR —
+                    </span>
+                  ) : (
+                    <span
+                      className={cn(
+                        'font-mono text-muted-foreground',
+                        t.value < 0 && 'text-destructive',
+                      )}
+                      title={
+                        partial
+                          ? `Partial: ${t.valuedN} of ${t.n} entries have a captured rate`
+                          : undefined
+                      }
+                    >
+                      PKR {fmtPKR(t.value)}
+                      {partial ? '*' : ''}
+                    </span>
                   )}
-                >
-                  {fmtL(totals[code].qty)} L
-                </span>
-                <span
-                  className={cn(
-                    'font-mono text-muted-foreground',
-                    totals[code].value < 0 && 'text-destructive',
-                  )}
-                >
-                  PKR {fmtPKR(totals[code].value)}
-                </span>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -501,7 +526,7 @@ export function GainLoss() {
         )}
         {stockAtDate?.lastPurchaseRate != null && (
           <p className="mt-1 text-[11px] text-muted-foreground">
-            Rate: PKR {fmtPKR(stockAtDate.lastPurchaseRate)}/L (last purchase {stockAtDate.lastPurchaseDate}). Bootstrap {fmtL(stockAtDate.bootstrapQty)} L · +Pur {fmtL(stockAtDate.purchasesQty)} · −Sales {fmtL(stockAtDate.soldQty)} · ±G/L {fmtL(stockAtDate.priorGainLossQty)} = {fmtL(stockAtDate.bookQty)} L.
+            Rate: PKR {fmtPKR(stockAtDate.lastPurchaseRate)}/L (last purchase {stockAtDate.lastPurchaseDate}) — current rate, applied only to new dipstick readings. Bootstrap {fmtL(stockAtDate.bootstrapQty)} L · +Pur {fmtL(stockAtDate.purchasesQty)} · −Sales {fmtL(stockAtDate.soldQty)} · ±G/L {fmtL(stockAtDate.priorGainLossQty)} = {fmtL(stockAtDate.bookQty)} L.
           </p>
         )}
       </div>
