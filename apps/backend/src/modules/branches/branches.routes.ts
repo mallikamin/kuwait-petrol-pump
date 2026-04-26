@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { BranchesController } from './branches.controller';
-import { authenticate } from '../../middleware/auth.middleware';
+import { authenticate, authorize } from '../../middleware/auth.middleware';
 
 const router = Router();
 const branchesController = new BranchesController();
@@ -10,6 +10,7 @@ router.use(authenticate);
 
 // Branch routes
 router.get('/', branchesController.getAllBranches);
+router.post('/', authorize('admin'), branchesController.createBranch);
 router.get('/:id', branchesController.getBranchById);
 router.get('/:id/dispensing-units', branchesController.getDispensingUnits);
 router.post('/:id/dispensing-units', branchesController.createDispensingUnit);

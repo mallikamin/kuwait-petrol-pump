@@ -12,9 +12,9 @@ export const branchesApi = {
     return response.data;
   },
 
-  create: async (data: Partial<Branch>): Promise<Branch> => {
-    const response = await apiClient.post<Branch>('/api/branches', data);
-    return response.data;
+  create: async (data: { name: string; code?: string | null; location?: string | null }): Promise<Branch> => {
+    const response = await apiClient.post<{ branch: Branch }>('/api/branches', data);
+    return response.data.branch;
   },
 
   update: async (id: string, data: Partial<Branch>): Promise<Branch> => {

@@ -6,6 +6,12 @@ const idParamSchema = z.object({
   id: z.string().uuid(),
 });
 
+const createBranchSchema = z.object({
+  name: z.string().min(1).max(255),
+  code: z.string().min(1).max(32).optional().nullable(),
+  location: z.string().max(500).optional().nullable(),
+});
+
 const createDispensingUnitSchema = z.object({
   name: z.string().min(1).max(100),
   unit_number: z.number().int().positive(),
@@ -108,6 +114,28 @@ export class BranchesController {
       const { id } = idParamSchema.parse(req.params);
       const nozzles = await this.branchesService.getNozzlesByUnit(id, req.user.organizationId);
       res.json({ nozzles });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * POST /api/branches
+   * Create a new branch in the authenticated user's organization (admin-only).
+   */
+  createBranch = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      const data = createBranchSchema.parse(req.body);
+      const branch = await this.branchesService.createBranch(req.user.organizationId, {
+        name: data.name,
+        code: data.code ?? null,
+        location: data.location ?? null,
+      });
+      res.status(201).json({ branch });
     } catch (error) {
       next(error);
     }
