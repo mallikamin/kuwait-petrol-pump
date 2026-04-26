@@ -29,11 +29,33 @@ export interface ReconciliationPreview {
   closedAt: string | null;
 }
 
+export interface CashReconSummaryDay {
+  businessDate: string;
+  inflowsTotal: number;
+  outflowsTotal: number;
+  physicalCash: number | null;
+  variance: number | null;
+  status: 'open' | 'closed' | 'none';
+  closedAt: string | null;
+}
+
 export const cashReconciliationApi = {
   getPreview: async (branchId: string, businessDate: string): Promise<ReconciliationPreview> => {
     const res = await apiClient.get<{ success: boolean; data: ReconciliationPreview }>(
       '/api/cash-reconciliation/preview',
       { params: { branchId, businessDate } },
+    );
+    return res.data.data;
+  },
+
+  getSummaryRange: async (
+    branchId: string,
+    from: string,
+    to: string,
+  ): Promise<CashReconSummaryDay[]> => {
+    const res = await apiClient.get<{ success: boolean; data: CashReconSummaryDay[] }>(
+      '/api/cash-reconciliation/summary-range',
+      { params: { branchId, from, to } },
     );
     return res.data.data;
   },

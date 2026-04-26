@@ -8,6 +8,7 @@ const controller = new CashReconciliationController();
 router.use(authenticate);
 
 router.get('/preview', controller.getPreview);
+router.get('/summary-range', controller.getSummaryRange);
 router.post('/submit', controller.submit);
 router.post('/reopen', controller.reopen);
 

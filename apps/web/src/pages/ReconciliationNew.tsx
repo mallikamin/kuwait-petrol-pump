@@ -20,6 +20,7 @@ import { formatDate } from '@/utils/format';
 import { useAuthStore } from '@/store/auth';
 import { useEffectiveBranchId } from '@/hooks/useEffectiveBranch';
 import { apiClient } from '@/api/client';
+import { cashReconciliationApi, type CashReconSummaryDay } from '@/api/cashReconciliation';
 
 interface DailySummary {
   businessDate: string;
@@ -96,6 +97,19 @@ export function ReconciliationNew() {
     enabled: !!branchId && !!startDate && !!endDate, // Only run if dates are valid
     staleTime: 30000, // Cache for 30 seconds
   });
+
+  // Cash reconciliation digest for the same window — purely informational
+  // here (the Reconciliation tab is a read-only reference). Failures are
+  // soft: an empty cash dimension still lets the meter/txn dimensions render.
+  const { data: cashRangeRaw } = useQuery({
+    queryKey: ['cash-recon-range', branchId, startDate, endDate],
+    queryFn: () => cashReconciliationApi.getSummaryRange(branchId!, startDate, endDate),
+    enabled: !!branchId && !!startDate && !!endDate,
+    staleTime: 30000,
+    retry: 0,
+  });
+  const cashByDate = new Map<string, CashReconSummaryDay>();
+  for (const row of cashRangeRaw || []) cashByDate.set(row.businessDate, row);
 
   const toggleDay = (date: string) => {
     setExpandedDays(prev => {
@@ -283,7 +297,6 @@ export function ReconciliationNew() {
           ) : (
             <div className="space-y-2">
               {summaries.map((day) => {
-                const completionPercent = toNumber(day?.completionPercent);
                 const totalReadingsEntered = toNumber(day?.totalReadingsEntered);
                 const totalReadingsDerived = toNumber(day?.totalReadingsDerived);
                 const totalReadingsExpected = toNumber(day?.totalReadingsExpected);
@@ -322,24 +335,53 @@ export function ReconciliationNew() {
                             </p>
                           </div>
                         </div>
-                        <div className="flex items-center gap-3">
-                          <div className="text-right">
-                            <div className="text-2xl font-bold">
-                              {completionPercent.toFixed(0)}%
-                            </div>
-                            <p className="text-xs text-muted-foreground">
-                              {totalReadingsEntered + totalReadingsDerived}/{totalReadingsExpected} readings
-                            </p>
-                          </div>
-                          <Badge variant={
-                            day.status === 'fully_reconciled' ? 'default' :
-                            day.status === 'partially_reconciled' ? 'secondary' :
-                            'destructive'
-                          }>
-                            {day.status === 'fully_reconciled' ? 'Fully Reconciled' :
-                             day.status === 'partially_reconciled' ? 'Partial Data' :
-                             'Not Reconciled'}
-                          </Badge>
+                        <div className="flex items-center gap-2">
+                          {(() => {
+                            // Meter dimension — purely a function of readings entered+derived vs expected.
+                            const meterDone = totalReadingsExpected > 0 && totalReadingsMissing === 0;
+                            const meterPartial = !meterDone && (totalReadingsEntered + totalReadingsDerived) > 0;
+                            const meterVariant: 'default' | 'secondary' | 'destructive' = meterDone ? 'default' : meterPartial ? 'secondary' : 'destructive';
+
+                            // Txn dimension — backdated transactions reconciled means
+                            // posting checks pass *and* the day was finalized.
+                            const txnsReconciled = postingChecks.coreChecksPassed && day.finalizeStatus === 'finalized';
+                            const txnsLabel = day.finalizeStatus === 'no_entries'
+                              ? 'Txns: No Entries'
+                              : txnsReconciled
+                                ? 'Txns: Reconciled'
+                                : 'Txns: Pending';
+                            const txnsVariant: 'default' | 'secondary' | 'destructive' = txnsReconciled
+                              ? 'default'
+                              : day.finalizeStatus === 'no_entries' ? 'destructive' : 'secondary';
+
+                            // Cash dimension — read-only reference; actions live in Cash Reconciliation tab.
+                            const cash = cashByDate.get(day.businessDate);
+                            const isFinalized = day.finalizeStatus === 'finalized';
+                            let cashLabel = 'Cash: Pending';
+                            let cashVariant: 'default' | 'secondary' | 'destructive' = 'destructive';
+                            if (cash?.status === 'closed') {
+                              const v = cash.variance ?? 0;
+                              const sign = v > 0 ? '+' : '';
+                              cashLabel = `Cash: Closed (${sign}${v.toLocaleString()})`;
+                              cashVariant = 'default';
+                            } else if (cash?.status === 'open') {
+                              cashLabel = 'Cash: Submitted';
+                              cashVariant = 'secondary';
+                            } else if (isFinalized) {
+                              cashLabel = 'Cash: Awaiting Close';
+                              cashVariant = 'secondary';
+                            }
+
+                            return (
+                              <div className="flex flex-col items-end gap-1">
+                                <Badge variant={meterVariant}>
+                                  Meter Readings: {totalReadingsEntered + totalReadingsDerived}/{totalReadingsExpected}
+                                </Badge>
+                                <Badge variant={txnsVariant}>{txnsLabel}</Badge>
+                                <Badge variant={cashVariant}>{cashLabel}</Badge>
+                              </div>
+                            );
+                          })()}
                         </div>
                       </div>
                     </CollapsibleTrigger>
@@ -387,6 +429,63 @@ export function ReconciliationNew() {
                               </span>
                             </div>
                           )}
+
+                          {/* Cash Reconciliation — read-only reference. Actions live in the Cash Reconciliation tab. */}
+                          {(() => {
+                            const cash = cashByDate.get(day.businessDate);
+                            const isFinalized = day.finalizeStatus === 'finalized';
+                            const fmt = (n: number | null | undefined) => n === null || n === undefined ? '—' : n.toLocaleString();
+                            const status = cash?.status || 'none';
+                            const variance = cash?.variance ?? null;
+
+                            return (
+                              <div className="pt-3 border-t border-dashed space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <h4 className="font-semibold text-sm">Cash Reconciliation:</h4>
+                                  {status === 'closed' && cash?.closedAt ? (
+                                    <Badge variant="default" className="text-xs">
+                                      🔒 Closed {new Date(cash.closedAt).toLocaleDateString()}
+                                    </Badge>
+                                  ) : status === 'open' ? (
+                                    <Badge variant="secondary" className="text-xs">Submitted, not closed</Badge>
+                                  ) : isFinalized ? (
+                                    <Badge variant="secondary" className="text-xs">Awaiting Close</Badge>
+                                  ) : (
+                                    <Badge variant="destructive" className="text-xs">Pending — finalize day first</Badge>
+                                  )}
+                                </div>
+                                <div className="grid grid-cols-4 gap-3 text-xs">
+                                  <div>
+                                    <div className="text-muted-foreground">Cash In (sales)</div>
+                                    <div className="num text-base font-semibold">{isFinalized || (cash && cash.inflowsTotal > 0) ? fmt(cash?.inflowsTotal ?? 0) : '—'}</div>
+                                  </div>
+                                  <div>
+                                    <div className="text-muted-foreground">Cash Out (expenses)</div>
+                                    <div className="num text-base font-semibold">{fmt(cash?.outflowsTotal ?? 0)}</div>
+                                  </div>
+                                  <div>
+                                    <div className="text-muted-foreground">Physical Submitted</div>
+                                    <div className="num text-base font-semibold">{fmt(cash?.physicalCash)}</div>
+                                  </div>
+                                  <div>
+                                    <div className="text-muted-foreground">Variance</div>
+                                    <div className={`num text-base font-semibold ${
+                                      variance === null ? 'text-muted-foreground' :
+                                      variance === 0 ? 'text-green-700' :
+                                      variance < 0 ? 'text-red-700' : 'text-blue-700'
+                                    }`}>
+                                      {variance === null ? '—' : (variance > 0 ? '+' : '') + variance.toLocaleString()}
+                                    </div>
+                                  </div>
+                                </div>
+                                {!isFinalized && status === 'none' && (
+                                  <p className="text-xs text-muted-foreground italic">
+                                    Cash inflows post once the day is finalized. Manage from the Cash Reconciliation tab.
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })()}
 
                           {day.missingDetails && day.missingDetails.length > 0 ? (
                           <div className="space-y-3">
