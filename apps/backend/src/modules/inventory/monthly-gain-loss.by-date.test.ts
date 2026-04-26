@@ -41,7 +41,7 @@ const svc = new MonthlyGainLossService();
 
 function seedDefaults() {
   jest.clearAllMocks();
-  mockFn(prisma.branch.findUnique).mockResolvedValue({
+  mockFn(prisma.branch.findFirst).mockResolvedValue({
     id: 'b1',
     organizationId: 'org1',
     name: 'Main Branch',
@@ -100,6 +100,7 @@ describe('MonthlyGainLossService.createByDate', () => {
   it('measuredQty path: quantity = measured - bookQty (loss)', async () => {
     // Book = 10000 L; measured 9850 L → loss of 150 L.
     const result = await svc.createByDate({
+      organizationId: 'org1',
       branchId: 'b1',
       fuelTypeId: 'fuel-HSD',
       businessDate: '2026-04-25',
@@ -114,6 +115,7 @@ describe('MonthlyGainLossService.createByDate', () => {
 
   it('measuredQty path: positive delta = gain', async () => {
     const result = await svc.createByDate({
+      organizationId: 'org1',
       branchId: 'b1',
       fuelTypeId: 'fuel-HSD',
       businessDate: '2026-04-25',
@@ -125,6 +127,7 @@ describe('MonthlyGainLossService.createByDate', () => {
 
   it('captures lastPurchaseRate and computes valueAtRate (qty * rate)', async () => {
     const result = await svc.createByDate({
+      organizationId: 'org1',
       branchId: 'b1',
       fuelTypeId: 'fuel-HSD',
       businessDate: '2026-04-25',
@@ -152,6 +155,7 @@ describe('MonthlyGainLossService.createByDate', () => {
     });
 
     const result = await svc.createByDate({
+      organizationId: 'org1',
       branchId: 'b1',
       fuelTypeId: 'fuel-HSD',
       businessDate: '2026-04-25',
@@ -164,6 +168,7 @@ describe('MonthlyGainLossService.createByDate', () => {
 
   it('direct quantity path: passes through, measuredQty stays null', async () => {
     const result = await svc.createByDate({
+      organizationId: 'org1',
       branchId: 'b1',
       fuelTypeId: 'fuel-HSD',
       businessDate: '2026-04-25',
@@ -176,6 +181,7 @@ describe('MonthlyGainLossService.createByDate', () => {
 
   it('auto-derives month from businessDate', async () => {
     await svc.createByDate({
+      organizationId: 'org1',
       branchId: 'b1',
       fuelTypeId: 'fuel-HSD',
       businessDate: '2026-03-15',
@@ -193,6 +199,7 @@ describe('MonthlyGainLossService.createByDate', () => {
 
     await expect(
       svc.createByDate({
+        organizationId: 'org1',
         branchId: 'b1',
         fuelTypeId: 'fuel-HSD',
         businessDate: futureDate,
@@ -208,6 +215,7 @@ describe('MonthlyGainLossService.createByDate', () => {
     });
     await expect(
       svc.createByDate({
+        organizationId: 'org1',
         branchId: 'b1',
         fuelTypeId: 'fuel-HSD',
         businessDate: '2026-04-25',
@@ -220,6 +228,7 @@ describe('MonthlyGainLossService.createByDate', () => {
   it('requires either measuredQty or quantity', async () => {
     await expect(
       svc.createByDate({
+        organizationId: 'org1',
         branchId: 'b1',
         fuelTypeId: 'fuel-HSD',
         businessDate: '2026-04-25',

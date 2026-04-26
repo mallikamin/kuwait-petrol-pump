@@ -4,6 +4,7 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { computeStockAtDate } from './stock-at-date.service';
 
 export interface CreateMonthlyGainLossInput {
+  organizationId: string; // Active org from req.user — gates branch ownership
   branchId: string;
   fuelTypeId: string;
   month: string; // Format: YYYY-MM (legacy month-only path)
@@ -23,6 +24,7 @@ export interface CreateMonthlyGainLossInput {
  * is frozen and won't drift if rates change later.
  */
 export interface CreateGainLossByDateInput {
+  organizationId: string; // Active org from req.user — gates branch ownership
   branchId: string;
   fuelTypeId: string;
   businessDate: string; // YYYY-MM-DD
@@ -68,7 +70,9 @@ export class MonthlyGainLossService {
     const fuelType = await prisma.fuelType.findUnique({ where: { id: fuelTypeId } });
     if (!fuelType) throw new AppError(404, 'Fuel type not found');
 
-    const branch = await prisma.branch.findUnique({ where: { id: branchId } });
+    const branch = await prisma.branch.findFirst({
+      where: { id: branchId, organizationId: input.organizationId },
+    });
     if (!branch) throw new AppError(404, 'Branch not found');
 
     const user = await prisma.user.findUnique({ where: { id: recordedBy } });
@@ -197,7 +201,9 @@ export class MonthlyGainLossService {
       throw new AppError(400, 'quantity must be a finite number');
     }
 
-    const branch = await prisma.branch.findUnique({ where: { id: branchId } });
+    const branch = await prisma.branch.findFirst({
+      where: { id: branchId, organizationId: input.organizationId },
+    });
     if (!branch) throw new AppError(404, 'Branch not found');
 
     const fuelType = await prisma.fuelType.findUnique({ where: { id: fuelTypeId } });
@@ -315,6 +321,7 @@ export class MonthlyGainLossService {
    * a [startDate, endDate] window or specific fuel.
    */
   async getEntries(input: {
+    organizationId: string;
     branchId: string;
     month?: string;
     startDate?: string;
@@ -323,7 +330,9 @@ export class MonthlyGainLossService {
   }) {
     const { branchId, month, startDate, endDate, fuelTypeId } = input;
 
-    const branch = await prisma.branch.findUnique({ where: { id: branchId } });
+    const branch = await prisma.branch.findFirst({
+      where: { id: branchId, organizationId: input.organizationId },
+    });
     if (!branch) {
       throw new AppError(404, 'Branch not found');
     }
@@ -351,9 +360,9 @@ export class MonthlyGainLossService {
     return entries.map((e) => this.toDto(e));
   }
 
-  async getEntryById(id: string) {
-    const entry = await prisma.monthlyInventoryGainLoss.findUnique({
-      where: { id },
+  async getEntryById(id: string, organizationId: string) {
+    const entry = await prisma.monthlyInventoryGainLoss.findFirst({
+      where: { id, organizationId },
       include: {
         fuelType: { select: { id: true, code: true, name: true } },
         user: { select: { id: true, username: true, fullName: true } },
@@ -378,10 +387,11 @@ export class MonthlyGainLossService {
       remarks?: string | null;
     },
     userId: string,
-    userRole?: string,
+    userRole: string | undefined,
+    organizationId: string,
   ) {
-    const entry = await prisma.monthlyInventoryGainLoss.findUnique({
-      where: { id },
+    const entry = await prisma.monthlyInventoryGainLoss.findFirst({
+      where: { id, organizationId },
       include: { fuelType: { select: { id: true, code: true, name: true } } },
     });
     if (!entry) throw new AppError(404, 'Gain/loss entry not found');
@@ -441,8 +451,10 @@ export class MonthlyGainLossService {
     return this.toDto(updated);
   }
 
-  async deleteEntry(id: string, userId: string, userRole?: string) {
-    const entry = await prisma.monthlyInventoryGainLoss.findUnique({ where: { id } });
+  async deleteEntry(id: string, userId: string, userRole: string | undefined, organizationId: string) {
+    const entry = await prisma.monthlyInventoryGainLoss.findFirst({
+      where: { id, organizationId },
+    });
     if (!entry) throw new AppError(404, 'Gain/loss entry not found');
 
     const isAdmin = userRole === 'admin';
@@ -468,8 +480,14 @@ export class MonthlyGainLossService {
     return { message: 'Entry deleted successfully' };
   }
 
-  async getMonthSummary(input: { branchId: string; month: string }) {
+  async getMonthSummary(input: { organizationId: string; branchId: string; month: string }) {
     const { branchId, month } = input;
+
+    const branch = await prisma.branch.findFirst({
+      where: { id: branchId, organizationId: input.organizationId },
+      select: { id: true },
+    });
+    if (!branch) throw new AppError(404, 'Branch not found');
 
     const entries = await prisma.monthlyInventoryGainLoss.findMany({
       where: { branchId, month },

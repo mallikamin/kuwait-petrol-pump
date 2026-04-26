@@ -42,11 +42,26 @@ const dayStart = (s: string): Date => new Date(`${s}T00:00:00.000Z`);
 const dayEnd = (s: string): Date => new Date(`${s}T23:59:59.999Z`);
 
 export async function computeStockAtDate(params: {
+  organizationId?: string; // Optional for legacy in-process callers; HTTP entry must pass it.
   branchId: string;
   fuelTypeId: string;
   asOfDate: string; // YYYY-MM-DD
 }): Promise<StockAtDateResult> {
-  const { branchId, fuelTypeId, asOfDate } = params;
+  const { branchId, fuelTypeId, asOfDate, organizationId } = params;
+
+  // When an org context is supplied, verify the branch belongs to it before
+  // doing any reads. This is the active-org gate for the HTTP-facing
+  // /stock-at-date endpoint; in-process callers (createByDate) have already
+  // verified branch ownership upstream.
+  if (organizationId) {
+    const branch = await prisma.branch.findFirst({
+      where: { id: branchId, organizationId },
+      select: { id: true },
+    });
+    if (!branch) {
+      throw new Error('Branch not found');
+    }
+  }
 
   const fuel = await prisma.fuelType.findUnique({
     where: { id: fuelTypeId },

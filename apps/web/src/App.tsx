@@ -19,7 +19,6 @@ import { POS } from '@/pages/POS';
 import QuickBooks from '@/pages/QuickBooks';
 import { Suppliers } from '@/pages/Suppliers';
 import { PurchaseOrders } from '@/pages/PurchaseOrders';
-import { BackdatedEntries } from '@/pages/BackdatedEntries';
 import { BackdatedEntries2 } from '@/pages/BackdatedEntries2';
 import { Credit } from '@/pages/Credit';
 import { Expenses } from '@/pages/Expenses';
@@ -82,7 +81,10 @@ function App() {
             <Route path="nozzles" element={<Nozzles />} />
             <Route path="shifts" element={<Shifts />} />
             <Route path="meter-readings" element={<MeterReadings />} />
-            <Route path="backdated-entries" element={<BackdatedEntries />} />
+            {/* Legacy /backdated-entries → v2 redirect. The original page
+                file (BackdatedEntries.tsx) was archived 2026-04-26 — only
+                BackdatedEntries2 is maintained from this point on. */}
+            <Route path="backdated-entries" element={<Navigate to="/backdated-entries2" replace />} />
             <Route path="backdated-entries2" element={<BackdatedEntries2 />} />
             <Route path="sales" element={<Sales />} />
             <Route path="customers" element={<Customers />} />

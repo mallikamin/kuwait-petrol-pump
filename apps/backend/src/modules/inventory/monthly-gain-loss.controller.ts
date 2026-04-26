@@ -66,6 +66,7 @@ export class MonthlyGainLossController {
       }
 
       const result = await this.service.createEntry({
+        organizationId: req.user.organizationId,
         branchId,
         fuelTypeId,
         month,
@@ -87,6 +88,7 @@ export class MonthlyGainLossController {
       if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
 
       const result = await this.service.createByDate({
+        organizationId: req.user.organizationId,
         branchId: parsed.branchId,
         fuelTypeId: parsed.fuelTypeId,
         businessDate: parsed.businessDate,
@@ -103,10 +105,12 @@ export class MonthlyGainLossController {
 
   getEntries = async (req: Request, res: Response, next: NextFunction) => {
     try {
+      if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
       const { branchId, month, startDate, endDate, fuelTypeId } =
         getEntriesSchema.parse(req.query);
 
       const entries = await this.service.getEntries({
+        organizationId: req.user.organizationId,
         branchId,
         month,
         startDate,
@@ -125,9 +129,10 @@ export class MonthlyGainLossController {
 
   getEntryById = async (req: Request, res: Response, next: NextFunction) => {
     try {
+      if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
       const { id } = req.params;
 
-      const entry = await this.service.getEntryById(id);
+      const entry = await this.service.getEntryById(id, req.user.organizationId);
       res.json(entry);
     } catch (error) {
       next(error);
@@ -145,6 +150,7 @@ export class MonthlyGainLossController {
         parsed,
         req.user.userId,
         req.user.role,
+        req.user.organizationId,
       );
       res.json(result);
     } catch (error) {
@@ -160,7 +166,12 @@ export class MonthlyGainLossController {
         return res.status(401).json({ error: 'Not authenticated' });
       }
 
-      const result = await this.service.deleteEntry(id, req.user.userId, req.user.role);
+      const result = await this.service.deleteEntry(
+        id,
+        req.user.userId,
+        req.user.role,
+        req.user.organizationId,
+      );
       res.json(result);
     } catch (error) {
       next(error);
@@ -169,9 +180,11 @@ export class MonthlyGainLossController {
 
   getMonthSummary = async (req: Request, res: Response, next: NextFunction) => {
     try {
+      if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
       const { branchId, month } = getMonthSummarySchema.parse(req.query);
 
       const summary = await this.service.getMonthSummary({
+        organizationId: req.user.organizationId,
         branchId,
         month,
       });
@@ -191,8 +204,14 @@ export class MonthlyGainLossController {
    *  auto-calc UI. Returns book stock + lastPurchaseRate at a given date. */
   stockAtDate = async (req: Request, res: Response, next: NextFunction) => {
     try {
+      if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
       const { branchId, fuelTypeId, asOfDate } = stockAtDateSchema.parse(req.query);
-      const result = await computeStockAtDate({ branchId, fuelTypeId, asOfDate });
+      const result = await computeStockAtDate({
+        organizationId: req.user.organizationId,
+        branchId,
+        fuelTypeId,
+        asOfDate,
+      });
       res.json(result);
     } catch (error) {
       next(error);
