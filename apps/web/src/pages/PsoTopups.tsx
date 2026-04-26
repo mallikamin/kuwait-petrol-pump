@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { branchesApi, customersApi } from '@/api';
 import { psoTopupsApi, type PsoTopup } from '@/api/psoTopups';
 import { useAuthStore } from '@/store/auth';
+import { useOnOrgSwitch } from '@/hooks/useEffectiveBranch';
 
 const fmtPKR = (n: number) => n.toLocaleString('en-PK', { maximumFractionDigits: 2 });
 
@@ -22,6 +23,8 @@ export function PsoTopups() {
   const { user } = useAuthStore();
 
   const [branchId, setBranchId] = useState<string>(() => (user as any)?.branch?.id || '');
+  // Reset selection when the org switches via the top-bar dropdown.
+  useOnOrgSwitch(() => setBranchId(''));
   const [startDate, setStartDate] = useState<string>(() => format(new Date(), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState<string>(() => format(new Date(), 'yyyy-MM-dd'));
 

@@ -15,6 +15,7 @@ import {
 import { branchesApi, apiClient, inventoryApi } from '@/api';
 import type { GainLossEntry, StockAtDateResult } from '@/api/inventory';
 import { useAuthStore } from '@/store/auth';
+import { useOnOrgSwitch } from '@/hooks/useEffectiveBranch';
 import { cn } from '@/utils/cn';
 
 interface FuelType {
@@ -170,6 +171,9 @@ export function GainLoss() {
   const [selectedBranchId, setSelectedBranchId] = useState<string>(
     () => (user as any)?.branch?.id || '',
   );
+  // Reset selection when the org switches via the top-bar dropdown — the
+  // auto-pick effect below will repopulate from the new org's branches.
+  useOnOrgSwitch(() => setSelectedBranchId(''));
 
   // Default: this calendar year so the operator sees yearly totals at a glance.
   const [startDate, setStartDate] = useState<string>(() => {

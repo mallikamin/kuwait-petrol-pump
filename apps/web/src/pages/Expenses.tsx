@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { branchesApi } from '@/api';
 import { expensesApi, type ExpenseAccount, type ExpenseEntry } from '@/api/expenses';
 import { useAuthStore } from '@/store/auth';
+import { useOnOrgSwitch } from '@/hooks/useEffectiveBranch';
 
 const fmtPKR = (n: number) => n.toLocaleString('en-PK', { maximumFractionDigits: 2 });
 
@@ -22,6 +23,9 @@ export function Expenses() {
   const [selectedBranchId, setSelectedBranchId] = useState<string>(() =>
     (user as any)?.branch?.id || ''
   );
+  // Reset the in-page branch picker when the user switches org via the top-bar
+  // dropdown — the previously selected UUID belongs to the old org.
+  useOnOrgSwitch(() => setSelectedBranchId(''));
   const [startDate, setStartDate] = useState<string>(() => format(new Date(), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState<string>(() => format(new Date(), 'yyyy-MM-dd'));
 

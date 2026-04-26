@@ -19,6 +19,7 @@ import { creditApi } from '@/api/credit';
 import { customersApi, branchesApi } from '@/api';
 import { banksApi } from '@/api/banks';
 import { useAuthStore } from '@/store/auth';
+import { useEffectiveBranchId, useOnOrgSwitch } from '@/hooks/useEffectiveBranch';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { CashHandoutPanel } from '@/components/CashHandoutPanel';
@@ -347,12 +348,17 @@ export function Credit() {
     },
   });
 
-  // Auto-prefill branchId from user's assigned branch (for non-superusers)
+  // Auto-prefill branchId from the active org/branch context (top-bar
+  // switcher) or, for single-org users, the JWT branch.
+  const effectiveBranchId = useEffectiveBranchId();
   useEffect(() => {
-    if (user?.branch_id && !receiptForm.branchId) {
-      setReceiptForm((prev) => ({ ...prev, branchId: user.branch_id || '' }));
+    if (effectiveBranchId && !receiptForm.branchId) {
+      setReceiptForm((prev) => ({ ...prev, branchId: effectiveBranchId }));
     }
-  }, [user?.branch_id, receiptForm.branchId]);
+  }, [effectiveBranchId, receiptForm.branchId]);
+  // Clear the form branch when org switches so the prefill effect picks the
+  // new org's branch.
+  useOnOrgSwitch(() => setReceiptForm((prev) => ({ ...prev, branchId: '' })));
 
   const { data: receiptsData, isLoading: receiptsLoading, refetch: refetchReceipts } = useQuery({
     queryKey: ['credit-receipts', receiptFilters],

@@ -15,6 +15,7 @@ import { apiClient } from '@/api/client';
 import { branchesApi, customersApi, meterReadingsApi, productsApi } from '@/api';
 import { banksApi } from '@/api/banks';
 import { useAuthStore } from '@/store/auth';
+import { useOnOrgSwitch } from '@/hooks/useEffectiveBranch';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { MeterReadingCapture, type MeterReadingData } from '@/components/MeterReadingCapture';
@@ -70,6 +71,9 @@ export function BackdatedEntries2() {
     const p = new URLSearchParams(window.location.search);
     return p.get('branchId') || '';
   });
+  // Reset selection when the org switches via the top-bar dropdown — the
+  // previously selected UUID belongs to the old org and would 404 on read.
+  useOnOrgSwitch(() => setSelectedBranchId(''));
 
   // ── Transaction state ──────────────────────────────────────────────────────
   const [transactions, setTransactions] = useState<Transaction[]>([]);

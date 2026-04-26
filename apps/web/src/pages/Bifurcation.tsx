@@ -23,6 +23,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { formatCurrency, formatDate } from '@/utils/format';
 import { bifurcationsApi } from '@/api/bifurcations';
 import { useAuthStore } from '@/store/auth';
+import { useEffectiveBranchId } from '@/hooks/useEffectiveBranch';
 
 interface BifurcationFormData {
   branchId: string;
@@ -74,29 +75,32 @@ export function Bifurcation() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { user } = useAuthStore();
+  // Active branch from the top-bar org/branch switcher; falls back to JWT
+  // branch for single-org users (zero behavior change for them).
+  const branchId = useEffectiveBranchId();
 
   // Fetch bifurcation history
   const { data: bifurcationsData, isLoading } = useQuery({
-    queryKey: ['bifurcations', 'history'],
+    queryKey: ['bifurcations', 'history', branchId],
     queryFn: async () => {
-      if (!user?.branch_id) return { bifurcations: [], pagination: { total: 0 } };
+      if (!branchId) return { bifurcations: [], pagination: { total: 0 } };
       const response = await bifurcationsApi.getAll({
-        branchId: user.branch_id,
+        branchId,
       });
       return response;
     },
-    enabled: !!user?.branch_id,
+    enabled: !!branchId,
   });
 
   // Load daily summary when wizard opens
   useEffect(() => {
-    if (isWizardOpen && user?.branch_id && currentStep === 1) {
+    if (isWizardOpen && branchId && currentStep === 1) {
       loadDailySummary();
     }
-  }, [isWizardOpen, user?.branch_id]);
+  }, [isWizardOpen, branchId]);
 
   const loadDailySummary = async () => {
-    if (!user?.branch_id) {
+    if (!branchId) {
       toast({
         title: 'Error',
         description: 'Branch not found. Please log in again.',
@@ -111,7 +115,7 @@ export function Bifurcation() {
     try {
       const summary = await bifurcationsApi.getSummary({
         date: formData.date,
-        branchId: user.branch_id,
+        branchId,
       });
 
       // Store meter readings and POS data separately
@@ -123,7 +127,7 @@ export function Bifurcation() {
       const useMeter = summary.meterReadings !== null;
       setFormData(prev => ({
         ...prev,
-        branchId: user.branch_id || '',
+        branchId,
         pmgTotalLiters: useMeter && summary.meterReadings ? summary.meterReadings.pmgTotalLiters : summary.pos.pmgTotalLiters,
         pmgTotalAmount: useMeter && summary.meterReadings ? summary.meterReadings.pmgTotalAmount : summary.pos.pmgTotalAmount,
         hsdTotalLiters: useMeter && summary.meterReadings ? summary.meterReadings.hsdTotalLiters : summary.pos.hsdTotalLiters,
