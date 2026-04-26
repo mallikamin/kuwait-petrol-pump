@@ -39,7 +39,7 @@ function seedBase() {
   (prisma.fuelType.findUnique as jest.MockedFunction<any>).mockResolvedValue({
     id: 'fuel-HSD', code: 'HSD', name: 'HSD',
   } as any);
-  (prisma.branch.findUnique as jest.MockedFunction<any>).mockResolvedValue({
+  (prisma.branch.findFirst as jest.MockedFunction<any>).mockResolvedValue({
     id: 'b-1', organizationId: 'org-1', name: 'Main Branch',
   } as any);
   (prisma.user.findUnique as jest.MockedFunction<any>).mockResolvedValue({ id: 'u-1' } as any);
@@ -72,6 +72,7 @@ describe('MonthlyGainLossService.createEntry → QB enqueue (S11)', () => {
     } as any);
 
     await svc.createEntry({
+      organizationId: 'org-1',
       branchId: 'b-1', fuelTypeId: 'fuel-HSD', month: '2026-04',
       quantity: 20, remarks: null as any, recordedBy: 'u-1',
     } as any);
@@ -99,6 +100,7 @@ describe('MonthlyGainLossService.createEntry → QB enqueue (S11)', () => {
     } as any);
 
     await svc.createEntry({
+      organizationId: 'org-1',
       branchId: 'b-1', fuelTypeId: 'fuel-HSD', month: '2026-04',
       quantity: -15, recordedBy: 'u-1',
     } as any);
@@ -112,6 +114,7 @@ describe('MonthlyGainLossService.createEntry → QB enqueue (S11)', () => {
     (prisma.fuelInventory.findUnique as jest.MockedFunction<any>).mockResolvedValue(null);
 
     const result = await svc.createEntry({
+      organizationId: 'org-1',
       branchId: 'b-1', fuelTypeId: 'fuel-HSD', month: '2026-04',
       quantity: 5, recordedBy: 'u-1',
     } as any);
@@ -126,6 +129,7 @@ describe('MonthlyGainLossService.createEntry → QB enqueue (S11)', () => {
     } as any);
 
     await svc.createEntry({
+      organizationId: 'org-1',
       branchId: 'b-1', fuelTypeId: 'fuel-HSD', month: '2026-04',
       quantity: 5, recordedBy: 'u-1',
     } as any);
@@ -139,6 +143,7 @@ describe('MonthlyGainLossService.createEntry → QB enqueue (S11)', () => {
     } as any);
 
     await svc.createEntry({
+      organizationId: 'org-1',
       branchId: 'b-1', fuelTypeId: 'fuel-HSD', month: '2026-04',
       quantity: 0, recordedBy: 'u-1',
     } as any);
@@ -153,6 +158,7 @@ describe('MonthlyGainLossService.createEntry → QB enqueue (S11)', () => {
     (prisma.qBSyncQueue.create as jest.MockedFunction<any>).mockRejectedValue(new Error('boom'));
 
     const result = await svc.createEntry({
+      organizationId: 'org-1',
       branchId: 'b-1', fuelTypeId: 'fuel-HSD', month: '2026-04',
       quantity: 10, recordedBy: 'u-1',
     } as any);

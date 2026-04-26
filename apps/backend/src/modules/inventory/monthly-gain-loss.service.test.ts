@@ -18,6 +18,7 @@ describe('MonthlyGainLossService', () => {
       for (const month of invalidMonths) {
         try {
           await service.createEntry({
+            organizationId: 'test-org',
             branchId: 'test-branch',
             fuelTypeId: 'test-fuel',
             month,
@@ -35,6 +36,7 @@ describe('MonthlyGainLossService', () => {
       const futureMonth = '2027-12'; // Assuming current date is 2026
       try {
         await service.createEntry({
+          organizationId: 'test-org',
           branchId: 'test-branch',
           fuelTypeId: 'test-fuel',
           month: futureMonth,

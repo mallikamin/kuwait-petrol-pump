@@ -18,6 +18,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { formatDate } from '@/utils/format';
 import { useAuthStore } from '@/store/auth';
+import { useEffectiveBranchId } from '@/hooks/useEffectiveBranch';
 import { apiClient } from '@/api/client';
 
 interface DailySummary {
@@ -64,7 +65,9 @@ export function ReconciliationNew() {
   const asArray = <T,>(value: unknown): T[] => (Array.isArray(value) ? value as T[] : []);
 
   const { user } = useAuthStore();
-  const branchId = user?.branch_id || (user as any)?.branch?.id;
+  // Active branch from the top-bar org/branch switcher; falls back to the
+  // user's JWT branch for single-org users (zero behavior change for them).
+  const branchId = useEffectiveBranchId() || user?.branch_id || (user as any)?.branch?.id;
 
   const [startDate, setStartDate] = useState(() => {
     const date = new Date();
@@ -416,7 +419,7 @@ export function ReconciliationNew() {
                               size="sm"
                               onClick={() => {
                                 // Navigate to Backdated Entries with pre-selected date
-                                window.location.href = `/backdated-entries?date=${day.businessDate}`;
+                                window.location.href = `/backdated-entries2?date=${day.businessDate}`;
                               }}
                             >
                               Fill Missing Readings
