@@ -111,4 +111,60 @@ export class AuthController {
       next(error);
     }
   };
+
+  /**
+   * GET /api/auth/accessible-orgs
+   * Returns every organization the authenticated user can switch into,
+   * with their branches so the frontend can populate org+branch dropdowns
+   * from one fetch. Always includes the user's primary org (from JWT) plus
+   * any rows in user_org_access. Single-org users get exactly one org back.
+   */
+  accessibleOrgs = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      const primaryOrgId = req.user.organizationId;
+
+      const grantedOrgIds = (
+        await prisma.userOrgAccess.findMany({
+          where: { userId: req.user.userId },
+          select: { organizationId: true },
+        })
+      ).map((r) => r.organizationId);
+
+      const orgIds = Array.from(new Set([primaryOrgId, ...grantedOrgIds]));
+
+      const orgs = await prisma.organization.findMany({
+        where: { id: { in: orgIds } },
+        orderBy: [{ isDemo: 'desc' }, { name: 'asc' }],
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          companyName: true,
+          companyAddress: true,
+          currency: true,
+          timezone: true,
+          isDemo: true,
+          reportFooter: true,
+          branches: {
+            orderBy: [{ code: 'asc' }, { name: 'asc' }],
+            select: { id: true, code: true, name: true, isActive: true },
+          },
+        },
+      });
+
+      res.json({
+        primaryOrgId,
+        orgs: orgs.map((o) => ({
+          ...o,
+          isPrimary: o.id === primaryOrgId,
+        })),
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
 }

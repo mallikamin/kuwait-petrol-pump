@@ -1,10 +1,14 @@
-import { useQuery } from '@tanstack/react-query';
-import { Building2, Users, CheckCircle2, AlertCircle } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Building2, Users, CheckCircle2, AlertCircle, ShieldCheck } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { adminApi, AdminClientSummary } from '@/api/admin';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { adminApi, AdminClientSummary, AdminUserWithOrgAccess } from '@/api/admin';
 import { useAuthStore } from '@/store/auth';
+import { handleApiError } from '@/api/client';
 
 /// Master Client List — admin-only directory of every tenant in the pool.
 /// Read-only for now; onboarding lives in scripts/onboarding/* CLI tools.
@@ -64,7 +68,141 @@ export function AdminClients() {
           </CardContent>
         </Card>
       )}
+
+      {data && <CrossOrgAccessMatrix clients={data.clients} />}
     </div>
+  );
+}
+
+/// Admin-only matrix for granting cross-org access to BPO/super-admin users.
+/// Each row is a user; each column is an organization. The user's primary
+/// org is checked + locked (you can't strip them of their own login org —
+/// deactivate the user instead).
+function CrossOrgAccessMatrix({ clients }: { clients: AdminClientSummary[] }) {
+  const queryClient = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+  const [savingUserId, setSavingUserId] = useState<string | null>(null);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['admin', 'users-with-org-access'],
+    queryFn: () => adminApi.listUsersWithOrgAccess(),
+  });
+
+  const setAccess = useMutation({
+    mutationFn: ({ userId, orgIds }: { userId: string; orgIds: string[] }) =>
+      adminApi.setUserOrgAccess(userId, orgIds),
+    onMutate: ({ userId }) => setSavingUserId(userId),
+    onSuccess: () => {
+      setError(null);
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users-with-org-access'] });
+      queryClient.invalidateQueries({ queryKey: ['accessible-orgs'] });
+    },
+    onError: (err) => setError(handleApiError(err)),
+    onSettled: () => setSavingUserId(null),
+  });
+
+  // Show only roles that benefit from cross-org access. Operator/cashier/
+  // accountant users are tenant-scoped by design and don't appear here.
+  const eligibleUsers = useMemo(
+    () => (data?.users ?? []).filter((u) => ['admin', 'manager'].includes(u.role.toLowerCase())),
+    [data]
+  );
+
+  const handleToggle = (user: AdminUserWithOrgAccess, orgId: string, checked: boolean) => {
+    if (user.primaryOrg?.id === orgId) return; // primary org is locked
+    const current = new Set(user.grantedOrgs.map((o) => o.id));
+    if (checked) {
+      current.add(orgId);
+    } else {
+      current.delete(orgId);
+    }
+    setAccess.mutate({ userId: user.id, orgIds: Array.from(current) });
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <ShieldCheck className="h-5 w-5" />
+          Cross-Org Access Grants
+        </CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Grant admin / BPO users access to additional organizations. Their primary org
+          is always included (locked). Operator, cashier, and accountant users stay
+          tenant-scoped and don't appear here.
+        </p>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <Skeleton className="h-32" />
+        ) : eligibleUsers.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No admin/manager users found. Cross-org access is meaningful only for those roles.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="min-w-[200px]">User</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Primary Org</TableHead>
+                  {clients.map((c) => (
+                    <TableHead key={c.id} className="text-center">
+                      {c.name}
+                      {c.code && (
+                        <code className="ml-1 text-xs bg-muted px-1 rounded">{c.code}</code>
+                      )}
+                    </TableHead>
+                  ))}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {eligibleUsers.map((u) => {
+                  const grantedIds = new Set([
+                    u.primaryOrg?.id,
+                    ...u.grantedOrgs.map((o) => o.id),
+                  ].filter(Boolean) as string[]);
+                  const saving = savingUserId === u.id;
+                  return (
+                    <TableRow key={u.id}>
+                      <TableCell className="font-medium">
+                        <div>{u.username}</div>
+                        {u.fullName && (
+                          <div className="text-xs text-muted-foreground">{u.fullName}</div>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="capitalize">{u.role}</Badge>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {u.primaryOrg?.name ?? '—'}
+                      </TableCell>
+                      {clients.map((c) => {
+                        const isPrimary = u.primaryOrg?.id === c.id;
+                        const checked = grantedIds.has(c.id);
+                        return (
+                          <TableCell key={c.id} className="text-center">
+                            <Checkbox
+                              checked={checked}
+                              disabled={isPrimary || saving}
+                              onCheckedChange={(v) => handleToggle(u, c.id, v === true)}
+                              title={isPrimary ? 'Primary org — always granted' : ''}
+                            />
+                          </TableCell>
+                        );
+                      })}
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+
+        {error && <p className="text-sm text-destructive mt-4">{error}</p>}
+      </CardContent>
+    </Card>
   );
 }
 

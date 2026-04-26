@@ -12,6 +12,7 @@ import {
 import { useAuthStore } from '@/store/auth';
 import { useThemeStore } from '@/store/theme';
 import { cn } from '@/utils/cn';
+import { OrgBranchSwitcher } from './OrgBranchSwitcher';
 
 interface TopBarProps {
   sidebarCollapsed: boolean;
@@ -39,6 +40,8 @@ export function TopBar({ sidebarCollapsed }: TopBarProps) {
       </div>
 
       <div className="flex items-center gap-2">
+        <OrgBranchSwitcher />
+
         <Button variant="ghost" size="icon" onClick={toggleTheme} title="Toggle theme">
           {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
         </Button>

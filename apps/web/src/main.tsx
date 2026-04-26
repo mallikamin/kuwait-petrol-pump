@@ -5,12 +5,16 @@ import './index.css';
 import { setReportBrandProvider } from './utils/reportBranding';
 import { useAuthStore } from './store/auth';
 
-// Per-org report branding: source companyName/address from the logged-in
-// user's organization. Falls through to the default Absormax constants
-// when no user is authenticated yet (login page) or when the org payload
-// is missing — preserving the legacy output exactly.
+// Per-org report branding: source companyName/address from the org the user
+// is *currently viewing* (org switcher), falling back to the JWT primary org,
+// and finally to the legacy Absormax constants when nothing is loaded yet.
+// Reads happen on every PDF/CSV render via the proxy in reportBranding.ts,
+// so a runtime org switch updates branding without remounting consumers.
 setReportBrandProvider(() => {
-  const org = useAuthStore.getState().user?.organization;
+  const state = useAuthStore.getState();
+  const activeOrg = state.accessibleOrgs.find((o) => o.id === state.activeOrgId);
+  const fallbackOrg = state.user?.organization;
+  const org = activeOrg ?? fallbackOrg ?? null;
   return {
     companyName: org?.companyName || 'Absormax Hygiene Products (Pvt) LTD',
     companyAddress: org?.companyAddress || 'Sundar Industrial Estate, Lahore',
