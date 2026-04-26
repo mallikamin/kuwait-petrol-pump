@@ -42,6 +42,7 @@ Thumbs.db
 # Claude Code session artifacts
 .claude/
 PAUSE_CHECKPOINT_*.md
+mockups/
 
 # Test evidence (may contain tokens/secrets)
 acceptance-evidence-*/
