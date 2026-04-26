@@ -272,7 +272,7 @@ export function Credit() {
   const { user } = useAuthStore();
 
   // ── Tabs & Context State ────────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState<'receipts' | 'ledger' | 'reports' | 'cash-handout'>('receipts');
+  const [activeTab, setActiveTab] = useState<'receipts' | 'ledger' | 'cash-handout'>('receipts');
   const [selectedCustomerId] = useState('');
   const [showReceiptDialog, setShowReceiptDialog] = useState(false);
   const [showOpenItemsModal, setShowOpenItemsModal] = useState(false);
@@ -901,7 +901,6 @@ export function Credit() {
           [
             { id: 'receipts', label: 'Receipts' },
             { id: 'ledger', label: 'Ledger' },
-            { id: 'reports', label: 'Reports' },
             { id: 'cash-handout', label: 'Cash Handout' },
           ] as const
         ).map((tab) => (
@@ -918,7 +917,6 @@ export function Credit() {
       {/* ─ Tab Content ─ */}
       {activeTab === 'receipts' && renderReceiptsTab()}
       {activeTab === 'ledger' && renderLedgerTab()}
-      {activeTab === 'reports' && <div className="text-center py-8 text-muted-foreground">Reports feature coming soon</div>}
       {activeTab === 'cash-handout' && <CashHandoutPanel />}
 
       {/* ─ Receipt Create Dialog ─ */}
