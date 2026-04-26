@@ -152,6 +152,37 @@ export class BranchesService {
   }
 
   /**
+   * Create a new branch under the given organization.
+   * Code (if supplied) must be unique within the org.
+   */
+  async createBranch(
+    organizationId: string,
+    data: { name: string; code?: string | null; location?: string | null }
+  ) {
+    const code = data.code?.trim().toLowerCase() || null;
+
+    if (code) {
+      const existing = await prisma.branch.findFirst({
+        where: { organizationId, code },
+      });
+      if (existing) {
+        throw new AppError(409, `Branch code "${code}" already exists in this organization`);
+      }
+    }
+
+    const branch = await prisma.branch.create({
+      data: {
+        organizationId,
+        name: data.name.trim(),
+        code,
+        location: data.location?.trim() || null,
+      },
+    });
+
+    return branch;
+  }
+
+  /**
    * Create a new dispensing unit
    */
   async createDispensingUnit(branchId: string, organizationId: string, data: { name: string; unitNumber: number }) {
