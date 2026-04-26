@@ -328,7 +328,10 @@ export function Credit() {
     queryKey: ['banks-list'],
     queryFn: async () => {
       const res = await banksApi.getAll();
-      return (res.banks || []).filter((b) => b.active);
+      // Backend already filters inactive banks (banks.service.ts isActive:true).
+      // The previous .filter((b) => b.active) was dropping every bank because
+      // the API response shape exposes neither `active` nor `is_active`.
+      return res.banks || [];
     },
   });
 

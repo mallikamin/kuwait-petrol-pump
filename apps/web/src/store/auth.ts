@@ -74,17 +74,38 @@ export const useAuthStore = create<AuthState>()(
         set((state) => {
           // On first fetch, anchor activeOrgId to the user's primary org.
           const next: Partial<AuthState> = { accessibleOrgs: orgs };
-          if (!state.activeOrgId && orgs.length) {
+          let nextActiveOrgId = state.activeOrgId;
+          if (!nextActiveOrgId && orgs.length) {
             const primary = orgs.find((o) => o.isPrimary) ?? orgs[0];
+            nextActiveOrgId = primary.id;
             next.activeOrgId = primary.id;
+          }
+          // Repair activeBranchId on hydration: if it's null OR points to a
+          // branch that doesn't exist in the active org (e.g. a stored
+          // selection from a previous org), auto-pick the first branch of
+          // the active org so X-Active-Branch-Id stays in sync.
+          const activeOrg = orgs.find((o) => o.id === nextActiveOrgId);
+          if (activeOrg && activeOrg.branches.length) {
+            const stillValid = activeOrg.branches.some((b) => b.id === state.activeBranchId);
+            if (!stillValid) {
+              next.activeBranchId = activeOrg.branches[0].id;
+            }
           }
           return next;
         }),
       setActiveOrg: (orgId) =>
         set((state) => {
           if (orgId === state.activeOrgId) return state;
-          // Clear branch selection on org change — caller may re-set it after.
-          return { ...state, activeOrgId: orgId, activeBranchId: null };
+          // Auto-pick the first branch of the new org so the active scope
+          // is always explicit (and X-Active-Branch-Id is always sent on
+          // requests). Without this, branch-required endpoints like
+          // /api/dashboard/liters-sold and /api/shifts return 400 because
+          // the JWT branch belongs to the old org and was cleared by the
+          // auth middleware. Users can still switch to "All Branches"
+          // explicitly via the branch dropdown if they want org-wide views.
+          const newOrg = state.accessibleOrgs.find((o) => o.id === orgId);
+          const firstBranchId = newOrg?.branches[0]?.id ?? null;
+          return { ...state, activeOrgId: orgId, activeBranchId: firstBranchId };
         }),
       setActiveBranch: (branchId) => set((state) => ({ ...state, activeBranchId: branchId })),
       logout: () =>
