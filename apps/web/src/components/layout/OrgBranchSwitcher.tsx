@@ -53,7 +53,11 @@ export function OrgBranchSwitcher() {
 
   const activeOrg = accessibleOrgs.find((o) => o.id === activeOrgId) ?? null;
   const showOrg = accessibleOrgs.length > 1;
-  const showBranch = (activeOrg?.branches.length ?? 0) > 1;
+  // Render the branch dropdown alongside the org dropdown for cross-org users
+  // even when the active org has a single branch — it makes the active scope
+  // obvious and stays consistent across orgs as branches are added.
+  // Single-org users never see either dropdown (no rows in user_org_access).
+  const showBranch = showOrg && (activeOrg?.branches.length ?? 0) >= 1;
 
   if (!showOrg && !showBranch) return null;
 

@@ -1,4 +1,4 @@
-import { Bell, Moon, Sun, LogOut, User } from 'lucide-react';
+import { LogOut, User } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import {
@@ -10,7 +10,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useAuthStore } from '@/store/auth';
-import { useThemeStore } from '@/store/theme';
 import { cn } from '@/utils/cn';
 import { OrgBranchSwitcher } from './OrgBranchSwitcher';
 
@@ -21,7 +20,6 @@ interface TopBarProps {
 export function TopBar({ sidebarCollapsed }: TopBarProps) {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
-  const { theme, toggleTheme } = useThemeStore();
 
   const handleLogout = () => {
     logout();
@@ -41,14 +39,6 @@ export function TopBar({ sidebarCollapsed }: TopBarProps) {
 
       <div className="flex items-center gap-2">
         <OrgBranchSwitcher />
-
-        <Button variant="ghost" size="icon" onClick={toggleTheme} title="Toggle theme">
-          {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-        </Button>
-
-        <Button variant="ghost" size="icon" title="Notifications">
-          <Bell className="h-5 w-5" />
-        </Button>
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
