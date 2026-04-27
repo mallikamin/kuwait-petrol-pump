@@ -96,14 +96,18 @@ BEGIN
   INSERT INTO qb_entity_mappings
     (id, organization_id, entity_type, local_id, local_name, qb_id, qb_name, is_active, updated_at)
   VALUES
-    (gen_random_uuid(), v_org_id, 'account', 'hsd-loss-expense', 'HSD Volume Normal Loss', '173', 'HSD volume normal loss', true, now())
+    -- 2026-04-27: kpc accountant moved loss accounts out of (deleted) Cost
+    -- of Goods Sold tree into Other Expense. New IDs reflect that reorg.
+    -- For other tenants, prefer `qb-seed-discover --org <code> --apply`
+    -- which auto-discovers the correct IDs against their realm.
+    (gen_random_uuid(), v_org_id, 'account', 'hsd-loss-expense', 'HSD Normal Volume Loss', '1150040007', 'HSD Normal Volume Loss', true, now())
   ON CONFLICT (organization_id, entity_type, local_id)
   DO UPDATE SET qb_id = EXCLUDED.qb_id, qb_name = EXCLUDED.qb_name, updated_at = now();
 
   INSERT INTO qb_entity_mappings
     (id, organization_id, entity_type, local_id, local_name, qb_id, qb_name, is_active, updated_at)
   VALUES
-    (gen_random_uuid(), v_org_id, 'account', 'pmg-loss-expense', 'PMG Volume Normal Loss', '176', 'PMG volume normal loss', true, now())
+    (gen_random_uuid(), v_org_id, 'account', 'pmg-loss-expense', 'PMG Normal Volume Loss', '1150040008', 'PMG Normal Volume Loss', true, now())
   ON CONFLICT (organization_id, entity_type, local_id)
   DO UPDATE SET qb_id = EXCLUDED.qb_id, qb_name = EXCLUDED.qb_name, updated_at = now();
 
