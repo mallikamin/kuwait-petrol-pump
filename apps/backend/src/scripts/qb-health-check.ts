@@ -143,12 +143,15 @@ async function checkOrg(opts: {
   });
   if (allGl.length > 0) {
     const ids = allGl.map((r) => r.id);
+    // quickbooks_audit_log.entity_id is varchar (accepts non-UUID entities),
+    // so compare as text to avoid Postgres "operator does not exist:
+    // varchar = uuid" — verified in prod 2026-04-27.
     const successRows = await prisma.$queryRawUnsafe<{ entity_id: string }[]>(
-      `SELECT DISTINCT entity_id::text FROM quickbooks_audit_log
+      `SELECT DISTINCT entity_id FROM quickbooks_audit_log
         WHERE entity_type = 'inventory_adjustment'
           AND operation  = 'CREATE_JOURNAL_ENTRY'
           AND status     = 'SUCCESS'
-          AND entity_id  = ANY($1::uuid[])`,
+          AND entity_id  = ANY($1::text[])`,
       ids,
     );
     const posted = new Set(successRows.map((r) => r.entity_id));
