@@ -50,8 +50,15 @@ export interface JournalEntryPayload {
   quantityLitres: number;
   /** Last purchase cost / weighted average per-litre at month close. */
   costPerLitre: number;
-  /** 'YYYY-MM' — becomes the JE memo so operators can find it by month. */
+  /** 'YYYY-MM' — used in DocNumber/PrivateNote so operators can group by month. */
   monthLabel: string;
+  /**
+   * 'YYYY-MM-DD' — the row's actual business_date. Drives QB JE TxnDate
+   * so the entry shows up on the date the variance was recorded, not the
+   * 1st of its month. Optional for backward compat with old queue rows
+   * that pre-date this field; falls back to `${monthLabel}-01`.
+   */
+  businessDate?: string;
   /** Optional branch label for the PrivateNote. */
   branchName?: string;
 }
@@ -268,8 +275,14 @@ async function buildJournalEntryPayload(
     ? `${payload.fuelCode} dip-variance gain — Other Income ${payload.monthLabel}`
     : `${payload.fuelCode} dip-variance loss — Inventory Asset reduction ${payload.monthLabel}`;
 
+  // TxnDate prefers the actual business_date (YYYY-MM-DD); falls back to
+  // month-01 for legacy queue rows enqueued before businessDate was added.
+  const txnDate = payload.businessDate && /^\d{4}-\d{2}-\d{2}$/.test(payload.businessDate)
+    ? payload.businessDate
+    : `${payload.monthLabel}-01`;
+
   return {
-    TxnDate: `${payload.monthLabel}-01`, // JE dated to month-start; month label doubles as memo
+    TxnDate: txnDate,
     PrivateNote: `Kuwait POS dip variance ${payload.monthLabel} — ${payload.branchName || 'branch'} — ${payload.fuelCode} ${payload.variant}`,
     DocNumber: `DIP-${payload.monthLabel}-${payload.fuelCode}-${payload.variant.toUpperCase()}`,
     Line: [
