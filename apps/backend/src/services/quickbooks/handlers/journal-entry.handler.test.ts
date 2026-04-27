@@ -57,6 +57,7 @@ function basePayload(overrides: Partial<JournalEntryPayload> = {}): JournalEntry
     quantityLitres: 40,
     costPerLitre: 260,
     monthLabel: '2026-04',
+    businessDate: '2026-04-15',
     branchName: 'Main',
     ...overrides,
   };
@@ -182,5 +183,41 @@ describe('Journal-Entry handler (S11 — dip variance)', () => {
     await expect(handleJournalEntryCreate(mockJob, basePayload({ costPerLitre: 0 }))).rejects.toThrow(
       /Invalid costPerLitre/,
     );
+  });
+
+  it('TxnDate reflects businessDate (not month-01) so QB shows the actual variance date', async () => {
+    (entityMapping.EntityMappingService.getQbId as jest.MockedFunction<any>).mockImplementation(
+      async (_o: string, type: string, id: string) => {
+        if (type === 'account') return `QB-ACC-${id}`;
+        return null;
+      },
+    );
+    (global.fetch as jest.MockedFunction<typeof fetch>).mockResolvedValue({
+      ok: true, status: 200, json: async () => ({ JournalEntry: { Id: 'QB-JE-D' } }),
+    } as Response);
+
+    await handleJournalEntryCreate(mockJob, basePayload({ businessDate: '2026-04-15', monthLabel: '2026-04' }));
+    const body = JSON.parse(((global.fetch as jest.MockedFunction<typeof fetch>).mock.calls[0][1] as any).body);
+    expect(body.TxnDate).toBe('2026-04-15');
+    // DocNumber stays at month grain so accountants can group by month
+    expect(body.DocNumber).toBe('DIP-2026-04-HSD-LOSS');
+  });
+
+  it('falls back to monthLabel-01 when businessDate is missing (legacy queue rows)', async () => {
+    (entityMapping.EntityMappingService.getQbId as jest.MockedFunction<any>).mockImplementation(
+      async (_o: string, type: string, id: string) => {
+        if (type === 'account') return `QB-ACC-${id}`;
+        return null;
+      },
+    );
+    (global.fetch as jest.MockedFunction<typeof fetch>).mockResolvedValue({
+      ok: true, status: 200, json: async () => ({ JournalEntry: { Id: 'QB-JE-LEG' } }),
+    } as Response);
+
+    const payload = basePayload();
+    delete (payload as any).businessDate;
+    await handleJournalEntryCreate(mockJob, payload);
+    const body = JSON.parse(((global.fetch as jest.MockedFunction<typeof fetch>).mock.calls[0][1] as any).body);
+    expect(body.TxnDate).toBe('2026-04-01');
   });
 });

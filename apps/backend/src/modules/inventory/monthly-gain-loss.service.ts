@@ -141,6 +141,8 @@ export class MonthlyGainLossService {
                   quantityLitres: Math.abs(qty),
                   costPerLitre,
                   monthLabel: month,
+                  // Legacy month-only path: the row's businessDate IS month-01.
+                  businessDate: entry.businessDate.toISOString().slice(0, 10),
                   branchName: branch.name,
                 },
               },
@@ -298,6 +300,9 @@ export class MonthlyGainLossService {
                   quantityLitres: Math.abs(qty),
                   costPerLitre,
                   monthLabel: month,
+                  // Date-keyed path: TxnDate must reflect the actual business
+                  // date the variance was recorded (not month-01).
+                  businessDate: businessDate,
                   branchName: branch.name,
                 },
               },
