@@ -944,7 +944,7 @@ export function Reports() {
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="max-h-[70vh]">
+                <SelectContent className="max-h-[var(--radix-select-content-available-height)]">
                   <SelectGroup>
                     <SelectLabel>Sales</SelectLabel>
                     <SelectItem value="daily-sales">Daily Sales</SelectItem>
