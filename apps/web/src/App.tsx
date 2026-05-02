@@ -27,6 +27,7 @@ import { PsoTopups } from '@/pages/PsoTopups';
 import { GainLoss } from '@/pages/GainLoss';
 import { AdminClients } from '@/pages/AdminClients';
 import { NotFound } from '@/pages/NotFound';
+import { DomainMigrationBanner } from '@/components/DomainMigrationBanner';
 import { useAuthStore } from '@/store/auth';
 import { useThemeStore } from '@/store/theme';
 import { useSessionKeepAlive } from '@/hooks/useSessionKeepAlive';
@@ -63,6 +64,7 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <DomainMigrationBanner />
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
