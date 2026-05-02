@@ -31,18 +31,33 @@ export function validateQuickBooksConfig() {
     process.exit(1);
   }
 
-  // Validate production isolation
+  // Validate production isolation: redirect URI host must be in allowlist
   if (qbEnv === 'production') {
     const redirectUri = process.env.QUICKBOOKS_REDIRECT_URI || '';
-    if (!redirectUri.includes('kuwaitpos')) {
-      console.error('[QB] FATAL: Production QUICKBOOKS_REDIRECT_URI must point to Kuwait POS domain');
-      console.error('[QB] Current:', redirectUri);
-      console.error('[QB] Expected: https://kuwaitpos.duckdns.org/api/quickbooks/oauth/callback');
+
+    // Env-driven allowlist; defaults to current production host so existing deploys are unaffected
+    const allowedHostsRaw = process.env.QB_REDIRECT_URI_ALLOWED_HOSTS || 'kuwaitpos.duckdns.org';
+    const allowedHosts = allowedHostsRaw.split(',').map((h) => h.trim()).filter(Boolean);
+
+    let redirectHost = '';
+    try {
+      redirectHost = new URL(redirectUri).host;
+    } catch {
+      console.error('[QB] FATAL: Invalid QUICKBOOKS_REDIRECT_URI:', redirectUri);
       process.exit(1);
     }
 
-    console.log('[QB] ✅ Startup validation passed (production mode, Kuwait-isolated app)');
+    if (!allowedHosts.includes(redirectHost)) {
+      console.error('[QB] FATAL: QUICKBOOKS_REDIRECT_URI host not in allowlist');
+      console.error('[QB] Current host:', redirectHost);
+      console.error('[QB] Allowed hosts:', allowedHosts);
+      console.error('[QB] Set QB_REDIRECT_URI_ALLOWED_HOSTS env var to authorize a new host');
+      process.exit(1);
+    }
+
+    console.log('[QB] ✅ Startup validation passed (production mode, host-isolated)');
     console.log('[QB] Redirect URI:', redirectUri);
+    console.log('[QB] Allowed hosts:', allowedHosts);
   } else {
     console.log('[QB] ✅ Startup validation passed (sandbox mode)');
   }
