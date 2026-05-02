@@ -307,4 +307,84 @@ docker compose -f docker-compose.prod.yml restart backend
 
 ---
 
-**Next action:** await user approval for Phase 1 patch — show diff, then create feature branch.
+# 📜 EXECUTION RECORD — 2026-05-03
+
+The migration was executed in a single session on 2026-05-03. All phases through 7 deployed successfully. Phases 8 (soak) and 9 (sunset) remain.
+
+## Phase-by-phase ledger
+
+| Phase | What | Mechanism | Commit / PR | Verification |
+|-------|------|-----------|-------------|--------------|
+| **0** | Plan saved + fallback tag | Doc + `git tag` | `pre-domain-migration-3da3385` (pushed) | Tag visible on origin |
+| **1** | QB redirect URI host check → env-driven allowlist | PR #55 → `./scripts/deploy.sh backend-only` | `52ff2c2` | Backend logs `[QB] ✅ host-isolated` |
+| **2** | DNS records + Let's Encrypt cert + parallel nginx server blocks for `fuelpos` | CF dashboard + certbot HTTP-01 + PR #56 → `./scripts/deploy.sh auto` | `63b7bad` | Both `/api/health` 200; SSL chain valid till 2026-07-31 |
+| **3** | Server `.env` additive: extend `CORS_ORIGIN`, set `FRONTEND_URL` | SSH + sed + `docker compose up -d backend` | n/a (server-side) | Backend logs new CORS list |
+| **4a** | docker-compose forwards `QB_REDIRECT_URI_ALLOWED_HOSTS` (with empty default) | PR #57 → `./scripts/deploy.sh auto` | `0b660eb` | Container env shows the var as empty, code defaults |
+| **4b** | Server `.env`: swap `QUICKBOOKS_REDIRECT_URI` to fuelpos + set `QB_REDIRECT_URI_ALLOWED_HOSTS=both` | SSH + sed + append + `docker compose up -d backend` | n/a (server-side) | **kpc QB token refresh actually succeeded post-cutover** — proves OAuth refresh is independent of redirect URI |
+| **5+6+7** | terms.html / privacy.html → fuelpos; CI/scripts URLs → fuelpos; brief auto-dismiss banner on duckdns hostname | PR #58 → `./scripts/deploy.sh auto` | `ba8ce51` | Bundle hash changed; banner code shipped; both URLs serve identical bundle |
+| **7'** | Banner copy + duration tweak (10s, "Please use the new link going forward") | PR #59 → `./scripts/deploy.sh auto` | `6863583` | New copy in shipped bundle, old copy gone |
+| **8** | Soak | Passive monitoring | — | 30–60 days |
+| **9** | Sunset duckdns | TBD | — | After clean soak |
+
+## Server-side artifacts to know about
+
+- **`.env` backups on server** (under `/root/kuwait-pos/`):
+  - `.env.backup-pre-phase3-2026-05-03` (pre-CORS/FRONTEND_URL change)
+  - `.env.backup-pre-phase4-2026-05-03` (pre-QB redirect swap)
+- **Cert volume:** `/root/kuwait-pos/certbot/conf/live/fuelpos.sitaratech.info/` (renewable, valid till 2026-07-31)
+- **Old cert still in place:** `/root/kuwait-pos/certbot/conf/live/kuwaitpos.duckdns.org/` (valid till 2026-06-25; auto-renews; remove at Phase 9)
+
+## What surprised us (worth remembering)
+
+1. **`docker compose restart` does NOT re-evaluate `${VAR}` env substitutions.** Restart reuses the existing container's env block. To pick up a changed `.env`, use `docker compose up -d <service>` (which compares evaluated env to running container and recreates if different). I caught this in Phase 3 because the backend log line still showed the old CORS list after a `restart`. **One of the most important learnings of this migration.**
+
+2. **`docker-compose.prod.yml` uses an explicit `environment:` block, not `env_file:`.** That means: every new env var the backend code reads must be added in **two** places — `.env` for the value, `environment:` block for the passthrough. Forgetting the second one results in a container that doesn't see the var. This is what made Phase 4 a code PR (not just an ops task).
+
+3. **OAuth2 refresh tokens survive a redirect URI change.** Spec-wise this is expected (refresh grants are tied to `client_id` + `refresh_token`, not `redirect_uri`), but it's reassuring to confirm empirically: kpc's keepalive cycle ran during boot after the URI swap and refreshed tokens cleanly. **No customer disruption.** This collapsed the perceived risk of Phase 4.
+
+4. **Production `nginx.conf` does NOT include `conf.d/*.conf`.** The `/root/kuwait-pos/nginx/conf.d/security.conf` file is mounted into the container but not loaded by nginx — its CSP and other security headers are dead config. I updated it during the migration anyway (for documentation/intent), but its current state has no runtime effect. Future hardening pass should add `include /etc/nginx/conf.d/*.conf;` to the http block of nginx.conf.
+
+5. **Server-level `add_header` directives in nginx are overridden by location-level `add_header`.** Existing kuwaitpos HTTPS block has security headers at the server level, but the `location /` and `location ~* \.(js|css)$` blocks have their own `add_header Cache-Control` lines — by nginx semantics this fully overrides the server-level headers, so STS / X-Frame-Options / etc. are missing on most responses. Pre-existing issue, not introduced by this migration. Worth fixing in a hardening pass.
+
+6. **`scripts/deploy.sh` clean-tree gate triggers on untracked files.** The `require-clean-git.sh` uses `git status --porcelain` which catches untracked. Working around it via `git stash push -u` + deploy + `git stash pop` is the right pattern; encountered it on every deploy this session. Long term, the right fix is either:
+   - Add legitimate untracked items (Sundar Estate Pump folder, tools/diag.zip, tools/forecourt-diagnostic) to `.gitignore`
+   - Open separate PRs for the orphan untracked docs (BE3 plan, nozzle plan, teamviewer runbook)
+
+7. **`.github/workflows/deploy.yml` is dead/stale.** Wrong server IP (`72.255.51.78` vs `64.226.65.80`), wrong volume path (`/opt/kuwaitpos` vs `/root/kuwait-pos`), wrong QB callback path (`/api/quickbooks/callback` vs `/api/quickbooks/oauth/callback`). It's a `workflow_dispatch` (manual-trigger only) so it never auto-runs. Aligned URL refs in Phase 6 but didn't fix deeper drift — that's a separate cleanup PR.
+
+8. **Cloudflare for sitaratech.info was already authoritative** via CF Pages for the marketing site, so adding `fuelpos` and `*.fuelpos` records was a 30-second click. No registrar transfer needed.
+
+## What we deliberately deferred (don't do these now)
+
+- **Mobile app** (`apps/mobile/eas.json` line 30) — `EXPO_PUBLIC_API_URL` still points to duckdns. Mobile is frozen per CLAUDE.md. Update on next mobile build.
+- **Intuit App URLs** (Host domain / Launch / Disconnect / Connect-Reconnect) — still kuwaitpos. Don't affect our integration (we use OAuth2 directly, not marketplace launch flow). Update at Phase 9 sunset.
+- **CSP wired up** — `conf.d/security.conf` is mounted but not included. Future hardening epic.
+- **DRY-refactor of nginx.conf** — the duplicated 200-line HTTPS block can be extracted into a shared snippet. Post-migration cleanup PR.
+- **GitHub Actions deploy.yml drift** — wrong IP/path/callback path. Left as-is during migration.
+
+## Rollback paths still available
+
+| Scope | How |
+|-------|-----|
+| Single phase | `git revert <merge-sha>` → `./scripts/deploy.sh auto` |
+| Server-side env changes | Restore from `.env.backup-pre-phase3-*` or `.env.backup-pre-phase4-*` → `docker compose up -d backend` |
+| Catastrophic | `git checkout pre-domain-migration-3da3385` → manual deploy |
+| DNS | Delete `fuelpos` records in Cloudflare; old domain still works |
+| Cert | Cert is harmless if unused; can delete via certbot |
+
+## Recommended follow-up tasks (separate PRs / epics, not migration scope)
+
+1. `chore(repo): gitignore Sundar Estate Pump/, tools/diag.zip, tools/forecourt-diagnostic/` — kills the recurring stash dance
+2. `chore(nginx): include conf.d/*.conf and dedupe shared HTTPS server config` — fixes the CSP / security headers issue + DRY
+3. `chore(ci): retire or fix .github/workflows/deploy.yml` — currently dead config with multiple drifts
+4. `chore(mobile): point eas.json EXPO_PUBLIC_API_URL at fuelpos` — when next mobile build is cut
+
+## Final state at end of session 2026-05-03
+
+- **Master:** `6863583`
+- **Production frontend bundle:** `index-BVhS6cKx.js`
+- **Both domains live:** `https://kuwaitpos.duckdns.org` (with banner) + `https://fuelpos.sitaratech.info` (clean)
+- **Backend:** healthy, validates redirect URI = fuelpos, allows hosts = [kuwaitpos, fuelpos]
+- **kpc QB connection:** working with refreshed tokens (proven post-cutover)
+- **Containers:** all 4 healthy
+- **Migration plan:** ✅ phases 0–7 done; phases 8 (soak) + 9 (sunset) remain
