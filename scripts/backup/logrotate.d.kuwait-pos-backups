@@ -1,0 +1,14 @@
+# Kuwait POS backup logs — 90-day audit-trail retention
+/root/kuwait-pos/backups/.last-run.log
+/root/kuwait-pos/backups/.restore-test.log
+/root/kuwait-pos/backups/.verify-comprehensive.log
+{
+    weekly
+    rotate 13
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    su root root
+}

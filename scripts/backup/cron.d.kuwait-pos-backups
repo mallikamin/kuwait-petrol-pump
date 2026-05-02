@@ -1,0 +1,12 @@
+# Kuwait POS backup automation
+# Times in UTC. PKT=UTC+5, Kuwait=UTC+3
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+MAILTO=""
+
+# Daily full backup @ 06:00 UTC = 11:00 PKT (after night-shift entries done)
+0 6 * * * root /root/kuwait-pos/scripts/backup/backup-nightly.sh > /dev/null 2>&1
+
+# Daily comprehensive verification @ 06:15 UTC (15 min after backup)
+# 51-table count + checksum verification, ~20 sec runtime
+15 6 * * * root /root/kuwait-pos/scripts/backup/verify-comprehensive.sh > /dev/null 2>&1
