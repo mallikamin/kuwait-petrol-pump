@@ -39,10 +39,31 @@ Production-grade nightly backup with off-site replication, comprehensive verific
 |---|---|---|
 | `backup-nightly.sh` | Droplet, daily 06:00 UTC | Full DB dump + uploads tar + per-tenant CSV bundles |
 | `verify-comprehensive.sh` | Droplet, daily 06:15 UTC | Restore-test across all 51 tables + content checksums |
+| `regression-check.sh` | Droplet, daily 06:30 UTC | Snapshot row counts + alert if any table shrunk vs yesterday (without ack) |
 | `restore-test.sh` | Droplet, on-demand | Lightweight SE-only restore-test (kept for quick checks) |
-| `edge.rsync-offsite.sh` | Edge box, daily 11:30/12:00/12:30/13:00 PKT | Pull + alert |
+| `edge.rsync-offsite.sh` | Edge box, daily 11:30/12:00/12:30/13:00 PKT | Pull + email on success/fail/regression |
 | `cron.d.kuwait-pos-backups` | `/etc/cron.d/` on droplet | Scheduling |
 | `logrotate.d.kuwait-pos-backups` | `/etc/logrotate.d/` on both hosts | 13-week log retention |
+
+### Regression check — how it works
+
+The verifier (`verify-comprehensive.sh`) checks **today's backup matches today's prod** (within-day integrity). The regression check goes further: it compares **today's prod vs yesterday's prod** (cross-day historical). If any table shrinks without explanation, you get an alert.
+
+**Daily snapshot** stored at `/root/kuwait-pos/backups/row-counts/YYYY-MM-DD.json` (90-day retention).
+**Ack file** at `/root/kuwait-pos/backups/regression-acks.json` (manually edited when a drop is intentional):
+```json
+{
+  "2026-05-15": {
+    "customers": "merged 5 duplicates after accountant audit (Malik)",
+    "search_log": "auto-rotated old search history (system, monthly cleanup)"
+  }
+}
+```
+
+**Alert flow:**
+- Drop detected + no ack → `[KuwaitPOS-Backup] REGRESSION DETECTED` email with table list + drop counts + instructions to either restore from backup or add ack
+- Drop detected + ack present → success email mentions "N acked drops" so you have a record
+- No drops → success email says "Regression check: OK"
 
 ## What gets backed up
 
