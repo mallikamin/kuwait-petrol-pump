@@ -164,7 +164,7 @@ jobs:
     needs: build
     environment:
       name: production
-      url: https://kuwaitpos.duckdns.org
+      url: https://fuelpos.sitaratech.info
 
     steps:
       - name: Checkout code
@@ -205,12 +205,12 @@ jobs:
           JWT_REFRESH_EXPIRY=7d
 
           # CORS
-          CORS_ORIGIN=https://kuwaitpos.duckdns.org
+          CORS_ORIGIN=https://fuelpos.sitaratech.info,https://kuwaitpos.duckdns.org
 
           # QuickBooks
           QUICKBOOKS_CLIENT_ID=${{ secrets.QUICKBOOKS_CLIENT_ID }}
           QUICKBOOKS_CLIENT_SECRET=${{ secrets.QUICKBOOKS_CLIENT_SECRET }}
-          QUICKBOOKS_REDIRECT_URI=https://kuwaitpos.duckdns.org/api/quickbooks/callback
+          QUICKBOOKS_REDIRECT_URI=https://fuelpos.sitaratech.info/api/quickbooks/oauth/callback
           QUICKBOOKS_ENVIRONMENT=production
 
           # Docker
@@ -230,7 +230,7 @@ jobs:
       - name: Health check
         run: |
           sleep 10
-          curl -f https://kuwaitpos.duckdns.org/api/health || exit 1
+          curl -f https://fuelpos.sitaratech.info/api/health || exit 1
 
       - name: Notify deployment status
         if: always()

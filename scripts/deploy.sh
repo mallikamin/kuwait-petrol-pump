@@ -11,7 +11,7 @@ cd "$REPO_ROOT"
 SERVER_HOST="${SERVER_HOST:-64.226.65.80}"
 SERVER_USER="${SERVER_USER:-root}"
 SERVER_PATH="${SERVER_PATH:-~/kuwait-pos}"
-SERVER_APP_URL="${SERVER_APP_URL:-https://kuwaitpos.duckdns.org}"
+SERVER_APP_URL="${SERVER_APP_URL:-https://fuelpos.sitaratech.info}"
 DEPLOY_LOCK_DIR="/tmp/kuwaitpos-deploy-lock"
 DEPLOY_MODE="${1:-auto}" # auto | full | backend-only | frontend-only
 

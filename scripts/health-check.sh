@@ -15,7 +15,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 DEPLOY_DIR="/opt/kuwaitpos"
-BACKEND_URL="https://kuwaitpos.duckdns.org"
+BACKEND_URL="https://fuelpos.sitaratech.info"
 
 echo -e "${BLUE}================================================${NC}"
 echo -e "${BLUE}Kuwait Petrol Pump POS - Health Check${NC}"
@@ -74,8 +74,8 @@ fi
 # Check SSL certificate
 echo ""
 echo -e "${BLUE}SSL Certificate:${NC}"
-if [ -f "/opt/kuwaitpos/nginx/ssl/live/kuwaitpos.duckdns.org/fullchain.pem" ]; then
-    expiry=$(openssl x509 -enddate -noout -in /opt/kuwaitpos/nginx/ssl/live/kuwaitpos.duckdns.org/fullchain.pem | cut -d= -f2)
+if [ -f "/opt/kuwaitpos/nginx/ssl/live/fuelpos.sitaratech.info/fullchain.pem" ]; then
+    expiry=$(openssl x509 -enddate -noout -in /opt/kuwaitpos/nginx/ssl/live/fuelpos.sitaratech.info/fullchain.pem | cut -d= -f2)
     echo "Expiry: $expiry"
 
     # Calculate days until expiry

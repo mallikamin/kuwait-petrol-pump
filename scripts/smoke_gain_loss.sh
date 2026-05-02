@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end smoke for the date-keyed Gain/Loss flow + opening-stock fixes.
 #
-# Hits the running backend (defaults to https://kuwaitpos.duckdns.org/api)
+# Hits the running backend (defaults to https://fuelpos.sitaratech.info/api)
 # with a real JWT and asserts:
 #   1. Bootstrap editor no longer returns Fuel-category Product duplicates
 #   2. /stock-at-date returns a sane book stock for HSD
@@ -10,7 +10,7 @@
 #   5. Inventory Report row for HSD now shows openingQty even when no movement
 #
 # Usage:
-#   API=https://kuwaitpos.duckdns.org/api \
+#   API=https://fuelpos.sitaratech.info/api \
 #   TOKEN="<jwt>" \
 #   BRANCH_ID="<uuid>" \
 #   ./scripts/smoke_gain_loss.sh
@@ -21,7 +21,7 @@
 
 set -euo pipefail
 
-API="${API:-https://kuwaitpos.duckdns.org/api}"
+API="${API:-https://fuelpos.sitaratech.info/api}"
 TOKEN="${TOKEN:?set TOKEN to a valid JWT}"
 BRANCH_ID="${BRANCH_ID:?set BRANCH_ID to a branch UUID}"
 ASOF_DATE="${ASOF_DATE:-$(date +%Y-%m-%d)}"
