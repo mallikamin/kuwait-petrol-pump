@@ -8,5 +8,7 @@ MAILTO=""
 0 6 * * * root /root/kuwait-pos/scripts/backup/backup-nightly.sh > /dev/null 2>&1
 
 # Daily comprehensive verification @ 06:15 UTC (15 min after backup)
-# 51-table count + checksum verification, ~20 sec runtime
 15 6 * * * root /root/kuwait-pos/scripts/backup/verify-comprehensive.sh > /dev/null 2>&1
+
+# Daily regression check @ 06:30 UTC (15 min after verify)
+30 6 * * * root /root/kuwait-pos/scripts/backup/regression-check.sh > /dev/null 2>&1
