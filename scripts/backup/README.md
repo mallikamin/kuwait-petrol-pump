@@ -2,6 +2,8 @@
 
 Production-grade nightly backup with off-site replication, comprehensive verification, and email alerting.
 
+> **Operational details + credentials:** see `C:\ST\Sitara Infotech\Tailscale\BACKUP-SYSTEMS.md` and `CREDENTIALS.md` (local-only, not committed). That folder is the cross-project source of truth for both this system and Orbit CRM, since they share the same off-site edge box (`loom-edge-01`).
+
 ## Architecture
 
 ```
