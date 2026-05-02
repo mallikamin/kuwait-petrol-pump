@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 
 const OLD_HOST = 'kuwaitpos.duckdns.org';
 const NEW_URL = 'https://fuelpos.sitaratech.info';
-const DISPLAY_MS = 4000;
-const FADE_MS = 600;
+const DISPLAY_MS = 10000;
+const FADE_MS = 800;
 
 type Phase = 'visible' | 'fading' | 'hidden';
 
@@ -48,7 +48,7 @@ export function DomainMigrationBanner() {
         pointerEvents: phase === 'fading' ? 'none' : 'auto',
       }}
     >
-      We've moved! Please update your bookmark to{' '}
+      Please use the new link going forward:{' '}
       <a
         href={NEW_URL}
         style={{ color: '#92400e', textDecoration: 'underline', fontWeight: 600 }}
