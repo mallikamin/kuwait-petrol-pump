@@ -9,7 +9,10 @@ export class FuelPricesService {
         effectiveFrom: { lte: now },
         OR: [
           { effectiveTo: null },
-          { effectiveTo: { gte: now } },
+          // Half-open interval [effectiveFrom, effectiveTo): the row is no
+          // longer active at the exact instant a successor takes over, so
+          // boundary queries return a single row.
+          { effectiveTo: { gt: now } },
         ],
       },
       include: {
@@ -89,7 +92,8 @@ export class FuelPricesService {
         effectiveFrom: { lte: date },
         OR: [
           { effectiveTo: null },
-          { effectiveTo: { gte: date } },
+          // Half-open interval [effectiveFrom, effectiveTo). See getCurrentPrices.
+          { effectiveTo: { gt: date } },
         ],
       },
       include: {
